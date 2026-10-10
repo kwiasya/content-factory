@@ -683,14 +683,17 @@ class Builder:
             (mpi,) = d.import_media([f], bin_name=f"{self.walk} overlays")
             frames = int(float((d.call(mpi.GetClipProperty) or {}).get("Frames") or 0))
             on_disk = file_frames(f)
-            if on_disk and frames != on_disk:
-                # A re-rendered overlay keeps its path, and the pool item keeps the old
-                # length: swap the asset under the item, then read the length again.
-                ok = d.call(mpi.ReplaceClip, str(f))
-                old = frames
-                frames = int(float((d.call(mpi.GetClipProperty) or {}).get("Frames") or 0))
+            # A re-rendered overlay keeps its path, and Resolve keeps the old pixels (and,
+            # when the length changed, the old length) behind the pool item. Always swap
+            # the asset under the item so the timeline uses the file as it is on disk.
+            ok = d.call(mpi.ReplaceClip, str(f))
+            old = frames
+            frames = int(float((d.call(mpi.GetClipProperty) or {}).get("Frames") or 0))
+            if on_disk and old != on_disk:
                 r.notes.append(f"{s.id}: overlay pool item had {old} frames, file has {on_disk}; "
                                f"ReplaceClip returned {ok}, now {frames}")
+            elif not ok:
+                r.notes.append(f"{s.id}: ReplaceClip returned {ok}")
             r.check(f"{s.id} overlay pool frames = file frames", on_disk or frames, frames)
             if frames != s.duration:
                 r.notes.append(f"{s.id}: overlay is {frames} frames, the shot {s.duration}; "
