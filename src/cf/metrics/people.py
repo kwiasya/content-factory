@@ -5,6 +5,13 @@ as a fraction of frame height). Events: person_enter (a track first seen after
 the first sample and seen at least twice), stranger_closeup (a track whose box
 height exceeds CLOSEUP_H).
 
+There is no identity recognition. Most Walk footage stars the author (selfies,
+tripod shots), so a "subject" is guessed and excluded from stranger_closeup:
+the track seen in >= SUBJECT_COVERAGE of samples, and, when the clip is
+subject-dominated (a box taller than SUBJECT_H in >= SUBJECT_COVERAGE of
+samples), the tallest box of every sample; and, when a subject track exists, a
+lone person in a sample (tracker IDs switch after occlusion).
+
 The model is loaded per call and released afterwards (8 GB machine). Weights
 live outside the repo in $CF_MODELS_DIR (default ~/Movies/content-factory/_models)
 and are downloaded there by Ultralytics on first use.
@@ -26,6 +33,8 @@ CONF = 0.4
 IMGSZ = 640
 CLOSEUP_H = 0.45
 MIN_SIGHTINGS = 2
+SUBJECT_COVERAGE = 0.4
+SUBJECT_H = 0.35
 DEFAULT_MODEL = "yolo26n.pt"  # Ultralytics 8.4 default nano detector
 
 
@@ -56,28 +65,44 @@ def side_of(cx: float) -> str:
     return "left" if cx < 1 / 3 else "right" if cx > 2 / 3 else "center"
 
 
-def summarize(samples: list[tuple[float, list[tuple[int | None, float, float]]]], nbins: int) -> dict:
-    """Turn per-sample detections [(t, [(track_id, box_h_frac, cx_frac), ...])] into bins + events.
+Det = tuple  # (track_id | None, box_h_frac, cx_frac[, (x1, y1, x2, y2) fractions])
+
+
+def summarize(samples: list[tuple[float, list[Det]]], nbins: int) -> dict:
+    """Turn per-sample detections [(t, [(track_id, box_h_frac, cx_frac, ...), ...])] into bins + events.
 
     Pure function (tested without a model).
     """
     times = [t for t, _ in samples]
     counts = [len(d) for _, d in samples]
-    heights = [max((h for _, h, _ in d), default=0.0) for _, d in samples]
+    heights = [max((d[1] for d in dets), default=0.0) for _, dets in samples]
     persons = bin_reduce(times, counts, nbins, np.max)
     max_h = bin_reduce(times, heights, nbins, np.max)
+    n = len(samples)
+
+    sightings: dict[int, int] = {}
+    for _, dets in samples:
+        for d in dets:
+            if d[0] is not None:
+                sightings[d[0]] = sightings.get(d[0], 0) + 1
+    subject_tracks = {tid for tid, c in sightings.items() if n and c / n >= SUBJECT_COVERAGE}
+    subject_dominated = bool(n) and sum(h > SUBJECT_H for h in heights) / n >= SUBJECT_COVERAGE
 
     first_seen: dict[int, tuple[float, float]] = {}
-    sightings: dict[int, int] = {}
     closeup: dict[int, tuple[float, float]] = {}
     first_t = times[0] if times else 0.0
     for t, dets in samples:
-        for tid, h, cx in dets:
+        tallest = max(range(len(dets)), key=lambda k: dets[k][1]) if dets else None
+        for k, d in enumerate(dets):
+            tid, h, cx = d[0], d[1], d[2]
             if tid is None:
                 continue
-            sightings[tid] = sightings.get(tid, 0) + 1
             first_seen.setdefault(tid, (t, cx))
-            if h > CLOSEUP_H:
+            # Tracker IDs switch after occlusions; a lone person in a clip that has a
+            # subject is taken to be that subject again.
+            lone_subject = bool(subject_tracks) and len(dets) == 1
+            is_subject = tid in subject_tracks or lone_subject or (subject_dominated and k == tallest)
+            if h > CLOSEUP_H and not is_subject:
                 prev = closeup.get(tid)
                 if prev is None:
                     closeup[tid] = (t, h)
@@ -96,6 +121,11 @@ def summarize(samples: list[tuple[float, list[tuple[int | None, float, float]]]]
         "max_person_h": [0.0 if v is None else round(v, 3) for v in max_h],
         "events": events,
         "tracks": len(first_seen),
+        "subject": {
+            "dominated": subject_dominated,
+            "tracks": sorted(subject_tracks),
+            "coverage": round(sum(h > SUBJECT_H for h in heights) / n, 2) if n else 0.0,
+        },
     }
 
 
@@ -103,7 +133,7 @@ def analyze(info: ProxyInfo, device: str | None = None) -> dict:
     nb = n_bins(info.duration_s)
     device = device or os.environ.get("CF_YOLO_DEVICE", "cpu")
     model = _load_model()
-    samples: list[tuple[float, list[tuple[int | None, float, float]]]] = []
+    samples: list[tuple[float, list[Det]]] = []
     cap = cv2.VideoCapture(str(info.path))
     if not cap.isOpened():
         raise RuntimeError(f"OpenCV cannot open {info.path}")
@@ -128,7 +158,8 @@ def analyze(info: ProxyInfo, device: str | None = None) -> dict:
                 xyxy = boxes.xyxy.cpu().numpy()
                 ids = boxes.id.cpu().numpy().astype(int).tolist() if boxes.id is not None else [None] * len(xyxy)
                 for (x1, y1, x2, y2), tid in zip(xyxy, ids):
-                    dets.append((tid, float((y2 - y1) / fh), float((x1 + x2) / 2 / fw)))
+                    box = (float(x1 / fw), float(y1 / fh), float(x2 / fw), float(y2 / fh))
+                    dets.append((tid, float((y2 - y1) / fh), float((x1 + x2) / 2 / fw), box))
             samples.append((t, dets))
     finally:
         cap.release()
@@ -143,6 +174,7 @@ def analyze(info: ProxyInfo, device: str | None = None) -> dict:
             pass
     out = summarize(samples, nb)
     out["_samples"] = len(samples)
+    out["_boxes"] = [(t, [d[3] for d in dets]) for t, dets in samples]  # for motion masking; not written
     out["_model"] = model_name()
     out["_device"] = device
     return out
@@ -154,4 +186,6 @@ if __name__ == "__main__":
 
     from cf.metrics.common import probe_proxy
 
-    print(json.dumps(analyze(probe_proxy(Path(sys.argv[1])))))
+    res = analyze(probe_proxy(Path(sys.argv[1])))
+    res.pop("_boxes")
+    print(json.dumps(res))

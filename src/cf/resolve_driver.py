@@ -146,33 +146,69 @@ class ResolveDriver:
     def media_pool(self) -> Any:
         return self.call(self.project.GetMediaPool)
 
-    def find_clip(self, path: str | Path) -> Any:
-        """Return the MediaPoolItem in the root bin whose File Path is ``path``."""
-        root = self.call(self.media_pool().GetRootFolder)
-        for clip in self.call(root.GetClipList) or []:
-            if (self.call(clip.GetClipProperty) or {}).get("File Path") == str(path):
-                return clip
-        return None
+    def walk_folders(self, folder: Any = None) -> list[Any]:
+        """The folder and all its sub-folders (depth first); the root bin by default."""
+        folder = folder or self.call(self.media_pool().GetRootFolder)
+        out = [folder]
+        for sub in self.call(folder.GetSubFolderList) or []:
+            out.extend(self.walk_folders(sub))
+        return out
 
-    def import_media(self, paths: list[str | Path]) -> list[Any]:
+    def get_or_create_bin(self, name: str, parent: Any = None) -> Any:
+        """Sub-folder ``name`` of ``parent`` (root by default), created if missing."""
+        self._require_safe_project()
+        mp = self.media_pool()
+        parent = parent or self.call(mp.GetRootFolder)
+        for sub in self.call(parent.GetSubFolderList) or []:
+            if self.call(sub.GetName) == name:
+                return sub
+        folder = self.call(mp.AddSubFolder, parent, name)
+        if folder is None or self.call(folder.GetName) != name:
+            raise ResolveError(f"AddSubFolder({name!r}) returned {folder!r}")
+        return folder
+
+    def clip_index(self) -> dict[str, list[Any]]:
+        """File Path -> MediaPoolItems, over every bin of the media pool."""
+        index: dict[str, list[Any]] = {}
+        for folder in self.walk_folders():
+            for clip in self.call(folder.GetClipList) or []:
+                fp = (self.call(clip.GetClipProperty) or {}).get("File Path")
+                if fp:
+                    index.setdefault(fp, []).append(clip)
+        return index
+
+    def find_clip(self, path: str | Path) -> Any:
+        """Return the MediaPoolItem (in any bin) whose File Path is ``path``."""
+        hits = self.clip_index().get(str(path))
+        return hits[0] if hits else None
+
+    def import_media(self, paths: list[str | Path], bin_name: str | None = None) -> list[Any]:
         """Import files (reusing clips already in the pool); return items in input order.
+
+        Clips already in the pool (matched by File Path in any bin) are reused, so a
+        rebuild never duplicates media. New files go into ``bin_name`` (a sub-folder
+        of the root, created if needed) or the root bin.
 
         Smoke S3 (21.1.1): the canonical ``MediaPool.ImportMedia([{"FilePath": p}])``
         returns None for plain movie files, so ``MediaStorage.AddItemListToMediaPool``
         is used, with the deprecated ``ImportMedia([path, ...])`` as fallback.
         """
         self._require_safe_project()
-        missing = [str(p) for p in paths if self.find_clip(p) is None]
+        index = self.clip_index()
+        missing = [str(p) for p in paths if str(p) not in index]
         if missing:
             mp = self.media_pool()
-            self.call(mp.SetCurrentFolder, self.call(mp.GetRootFolder))
+            target = self.get_or_create_bin(bin_name) if bin_name else self.call(mp.GetRootFolder)
+            if not self.call(mp.SetCurrentFolder, target):
+                raise ResolveError(f"SetCurrentFolder({bin_name!r}) failed")
             storage = self.call(self.resolve.GetMediaStorage)
             items = self.call(storage.AddItemListToMediaPool, [{"media": p} for p in missing], timeout=120)
             if not items or len(items) != len(missing):
                 items = self.call(mp.ImportMedia, missing, timeout=120)
             if not items or len(items) != len(missing):
                 raise ResolveError(f"import returned {items!r} for {missing}")
-        out = [self.find_clip(p) for p in paths]
+            index = self.clip_index()
+        out = [(index.get(str(p)) or [None])[0] for p in paths]
         if any(c is None for c in out):
             raise ResolveError(f"import did not yield clips for {paths}")
         return out
@@ -184,22 +220,51 @@ class ResolveDriver:
                 return tl
         return None
 
-    def create_timeline(self, name: str, width: int, height: int, fps: float | str) -> Any:
-        """Delete any timeline with this name, create it empty, set custom res/fps, read back."""
+    def create_timeline(self, name: str, width: int, height: int, fps: float | str,
+                        custom: bool = True) -> Any:
+        """Delete any timeline with this name, create it empty, check res/fps, read back.
+
+        ``custom=True`` sets ``useCustomSettings='1'`` plus res/fps on the timeline. That
+        snapshots the project color settings (S3), so pass ``custom=False`` when the
+        project already has the right res/fps; the read-back runs either way.
+        """
         self._require_safe_project()
         mp = self.media_pool()
         old = self.find_timeline(name)
         if old is not None and not self.call(mp.DeleteTimelines, [old]):
             raise ResolveError(f"could not delete old timeline {name!r}")
+        if self.find_timeline(name) is not None:
+            raise ResolveError(f"timeline {name!r} still exists after DeleteTimelines")
         tl = self.call(mp.CreateEmptyTimeline, name)
         if tl is None:
             raise ResolveError(f"CreateEmptyTimeline({name!r}) returned None")
         self.call(self.project.SetCurrentTimeline, tl)
-        self.set_setting_verified("useCustomSettings", "1", target=tl)
-        self.set_setting_verified("timelineResolutionWidth", str(width), target=tl)
-        self.set_setting_verified("timelineResolutionHeight", str(height), target=tl)
-        self.set_setting_verified("timelineFrameRate", str(fps), target=tl)
+        wanted = {"timelineResolutionWidth": str(width), "timelineResolutionHeight": str(height),
+                  "timelineFrameRate": str(fps)}
+        if custom:
+            self.set_setting_verified("useCustomSettings", "1", target=tl)
+            for k, v in wanted.items():
+                self.set_setting_verified(k, v, target=tl)
+        got = self.call(tl.GetSettings) or {}
+        bad = {k: (v, got.get(k)) for k, v in wanted.items() if not same_value(v, got.get(k))}
+        if bad:
+            raise ResolveError(f"timeline {name!r} settings (wanted, read): {bad}")
         return tl
+
+    def ensure_tracks(self, timeline: Any, track_type: str, count: int,
+                      names: dict[int, str] | None = None, sub_type: str | None = None) -> int:
+        """AddTrack until ``timeline`` has ``count`` tracks of ``track_type``; name them; read back."""
+        self._require_safe_project()
+        while int(self.call(timeline.GetTrackCount, track_type)) < count:
+            args = (track_type, sub_type) if sub_type else (track_type,)
+            if not self.call(timeline.AddTrack, *args):
+                raise ResolveError(f"AddTrack{args} returned False")
+        for idx, name in (names or {}).items():
+            self.call(timeline.SetTrackName, track_type, idx, name)
+            got = self.call(timeline.GetTrackName, track_type, idx)
+            if got != name:
+                raise ResolveError(f"track {track_type}{idx} name: wrote {name!r}, read {got!r}")
+        return int(self.call(timeline.GetTrackCount, track_type))
 
     def append(self, clip_infos: list[dict]) -> list[Any]:
         """AppendToTimeline on the current timeline; one returned item per info or raise."""

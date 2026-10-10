@@ -38,7 +38,7 @@ Order matters (S3, S2):
 2. Create the timeline. It starts at frame `108000` (`01:00:00:00`) at 30 fps; read `GetStartFrame()` instead of assuming that.
 3. Add tracks first (`AddTrack('video')`). `trackIndex` does not create tracks.
 4. `recordFrame` is absolute (timeline start + offset). `startFrame`/`endFrame` are **source frames at the clip's own fps**, and **`endFrame` is exclusive** (duration = endFrame − startFrame).
-5. Append video with `mediaType: 1` and place audio explicitly. iPhone clips with spatial audio otherwise spill onto A1–A5.
+5. Append video with `mediaType: 1` and audio in a second call with `mediaType: 2`, `trackIndex: 1`. iPhone clips carry 6 audio channels and spill onto A2–A5 **even with `mediaType: 2, trackIndex: 1`** (A1 gets the stereo mix); delete the A2+ items (`Timeline.DeleteClips`) and tracks (`DeleteTrack`) afterwards and read back the track count (cf.build).
 
 ## Read back every write
 
@@ -56,6 +56,13 @@ Trim/move/slip, speed curves, EQ and compression, Resolve FX on a clip, reading 
 - `AddTransition` returns `None` unless **both** `category: 'simple'` and `alignment` are passed (S4). Full form: `{'type': 'Cross Dissolve', 'category': 'simple', 'position': 'end', 'alignment': 'center', 'duration': N}`. Type names are case-sensitive: `Cross Dissolve`, `Dip To Color Dissolve`, `Smooth Cut`, `Additive Dissolve`, `Blur Dissolve`, `Non-Additive Dissolve`, `Edge Wipe`, `Push`, `Slide`, `Center Wipe`, `Cross Iris`, `Box`. `Fade` is not a transition. Use fades through `SetFades`.
 - `InsertFusionTitleIntoTimeline` ripple-inserts a 150-frame title on V1 at the playhead and pushes every later item on all video tracks (S5). With V1 locked it returns `None`. Never call it on a built timeline. Overlays go through Remotion on V2/V3.
 - `NormalizeAudioLevel` writes its result into the item's `AudioVolume` (S7). Set manual volume offsets after normalizing, not before. `AudioVolume` lives on the audio item (`GetLinkedItems()`); the video item has no such key.
+- Source fps (cf.build, 2026-10-10): Resolve reads a `60000/1001` iPhone clip as `FPS 60.0` (and one more frame than ffprobe's `nb_frames`). Compute `startFrame`/`endFrame` from the clip's `FPS` in `GetClipProperty()`, not from the manifest.
+- Frame rounding (cf.build): the timeline duration of an append is `floor((endFrame − startFrame) × timeline_fps / clip_fps)`, and a float `endFrame` is honoured. 61.6 source frames of a 24 fps clip give 77 timeline frames, 62 also give 77, 61 give 76. Pass the exact span (+0.001 when fractional) to get the planned duration.
+- `SetSpeed({'Percentage': p, 'RippleTimeline': False})` keeps the item's timeline duration and rescales its source span (50 % on a 45-frame item: still 45 frames, source span halved). So append the 100 %-speed range for the planned duration, then `SetSpeed` the video and the audio item separately (they are not linked). `GetSpeed()` reads back `{'Percentage': p}`.
+- `Timeline.GetItemListInTrack('video', n)` returns transitions as items too (`GetName()` = `'Cross Dissolve'`, `GetMediaPoolItem()` and `GetSourceStartFrame()` = `None`). Filter them out before matching items to shots.
+- Stills: `Timeline.SetCurrentTimecode(tc)` then `Project.ExportCurrentFrameAsStill(path.png)` from the Edit page writes a 1080×1920 8-bit RGB PNG of the output frame (managed, after the DRT). cf.build checked all 8 stills of a real build against the source frames (correlation ≥ 0.95 on the diagonal), so the playhead is honoured without a wait. No Gallery album is touched.
+- `CreateEmptyTimeline` puts the timeline in the media pool's current folder, i.e. the bin the last import selected.
+- An imported ProRes 4444 overlay reads `Alpha mode = 'Straight'` and `Input Color Space = 'Project'` (the project's `colorSpaceInput`, `'Rec.709 Gamma 2.4'` by default).
 - Marker frames (S10): timeline markers take an offset from the timeline start (not the absolute frame), and TimelineItem markers take a **source-media frame**. Neither checks the range: absolute frames on a timeline land an hour late, and out-of-range item frames are clamped to the media extent.
 
 ## Exact strings (S2, S6, S8)

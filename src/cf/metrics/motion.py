@@ -25,6 +25,7 @@ SAMPLE_FPS = 10.0
 WORK_SHORT_SIDE = 540  # proxies already are; larger inputs get downscaled
 MAX_CORNERS = 300
 MIN_TRACKED = 12
+MIN_FREE_AREA = 0.15  # ignore the person mask if it leaves less of the frame than this
 
 # Per-second classification thresholds (px/s and px at 1080 short side; div per s).
 LOCKED_SPEED = 25.0
@@ -52,9 +53,31 @@ def _local_trend(x: np.ndarray, t: np.ndarray, window_s: float = 1.0) -> np.ndar
     return out
 
 
-def pair_transform(prev: np.ndarray, cur: np.ndarray) -> dict | None:
+def exclusion_mask(shape: tuple[int, int], boxes: list[tuple[float, float, float, float]] | None) -> np.ndarray | None:
+    """Feature mask (255 = allowed) excluding person boxes (fractions, dilated 10%).
+
+    People attached to the camera (selfies) or walking through frame would
+    otherwise pull the global fit; None when no boxes or too little is left.
+    """
+    if not boxes:
+        return None
+    h, w = shape
+    mask = np.full((h, w), 255, np.uint8)
+    for x1, y1, x2, y2 in boxes:
+        dx, dy = 0.1 * (x2 - x1), 0.1 * (y2 - y1)
+        mask[max(0, int((y1 - dy) * h)) : min(h, int((y2 + dy) * h)), max(0, int((x1 - dx) * w)) : min(w, int((x2 + dx) * w))] = 0
+    if np.count_nonzero(mask) < MIN_FREE_AREA * mask.size:
+        return None
+    return mask
+
+
+def pair_transform(prev: np.ndarray, cur: np.ndarray, mask: np.ndarray | None = None) -> dict | None:
     """Similarity transform prev->cur about the frame centre; None if tracking fails."""
-    pts = cv2.goodFeaturesToTrack(prev, maxCorners=MAX_CORNERS, qualityLevel=0.01, minDistance=12, blockSize=7)
+    pts = None
+    if mask is not None:
+        pts = cv2.goodFeaturesToTrack(prev, maxCorners=MAX_CORNERS, qualityLevel=0.01, minDistance=12, blockSize=7, mask=mask)
+    if pts is None or len(pts) < MIN_TRACKED:
+        pts = cv2.goodFeaturesToTrack(prev, maxCorners=MAX_CORNERS, qualityLevel=0.01, minDistance=12, blockSize=7)
     if pts is None or len(pts) < MIN_TRACKED:
         return None
     nxt, status, _ = cv2.calcOpticalFlowPyrLK(
@@ -123,18 +146,29 @@ def _sample_frames(info: ProxyInfo):
         cap.release()
 
 
-def analyze(info: ProxyInfo) -> dict:
+def _boxes_at(person_boxes, t: float, max_dt: float = 0.4):
+    if not person_boxes:
+        return None
+    ts, boxes = min(person_boxes, key=lambda pb: abs(pb[0] - t))
+    return boxes if abs(ts - t) <= max_dt else None
+
+
+def analyze(info: ProxyInfo, person_boxes: list | None = None) -> dict:
+    """person_boxes: optional [(t, [(x1, y1, x2, y2) fractions])] from cf.metrics.people to mask out."""
     nb = n_bins(info.duration_s)
     work_short = min(info.short_side, WORK_SHORT_SIDE)
     px = 1080.0 / work_short
 
     times, dts, dxs, dys, rots, logs, flows = [], [], [], [], [], [], []
     prev, prev_t, width = None, None, None
-    failed = 0
+    failed = masked = 0
     for t, gray in _sample_frames(info):
         width = gray.shape[1]
         if prev is not None:
-            r = pair_transform(prev, gray)
+            mask = exclusion_mask(prev.shape, _boxes_at(person_boxes, prev_t))
+            if mask is not None:
+                masked += 1
+            r = pair_transform(prev, gray, mask)
             dt = max(t - prev_t, 1e-3)
             tm = (t + prev_t) / 2
             if r is None:
@@ -197,6 +231,7 @@ def analyze(info: ProxyInfo) -> dict:
         "pace": rounded(pace, 4),
         "_pairs": len(times),
         "_failed": failed,
+        "_masked": masked,
     }
 
 

@@ -1,0 +1,444 @@
+"""Build a Shot log (`reel-shotlog/1.0`) for one proxy, or for every proxy of a Walk.
+
+Usage:
+  python -m cf.shotlog <proxy.mp4> [--manifest clip_manifest.json] [-o shotlog/<clip>.json]
+  python -m cf.shotlog --all <walk_dir> [--force]
+
+Chain per clip (one clip at a time, models released between clips):
+  cf.metrics.ffstats  exposure, blur, hard cuts       (one ffmpeg pass)
+  cf.metrics.people   YOLO nano person tracks, 3 fps
+  cf.metrics.motion   OpenCV global motion, 10 fps    (person boxes masked out)
+  cf.metrics.vision   Apple Vision aesthetics, faces  (tools/vision-score, optional)
+then cf.scoring: usable / quality per 1 s bin, 2-5 s candidate segments, rejects.
+Schema: docs/research/04-video-understanding-shot-quality/result-a.md section C.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import platform
+import sys
+import time
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+
+from cf import scoring
+from cf.metrics import ffstats, motion, people, vision
+from cf.metrics.common import ProxyInfo, ffmpeg_bin, n_bins, probe_proxy, tool_version
+
+SCHEMA = "reel-shotlog/1.0"
+GENERATOR = "cf.shotlog 0.1"
+APPROX_SUFFIX = "_approx"
+
+log = logging.getLogger("cf.shotlog")
+
+
+# ----------------------------------------------------------------------------
+# Clip header
+
+
+def clip_id(proxy: Path) -> str:
+    stem = proxy.stem
+    return stem[: -len(APPROX_SUFFIX)] if stem.endswith(APPROX_SUFFIX) else stem
+
+
+def find_manifest_entry(manifest: dict | None, cid: str) -> dict | None:
+    if not manifest:
+        return None
+    for c in manifest.get("clips", []):
+        if Path(c.get("file", "")).stem == cid:
+            return c
+    return None
+
+
+def bit_depth(pix_fmt: str | None) -> int | None:
+    if not pix_fmt:
+        return None
+    for depth in (16, 12, 10):
+        if f"p{depth}" in pix_fmt:
+            return depth
+    return 8
+
+
+def clip_header(proxy: Path, info: ProxyInfo, entry: dict | None) -> dict:
+    cid = clip_id(proxy)
+    if entry:
+        fps = entry.get("fps")
+        dw, dh = entry.get("display_width"), entry.get("display_height")
+        profile = entry.get("color_profile")
+        return {
+            "id": cid,
+            "path": entry.get("path"),
+            "proxy": str(proxy),
+            "device": {"make": (entry.get("device") or {}).get("make"), "model": (entry.get("device") or {}).get("model")},
+            "created": entry.get("creation_time"),
+            "duration_s": round(info.duration_s, 3),
+            "source_duration_s": entry.get("duration_s"),
+            "fps": fps,
+            "vfr": entry.get("vfr"),
+            "slowmo": bool(fps and fps >= 100),
+            "color": {
+                "transfer": entry.get("color_transfer"),
+                "primaries": entry.get("color_primaries"),
+                "dolby_vision": entry.get("dovi") is not None,
+                "bit_depth": bit_depth(entry.get("pix_fmt")),
+                "log": profile if profile in ("apple_log", "dji_dlog", "dji_dlog2") else None,
+                "profile": profile,
+            },
+            "orientation": "portrait" if (dw and dh and dh > dw) else "landscape" if (dw and dh) else None,
+            "gps": entry.get("gps"),
+            "header_source": "manifest",
+        }
+    return {
+        "id": cid,
+        "path": None,
+        "proxy": str(proxy),
+        "device": {"make": None, "model": None},
+        "created": info.creation_time,
+        "duration_s": round(info.duration_s, 3),
+        "fps": round(info.fps, 3) if info.fps else None,
+        "vfr": None,
+        "slowmo": bool(info.fps and info.fps >= 100),
+        "color": None,
+        "orientation": "portrait" if info.height > info.width else "landscape",
+        "gps": None,
+        "header_source": "ffprobe(proxy)",
+    }
+
+
+# ----------------------------------------------------------------------------
+# Segments
+
+
+def _mean(vals, default=0.0) -> float:
+    v = [x for x in vals if x is not None]
+    return float(np.mean(v)) if v else default
+
+
+def _reason(comp_mean: dict, mtag: str, pace: str, ps: dict, s: int, e: int, light: dict, subject: bool) -> str:
+    parts = []
+    stab = comp_mean["stability"]
+    parts.append(("steady " if stab is not None and stab > 0.8 else "") + mtag.replace("_", " ") + f", {pace} pace")
+    sharp = comp_mean["sharp"]
+    if sharp is not None:
+        parts.append("sharp" if sharp > 0.7 else "soft" if sharp < 0.4 else "ok sharpness")
+    expo = comp_mean["exposure"]
+    parts.append("well exposed" if expo > 0.8 else "exposure ok" if expo > 0.5 else "exposure weak")
+    if comp_mean["aes"] is not None:
+        parts.append(f"aes {comp_mean['aes'] * 2 - 1:+.2f}")
+    if light.get("tag"):
+        parts.append(light["tag"].replace("_", " "))
+    persons = max(ps["persons"][s:e] or [0])
+    if persons == 0:
+        parts.append("no people")
+    elif subject:
+        parts.append("author on camera")
+    else:
+        parts.append(f"{persons} people")
+    hi = max(ps["clip_hi_pct"][s:e] or [0])
+    if hi > 1.0:
+        parts.append(f"highlights {hi:.1f}% clipped")
+    return ", ".join(parts)
+
+
+def build_segments(ps: dict, comps: list[dict], q: list[float], usable: list[bool], events: list[dict],
+                   header: dict, subject: dict, aes_available: bool, p: scoring.Params) -> list[dict]:
+    types = [m["type"] if m else None for m in ps["motion"]]
+    windows = scoring.select_windows(q, usable, types, p, duration_s=header["duration_s"])
+    segs = []
+    for k, w in enumerate(windows, 1):
+        s, e = w["bins"]
+        cm = {key: (None if all(c[key] is None for c in comps[s:e]) else round(_mean([c[key] for c in comps[s:e]]), 3))
+              for key in scoring.WEIGHTS}
+        mot = ps["motion"][s:e]
+        mtag = scoring.motion_tag(mot, ps["shake_px"][s:e], p)
+        speed = _mean([m["speed"] for m in mot if m and m.get("speed") is not None], None)
+        pace = scoring.pace_label(speed)
+        light = scoring.light_tag(
+            _mean(ps["luma_mean"][s:e]), _mean(ps["sat"][s:e]), _mean(ps["warmth"][s:e]),
+            _mean(ps["contrast"][s:e]), header.get("created"), header.get("gps"),
+        )
+        persons = max(ps["persons"][s:e] or [0])
+        is_subject = subject.get("dominated", False) and persons > 0
+        tags = [mtag]
+        if light["tag"]:
+            tags.append(light["tag"])
+        tags.append("no_people" if persons == 0 else "author_on_camera" if is_subject else "crowd" if persons >= 4 else "people")
+        in_ev = [ev for ev in events if w["in_s"] <= ev["t"] < w["out_s"]]
+        flags = []
+        if any(ev["type"] == "stranger_closeup" for ev in in_ev):
+            flags.append("stranger_closeup")
+        if any(ev["type"] == "person_enter" for ev in in_ev):
+            flags.append("person_enter")
+        if not aes_available:
+            flags.append("aes_missing")
+        if light["confidence"] < 0.4:
+            flags.append("light_low_confidence")
+        if max(ps["clip_hi_pct"][s:e] or [0]) > 1.0:
+            flags.append("highlights_near_clip")
+        if any(ps.get("is_utility", [None] * len(q))[s:e]):
+            flags.append("utility_frame")
+        segs.append(
+            {
+                "id": f"s{k}",
+                "in_s": w["in_s"],
+                "out_s": w["out_s"],
+                "source": ["local"],
+                "scores": {"quality": round(w["mean_q"], 3), "window_score": w["score"], **cm},
+                "tags": tags,
+                "motion": {
+                    "type": mtag,
+                    "pace": pace,
+                    "speed": None if speed is None else round(speed, 4),
+                    "dx": round(_mean([m["dx"] for m in mot if m]), 1),
+                    "div": round(_mean([m["div"] for m in mot if m]), 4),
+                    "dir_in": scoring.direction_word(mot[0] if mot else None),
+                    "dir_out": scoring.direction_word(mot[-1] if mot else None),
+                },
+                "light": light,
+                "light_confidence": light["confidence"],
+                "flags": flags,
+                "reason": _reason(cm, mtag, pace, ps, s, e, light, is_subject),
+            }
+        )
+    return segs
+
+
+# ----------------------------------------------------------------------------
+# One clip
+
+
+def _versions(vision_available: bool, yolo_model: str) -> dict:
+    import cv2
+    import torch
+    import ultralytics
+
+    vbin = vision.binary()
+    return {
+        "ffmpeg": tool_version(ffmpeg_bin()),
+        "opencv": cv2.__version__,
+        "numpy": np.__version__,
+        "ultralytics": ultralytics.__version__,
+        "torch": torch.__version__,
+        "yolo_model": yolo_model,
+        "vision-score": (
+            f"built {datetime.fromtimestamp(vbin.stat().st_mtime).isoformat(timespec='seconds')}" if vbin.exists() else None
+        ),
+        "python": platform.python_version(),
+        "generator": GENERATOR,
+    }
+
+
+def analyze_proxy(proxy: Path, manifest: dict | None = None, params: scoring.Params = scoring.DEFAULT) -> dict:
+    proxy = proxy.resolve()
+    info = probe_proxy(proxy)
+    entry = find_manifest_entry(manifest, clip_id(proxy))
+    header = clip_header(proxy, info, entry)
+    nb = n_bins(info.duration_s)
+    timings = {}
+
+    t0 = time.perf_counter()
+    ff = ffstats.analyze(info)
+    timings["ffstats"] = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    pe = people.analyze(info)
+    timings["people"] = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    mo = motion.analyze(info, person_boxes=pe.pop("_boxes", None))
+    timings["motion"] = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    vi = vision.analyze(info)
+    timings["vision"] = time.perf_counter() - t0
+
+    ps = {
+        "t": list(range(nb)),
+        "luma_mean": ff["luma_mean"],
+        "clip_hi_pct": ff["clip_hi_pct"],
+        "clip_lo_pct": ff["clip_lo_pct"],
+        "blur": ff["blur"],
+        "shake_px": mo["shake_px"],
+        "roll_deg": mo["roll_deg"],
+        "motion": mo["motion"],
+        "aes": vi["aes"],
+        "persons": pe["persons"],
+        "max_person_h": pe["max_person_h"],
+        "scd_score": ff["scd_score"],
+        "pace": mo["pace"],
+        "sat": ff["sat"],
+        "warmth": ff["warmth"],
+        "contrast": ff["contrast"],
+        "faces": vi["faces"],
+        "max_face_h": vi["max_face_h"],
+        "is_utility": vi["is_utility"],
+    }
+    flags = scoring.bin_flags(ps, params)
+    comps = scoring.components(ps, params)
+    q = [round(scoring.quality(c), 3) for c in comps]
+    usable = [not f for f in flags]
+    ps["quality"] = q
+    ps["usable"] = usable
+
+    segments = build_segments(ps, comps, q, usable, pe["events"], header, pe["subject"], vi.get("_available", False), params)
+    rejects = scoring.reject_runs(flags, header["duration_s"])
+
+    clip_flags = []
+    if pe["subject"]["dominated"]:
+        clip_flags.append("author_on_camera")
+    if not vi.get("_available"):
+        clip_flags.append("aes_missing")
+    if mo.get("_failed"):
+        clip_flags.append(f"motion_tracking_failed_pairs={mo['_failed']}")
+    summary = {
+        "usable_s": int(sum(usable)),
+        "bins": nb,
+        "best": segments[0]["id"] if segments else None,
+        "reject_clip": not segments,
+        "reject_why": None,
+        "flags": clip_flags,
+        "light": segments[0]["light"] if segments else scoring.light_tag(
+            _mean(ps["luma_mean"]), _mean(ps["sat"]), _mean(ps["warmth"]), _mean(ps["contrast"]),
+            header.get("created"), header.get("gps")),
+    }
+    if not segments:
+        counts = Counter(w for f in flags for w in f)
+        summary["reject_why"] = [w for w, _ in counts.most_common()] or ["shorter than a 2 s window"]
+
+    return {
+        "schema": SCHEMA,
+        "clip": header,
+        "per_second": ps,
+        "events": pe["events"],
+        "segments": segments,
+        "rejects": rejects,
+        "summary": summary,
+        "llm": None,
+        "provenance": {
+            "tool_versions": _versions(vi.get("_available", False), pe.get("_model", "")),
+            "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "params": params.as_dict() | {"weights": scoring.WEIGHTS},
+            "runtime_s": {k: round(v, 2) for k, v in timings.items()} | {"total": round(sum(timings.values()), 2)},
+            "notes": {
+                "shake_px": "px at 1080 short side, RMS of camera path minus 1 s local quadratic trend, person boxes masked",
+                "blur": "blurdetect edge width at 10 fps, mean per second; higher = blurrier",
+                "luma_mean": "0..1 of nominal range on the SDR proxy",
+                "aes": "Apple Vision overallScore -1..1 (null if vision-score unavailable)",
+                "people": f"{pe.get('_model')} on {pe.get('_device')}, ByteTrack, {people.SAMPLE_FPS:g} fps; no identity: author vs stranger is a heuristic",
+                "vision": vi.get("_error"),
+                "subject": pe["subject"],
+                "motion_pairs": {"total": mo.get("_pairs"), "failed": mo.get("_failed"), "person_masked": mo.get("_masked")},
+            },
+        },
+    }
+
+
+def write_json(data: dict, out: Path) -> None:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(out.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n")
+    os.replace(tmp, out)
+
+
+# ----------------------------------------------------------------------------
+# Summary line
+
+
+def summary_line(data: dict, runtime: float | None = None, skipped: bool = False) -> str:
+    c = data["clip"]
+    segs = data["segments"]
+    summ = data.get("summary", {})
+    if segs:
+        b = segs[0]
+        best = f"{b['in_s']:5.1f}-{b['out_s']:5.1f}  q={b['scores']['quality']:.2f}"
+        tags = ",".join(b["tags"])
+        flags = ",".join(b["flags"] + [f for f in summ.get("flags", []) if f not in b["flags"]])
+        more = f"+{len(segs) - 1}" if len(segs) > 1 else ""
+    else:
+        best = "REJECT".ljust(20)
+        tags = "-"
+        flags = ",".join(summ.get("reject_why") or [])
+        more = ""
+    rt = "skipped (up to date)" if skipped else (f"{runtime:5.1f}s" if runtime is not None else "")
+    return (f"{c['id']:<12} {c['duration_s']:5.1f}s  usable {summ.get('usable_s', '?'):>2}/{summ.get('bins', '?'):<2}  "
+            f"{best} {more:<3} [{tags}]  {flags or '-'}  {rt}")
+
+
+def load_manifest(path: Path | None) -> dict | None:
+    if path and path.exists():
+        return json.loads(path.read_text())
+    return None
+
+
+def run_all(walk: Path, force: bool = False, params: scoring.Params = scoring.DEFAULT) -> int:
+    proxy_dir, out_dir = walk / "proxy", walk / "shotlog"
+    proxies = sorted(p for p in proxy_dir.glob("*.mp4") if not p.name.startswith("."))
+    if not proxies:
+        print(f"no proxies in {proxy_dir}", file=sys.stderr)
+        return 1
+    manifest = load_manifest(walk / "clip_manifest.json")
+    if manifest is None:
+        log.warning("no clip_manifest.json in %s; clip headers come from ffprobe", walk)
+    t_all = time.perf_counter()
+    print(f"{'clip':<12} {'dur':>6}  usable  best in-out   quality      [tags]  flags  runtime")
+    done = 0
+    for proxy in proxies:
+        out = out_dir / f"{clip_id(proxy)}.json"
+        if not force and out.exists() and out.stat().st_mtime >= proxy.stat().st_mtime:
+            try:
+                print(summary_line(json.loads(out.read_text()), skipped=True), flush=True)
+                continue
+            except (json.JSONDecodeError, KeyError):
+                pass
+        t0 = time.perf_counter()
+        try:
+            data = analyze_proxy(proxy, manifest, params)
+        except Exception as exc:  # keep going; one bad clip must not stop the Walk
+            log.error("%s failed: %s", proxy.name, exc)
+            print(f"{clip_id(proxy):<12} FAILED: {exc}", flush=True)
+            continue
+        write_json(data, out)
+        done += 1
+        print(summary_line(data, time.perf_counter() - t0), flush=True)
+    print(f"\n{len(proxies)} proxies, {done} analysed, total {time.perf_counter() - t_all:.1f}s -> {out_dir}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="python -m cf.shotlog", description=__doc__.splitlines()[0])
+    ap.add_argument("proxy", type=Path, nargs="?", help="proxy .mp4")
+    ap.add_argument("--all", type=Path, metavar="WALK_DIR", help="process every <walk>/proxy/*.mp4 into <walk>/shotlog/")
+    ap.add_argument("--manifest", type=Path, help="clip_manifest.json (default: ../clip_manifest.json next to proxy/)")
+    ap.add_argument("-o", "--output", type=Path, help="default: <walk>/shotlog/<clip>.json")
+    ap.add_argument("--force", action="store_true", help="with --all: redo up-to-date logs")
+    ap.add_argument("-v", "--verbose", action="store_true")
+    args = ap.parse_args(argv)
+    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+
+    if args.all:
+        return run_all(args.all, args.force)
+    if not args.proxy:
+        ap.error("give a proxy or --all <walk_dir>")
+    proxy = args.proxy
+    if not proxy.exists():
+        ap.error(f"no such file: {proxy}")
+    manifest_path = args.manifest or proxy.resolve().parent.parent / "clip_manifest.json"
+    manifest = load_manifest(manifest_path)
+    out = args.output or proxy.resolve().parent.parent / "shotlog" / f"{clip_id(proxy)}.json"
+    t0 = time.perf_counter()
+    data = analyze_proxy(proxy, manifest)
+    write_json(data, out)
+    print(summary_line(data, time.perf_counter() - t0))
+    print(f"-> {out}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

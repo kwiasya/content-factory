@@ -31,11 +31,13 @@ class Params:
     shake_px: float = 6.0          # usable needs shake_px <= this (px @1080 short side)
     blur_worst_pct: float = 80.0   # bins at/above this clip percentile of blur ...
     blur_rel: float = 1.10         # ... and above this x clip median are "worst 20%"
-    blur_good: float = 3.0         # blurdetect value mapped to sharp = 1
-    blur_bad: float = 8.0          # blurdetect value mapped to sharp = 0
+    blur_good: float = 4.2         # blurdetect value mapped to sharp = 1 (sharpest seen on the Potsdam walk)
+    blur_bad: float = 7.5          # blurdetect value mapped to sharp = 0
     clip_hi_pct: float = 2.0       # usable needs clip_hi_pct <= this
     scd_spike: float = 10.0        # scdet score treated as a hard change / glitch
-    luma_target: float = 0.45
+    luma_lo: float = 0.30          # mean luma inside [luma_lo, luma_hi] scores 1 ...
+    luma_hi: float = 0.68
+    luma_falloff: float = 0.25     # ... and falls to 0 this far outside the band
     min_len: int = 2
     max_len: int = 5
     top_n: int = 3
@@ -95,7 +97,9 @@ def bin_flags(ps: dict, p: Params = DEFAULT) -> list[list[str]]:
 
 
 def exposure_score(luma: float, clip_hi: float, clip_lo: float, p: Params = DEFAULT) -> float:
-    level = _clamp(1 - abs(luma - p.luma_target) / 0.4)
+    """1 inside the luma band with no clipping; clipped highlights cost more than crushed shadows."""
+    dist = max(p.luma_lo - luma, luma - p.luma_hi, 0.0)
+    level = _clamp(1 - dist / p.luma_falloff)
     return level * (1 - _clamp(clip_hi / 5.0)) * (1 - 0.5 * _clamp(clip_lo / 20.0))
 
 
@@ -112,7 +116,7 @@ def components(ps: dict, p: Params = DEFAULT) -> list[dict]:
                 "aes": None if a is None else _clamp((a + 1) / 2),
                 "sharp": None if blur is None else _clamp((p.blur_bad - blur) / (p.blur_bad - p.blur_good)),
                 "stability": None if shake is None else _clamp(1 - shake / (2 * p.shake_px)),
-                "exposure": exposure_score(_num(ps["luma_mean"][i], p.luma_target), _num(ps["clip_hi_pct"][i]), _num(ps["clip_lo_pct"][i]), p),
+                "exposure": exposure_score(_num(ps["luma_mean"][i], (p.luma_lo + p.luma_hi) / 2), _num(ps["clip_hi_pct"][i]), _num(ps["clip_lo_pct"][i]), p),
             }
         )
     return out
@@ -150,6 +154,8 @@ def select_windows(
         for s in range(0, n - length + 1):
             if not all(usable[s : s + length]):
                 continue
+            if duration_s is not None and min(s + length, duration_s) - s < p.min_len - 0.05:
+                continue  # a short trailing partial bin must not pass as a full second
             mq = float(np.mean(q[s : s + length]))
             ts = [t for t in types[s : s + length] if t]
             consist = Counter(ts).most_common(1)[0][1] / length if ts else 0.0
@@ -309,7 +315,7 @@ def light_tag(
     # pixels only
     if luma < 0.15:
         return res("night", 0.35, f"no time; very dark frame (luma {luma:.2f})")
-    if warmth > 0.15 and sat > 0.2:
+    if warmth > 0.3 and sat > 0.2:
         return res("golden_hour", 0.25, f"no time; warm saturated frame")
     if sat < 0.1 and contrast < 0.35:
         return res("overcast", 0.3, f"no time; flat desaturated frame")
