@@ -73,6 +73,10 @@ try {
 for (const key of ["canvas", "safe_zone", "typography", "colors", "overlay_positions", "animation"])
   if (!style[key]) die(2, `style.json is missing "${key}"`);
 if (!style.overlay_positions[spec.type]) die(2, `style.overlay_positions has no "${spec.type}"`);
+const refWidth = style.canvas.reference_width ?? 1080;
+if (!(Number.isFinite(refWidth) && refWidth > 0)) die(2, "style.canvas.reference_width must be a positive number");
+// One scale factor for the whole design (src/style.ts designScale).
+const designScale = style.canvas.width / refWidth;
 
 const preset = (spec.preset ?? style.typography.preset ?? "legacy").trim();
 // The catalogue lives in src/presets.ts; check the name here so a typo is exit 2,
@@ -202,6 +206,7 @@ const summary = {
   frames: durationInFrames,
   width: style.canvas.width,
   height: style.canvas.height,
+  scale: designScale,
   render_s: Math.round((Date.now() - started) / 100) / 10,
   safe_zone_ok: !warnings.some((w) => w.startsWith("SAFE_ZONE_VIOLATION")),
   warnings,

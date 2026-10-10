@@ -9,9 +9,19 @@ import {
 import { loadFace } from "./fonts";
 import { layoutText, TextLayout } from "./layout";
 import { Ornament, resolveRole, RoleStyle } from "./presets";
-import { applyCase, easingFromName, OverlayProps, safeZoneViolations, Style } from "./style";
+import {
+  applyCase,
+  designScale,
+  easingFromName,
+  OverlayProps,
+  referenceSize,
+  safeZoneViolations,
+  Style,
+} from "./style";
 
-/** Size, fps and length come from props, so one composition serves every overlay. */
+/** Size, fps and length come from props, so one composition serves every overlay.
+ * The size is the output canvas (style.canvas, 2160×3840 by default); the design inside
+ * is laid out in reference pixels and scaled by designScale (see style.ts). */
 export const calculateOverlayMetadata: CalculateMetadataFunction<
   OverlayProps
 > = ({ props }) => ({
@@ -104,10 +114,11 @@ const Squiggle: React.FC<{ width: number; thickness: number; color: string }> = 
   );
 };
 
-/** Width available to the text: safe zone (incl. the right rail when the box can
- * reach below it), the role's own cap, minus backdrop padding and the accent bar. */
+/** Width available to the text, in reference pixels: safe zone (incl. the right rail
+ * when the box can reach below it), the role's own cap, minus backdrop padding and the
+ * accent bar. */
 const textMaxWidth = (role: RoleStyle, style: Style): number => {
-  const W = style.canvas.width;
+  const W = referenceSize(style).width;
   const z = style.safe_zone;
   const lines = role.maxLines ?? style.typography.max_lines;
   const estH = lines * role.size * (role.lineHeight ?? 1.18) + 2 * (role.backdrop?.padY ?? 0);
@@ -210,21 +221,24 @@ export const Overlay: React.FC<OverlayProps> = ({
   const opacity = Math.min(inP, outP);
   const slide = (1 - inP) * style.animation.in.distance_px;
 
-  // Safe-zone assertion. Measured from layout offsets (transforms excluded), on
-  // the first fully-in frame; the slide distance is added to the bottom edge.
+  // Safe-zone assertion. Measured from layout offsets (transforms excluded, so in
+  // reference pixels), on the first fully-in frame; the slide distance is added to the
+  // bottom edge. The box is then scaled to canvas pixels and checked against the
+  // scaled safe zone.
   const checkFrame = Math.min(inF, total - 1);
   useLayoutEffect(() => {
     if (frame !== checkFrame) return;
     const box = boxRef.current;
     const anchor = anchorRef.current;
     if (!box || !anchor || !layout) return;
+    const k = designScale(style);
     const left = anchor.offsetLeft + box.offsetLeft;
     const top = anchor.offsetTop + box.offsetTop;
     const measured = {
-      left,
-      top,
-      right: left + box.offsetWidth,
-      bottom: top + box.offsetHeight + style.animation.in.distance_px,
+      left: left * k,
+      top: top * k,
+      right: (left + box.offsetWidth) * k,
+      bottom: (top + box.offsetHeight + style.animation.in.distance_px) * k,
     };
     const v = safeZoneViolations(measured, style);
     const r = (n: number) => Math.round(n);
@@ -243,8 +257,9 @@ export const Overlay: React.FC<OverlayProps> = ({
 
   if (!layout) return <AbsoluteFill />;
 
-  const H = style.canvas.height;
-  const W = style.canvas.width;
+  // Everything below is in reference pixels; the design div scales it to the canvas.
+  const scale = designScale(style);
+  const { width: W, height: H } = referenceSize(style);
   const x = role.x ?? style.safe_zone.left;
   const anchorStyle: React.CSSProperties = (() => {
     switch (role.anchor) {
@@ -294,147 +309,159 @@ export const Overlay: React.FC<OverlayProps> = ({
     // No background anywhere: everything outside the text box stays transparent.
     <AbsoluteFill>
       <div
-        ref={anchorRef}
         style={{
           position: "absolute",
-          display: "flex",
-          ...anchorStyle,
-          opacity,
-          transform: `translateY(${slide}px)`,
+          left: 0,
+          top: 0,
+          width: W,
+          height: H,
+          transform: scale !== 1 ? `scale(${scale})` : undefined,
+          transformOrigin: "0 0",
         }}
       >
         <div
-          ref={boxRef}
+          ref={anchorRef}
           style={{
-            position: "relative",
-            flexShrink: 0,
+            position: "absolute",
             display: "flex",
-            flexDirection: "column",
-            alignItems: centered ? "center" : "flex-start",
-            padding: bd ? `${bd.padY}px ${bd.padX}px` : 0,
-            paddingLeft: (bd?.padX ?? 0) + (role.bar ? role.bar.width + role.bar.gap : 0),
-            borderRadius: bd?.radius,
-            backgroundColor: showBackground ? bd?.color : undefined,
-            isolation: "isolate",
-            transform: role.rotate ? `rotate(${role.rotate}deg)` : undefined,
-            transformOrigin: centered ? "50% 50%" : "0% 100%",
+            ...anchorStyle,
+            opacity,
+            transform: `translateY(${slide}px)`,
           }}
         >
-          {role.scrim && showBackground ? (
-            // Feathered dark ellipse ~1.6x the text box (plus a margin for flat
-            // labels), blurred, so bright sky or stone drops under the text.
-            <div
-              style={{
-                position: "absolute",
-                left: "calc(-30% - 50px)",
-                top: "calc(-30% - 50px)",
-                width: "calc(160% + 100px)",
-                height: "calc(160% + 100px)",
-                zIndex: -1,
-                pointerEvents: "none",
-                background: `radial-gradient(ellipse closest-side at 50% 50%, rgba(0,0,0,${0.6 * role.scrim}) 0%, rgba(0,0,0,${0.45 * role.scrim}) 45%, rgba(0,0,0,0) 100%)`,
-                filter: "blur(48px)",
-              }}
-            />
-          ) : null}
-          {role.bar && showDecor ? (
-            <div
-              style={{
-                position: "absolute",
-                left: bd?.padX ?? 0,
-                top: bd?.padY ?? 0,
-                bottom: bd?.padY ?? 0,
-                width: role.bar.width,
-                backgroundColor: role.bar.color,
-                boxShadow: "0 1px 6px rgba(0,0,0,0.25)",
-              }}
-            />
-          ) : null}
-          {rule && rulePos === "above" ? <div style={{ visibility: showDecor ? "visible" : "hidden" }}>{ruleEl}</div> : null}
-          <div style={{ display: "flex", alignItems: "center", gap: role.ornament?.gap ?? 0 }}>
-            {orn && orn.side !== "after" ? <OrnamentSvg o={orn} hidden={!showDecor} /> : null}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: centered ? "center" : "flex-start",
-                rowGap: role.lineBox?.gap ?? 0,
-                fontFamily: face.css,
-                fontWeight: role.weight,
-                fontStyle: role.italic ? "italic" : "normal",
-                fontSize: layout.fontSize,
-                lineHeight: role.lineHeight ?? 1.18,
-                letterSpacing: tracking ? `${tracking}em` : undefined,
-                textAlign: centered ? "center" : "left",
-                filter: showDecor ? role.filter : undefined,
-              }}
-            >
-              {layout.lines.map((line, i) => (
-                <div
-                  key={i}
-                  style={{
-                    whiteSpace: "nowrap",
-                    // Centred tracked text: letter-spacing trails the last glyph, so
-                    // pad the left by the same amount to keep it optically centred.
-                    paddingLeft: centered && tracking > 0 ? `${tracking}em` : 0,
-                    position: "relative",
-                    ...(role.lineBox
-                      ? {
-                          backgroundColor: showBackground ? role.lineBox.color : undefined,
-                          borderRadius: role.lineBox.radius,
-                          padding: `${role.lineBox.padY}px ${role.lineBox.padX}px`,
-                          paddingLeft: role.lineBox.padX + (centered && tracking > 0 ? tracking * layout.fontSize : 0),
-                        }
-                      : {}),
-                  }}
-                >
-                  {role.stroke && showDecor ? (
-                    // Stroked copy under the fill: the stroke is centred on the
-                    // outline, so 2x width leaves `width` px outside the glyph.
+          <div
+            ref={boxRef}
+            style={{
+              position: "relative",
+              flexShrink: 0,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: centered ? "center" : "flex-start",
+              padding: bd ? `${bd.padY}px ${bd.padX}px` : 0,
+              paddingLeft: (bd?.padX ?? 0) + (role.bar ? role.bar.width + role.bar.gap : 0),
+              borderRadius: bd?.radius,
+              backgroundColor: showBackground ? bd?.color : undefined,
+              isolation: "isolate",
+              transform: role.rotate ? `rotate(${role.rotate}deg)` : undefined,
+              transformOrigin: centered ? "50% 50%" : "0% 100%",
+            }}
+          >
+            {role.scrim && showBackground ? (
+              // Feathered dark ellipse ~1.6x the text box (plus a margin for flat
+              // labels), blurred, so bright sky or stone drops under the text.
+              <div
+                style={{
+                  position: "absolute",
+                  left: "calc(-30% - 50px)",
+                  top: "calc(-30% - 50px)",
+                  width: "calc(160% + 100px)",
+                  height: "calc(160% + 100px)",
+                  zIndex: -1,
+                  pointerEvents: "none",
+                  background: `radial-gradient(ellipse closest-side at 50% 50%, rgba(0,0,0,${0.6 * role.scrim}) 0%, rgba(0,0,0,${0.45 * role.scrim}) 45%, rgba(0,0,0,0) 100%)`,
+                  filter: "blur(48px)",
+                }}
+              />
+            ) : null}
+            {role.bar && showDecor ? (
+              <div
+                style={{
+                  position: "absolute",
+                  left: bd?.padX ?? 0,
+                  top: bd?.padY ?? 0,
+                  bottom: bd?.padY ?? 0,
+                  width: role.bar.width,
+                  backgroundColor: role.bar.color,
+                  boxShadow: "0 1px 6px rgba(0,0,0,0.25)",
+                }}
+              />
+            ) : null}
+            {rule && rulePos === "above" ? <div style={{ visibility: showDecor ? "visible" : "hidden" }}>{ruleEl}</div> : null}
+            <div style={{ display: "flex", alignItems: "center", gap: role.ornament?.gap ?? 0 }}>
+              {orn && orn.side !== "after" ? <OrnamentSvg o={orn} hidden={!showDecor} /> : null}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: centered ? "center" : "flex-start",
+                  rowGap: role.lineBox?.gap ?? 0,
+                  fontFamily: face.css,
+                  fontWeight: role.weight,
+                  fontStyle: role.italic ? "italic" : "normal",
+                  fontSize: layout.fontSize,
+                  lineHeight: role.lineHeight ?? 1.18,
+                  letterSpacing: tracking ? `${tracking}em` : undefined,
+                  textAlign: centered ? "center" : "left",
+                  filter: showDecor ? role.filter : undefined,
+                }}
+              >
+                {layout.lines.map((line, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      whiteSpace: "nowrap",
+                      // Centred tracked text: letter-spacing trails the last glyph, so
+                      // pad the left by the same amount to keep it optically centred.
+                      paddingLeft: centered && tracking > 0 ? `${tracking}em` : 0,
+                      position: "relative",
+                      ...(role.lineBox
+                        ? {
+                            backgroundColor: showBackground ? role.lineBox.color : undefined,
+                            borderRadius: role.lineBox.radius,
+                            padding: `${role.lineBox.padY}px ${role.lineBox.padX}px`,
+                            paddingLeft: role.lineBox.padX + (centered && tracking > 0 ? tracking * layout.fontSize : 0),
+                          }
+                        : {}),
+                    }}
+                  >
+                    {role.stroke && showDecor ? (
+                      // Stroked copy under the fill: the stroke is centred on the
+                      // outline, so 2x width leaves `width` px outside the glyph.
+                      <span
+                        aria-hidden
+                        style={{
+                          position: "absolute",
+                          left: 0,
+                          right: 0,
+                          top: 0,
+                          bottom: 0,
+                          paddingLeft: "inherit",
+                          paddingTop: "inherit",
+                          color: role.stroke.color,
+                          WebkitTextStroke: `${2 * role.stroke.width}px ${role.stroke.color}`,
+                          textShadow: role.shadow ?? undefined,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {line}
+                      </span>
+                    ) : null}
                     <span
-                      aria-hidden
                       style={{
-                        position: "absolute",
-                        left: 0,
-                        right: 0,
-                        top: 0,
-                        bottom: 0,
-                        paddingLeft: "inherit",
-                        paddingTop: "inherit",
-                        color: role.stroke.color,
-                        WebkitTextStroke: `${2 * role.stroke.width}px ${role.stroke.color}`,
-                        textShadow: role.shadow ?? undefined,
-                        whiteSpace: "nowrap",
+                        position: "relative",
+                        visibility: showGlyphs ? "visible" : "hidden",
+                        ...(role.gradient
+                          ? {
+                              backgroundImage: role.gradient,
+                              WebkitBackgroundClip: "text",
+                              backgroundClip: "text",
+                              color: "transparent",
+                            }
+                          : {
+                              color: role.color ?? style.colors.text,
+                              textShadow: role.stroke || !showDecor ? undefined : (role.shadow ?? undefined),
+                            }),
                       }}
                     >
                       {line}
                     </span>
-                  ) : null}
-                  <span
-                    style={{
-                      position: "relative",
-                      visibility: showGlyphs ? "visible" : "hidden",
-                      ...(role.gradient
-                        ? {
-                            backgroundImage: role.gradient,
-                            WebkitBackgroundClip: "text",
-                            backgroundClip: "text",
-                            color: "transparent",
-                          }
-                        : {
-                            color: role.color ?? style.colors.text,
-                            textShadow: role.stroke || !showDecor ? undefined : (role.shadow ?? undefined),
-                          }),
-                    }}
-                  >
-                    {line}
-                  </span>
-                </div>
-              ))}
+                  </div>
+                ))}
+              </div>
+              {orn && orn.side !== "before" ? <OrnamentSvg o={orn} hidden={!showDecor} /> : null}
             </div>
-            {orn && orn.side !== "before" ? <OrnamentSvg o={orn} hidden={!showDecor} /> : null}
+            {rule && rulePos === "below" ? <div style={{ visibility: showDecor ? "visible" : "hidden" }}>{ruleEl}</div> : null}
           </div>
-          {rule && rulePos === "below" ? <div style={{ visibility: showDecor ? "visible" : "hidden" }}>{ruleEl}</div> : null}
         </div>
       </div>
     </AbsoluteFill>

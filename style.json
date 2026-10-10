@@ -3,10 +3,13 @@
   "name": "travel-walk-v1",
   "status": "draft: defaults from research, not yet reviewed by the author",
   "audience": "one person planning a city break who wants to feel the place before going",
+  "_doc": "Pixel units: `canvas.width/height` are output pixels (2160x3840 by default, the author's preference since 2026-10-11). Every other pixel number in this file (safe_zone, overlay_positions, typography.*.size, animation.in.distance_px) and in overlays/src/presets.ts and slots.json is in a 1080-wide reference space (`canvas.reference_width`), so the numbers read as on a 1080x1920 frame. Canvas pixels = reference pixels x canvas.width / canvas.reference_width (x2 at 2160x3840). The overlay renderer (overlays/src/style.ts designScale) and cf.canvas (Python) apply that one factor.",
   "canvas": {
-    "width": 1080,
-    "height": 1920,
-    "fps": 30
+    "width": 2160,
+    "height": 3840,
+    "fps": 30,
+    "reference_width": 1080,
+    "note": "4K vertical by default (author, 2026-10-11). cf.build/cf.render take --canvas 1080x1920 for comparison renders."
   },
   "safe_zone": {
     "top": 269,
@@ -17,7 +20,8 @@
       "width": 230,
       "from_y": 1150
     },
-    "source": "Meta Ads Guide 14% / 35% / 6% as relayed in docs/research/02-overlays-and-motion-graphics/result-a.md Section D"
+    "source": "Meta Ads Guide 14% / 35% / 6% as relayed in docs/research/02-overlays-and-motion-graphics/result-a.md Section D",
+    "units": "reference px (canvas.reference_width = 1080); x2 at 2160x3840"
   },
   "typography": {
     "preset": "tiktok-hype",
@@ -47,6 +51,7 @@
     "backdrop": "rgba(0,0,0,0.25)"
   },
   "overlay_positions": {
+    "_units": "reference px (canvas.reference_width)",
     "hook": {
       "anchor": "center",
       "y": 760
@@ -117,5 +122,22 @@
   "ending": {
     "default": "loop_seamless",
     "note": "every Reel loops: the last shot and the first shot are one continuous action from one clip, split at the seam (author rule, 2026-10-10)"
+  },
+  "upscale": {
+    "mode": "2x",
+    "sharpness": 0.5,
+    "noise_reduction": 0.25,
+    "mode_note": "'2x' since 2026-10-11: on reel-01 (4 of 8 shots upscaled) '2x-enhanced' rendered in 314 s vs 47 s for plain 2x, 27 s without Super Scale and 10 s at 1080x1920, over the ~5x budget. sharpness / noise_reduction are only used by '2x-enhanced'. Comparison: reels/reel-01/out/superscale-compare.png in the potsdam-2026-10-04 Walk.",
+    "note": "Resolve Studio Super Scale on every source clip whose display height is below canvas.height (the 1080x1920 iPhone clips on a 2160x3840 canvas); clips at or above it get 1 (off). mode '2x-enhanced' = SetClipProperty('Super Scale', 2, sharpness, noise_reduction) with floats 0..1; mode '2x' = SetClipProperty('Super Scale', 2). cf.build --no-superscale sets every clip to 1."
+  },
+  "render": {
+    "format": "mp4",
+    "codec": "H264",
+    "codec_note": "H.264 High is the default (Instagram re-encodes everything). GetRenderCodecs('mp4') on this Mac also lists 'H265' (H.265), which would give a smaller file at the same quality; not used, because render_check and the loudness fix expect h264.",
+    "bitrate_mbps": {
+      "2160x3840": 45,
+      "1080x1920": 22
+    },
+    "bitrate_note": "VideoQuality cap per canvas (SetRenderSettings VideoQuality = Mbit/s x 1000, kbit/s)."
   }
 }

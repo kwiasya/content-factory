@@ -1,5 +1,5 @@
 {
-  "_doc": "Named placements a render spec can pass as `anchor` to override a preset role's own placement. Coordinates on the 1080x1920 canvas; see presets.ts for anchor semantics. All sit inside style.json safe_zone.",
+  "_doc": "Named placements a render spec can pass as `anchor` to override a preset role's own placement. Coordinates in the 1080x1920 reference space (style.json canvas.reference_width); Overlay.tsx scales them by canvas.width / reference_width (x2 at 2160x3840). See presets.ts for anchor semantics. All sit inside style.json safe_zone.",
   "lower-left": {
     "anchor": "bottom-left",
     "x": 90,

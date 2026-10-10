@@ -1,11 +1,12 @@
 """Verify a rendered Reel file for Instagram: color tags, format, frame rate, loudness.
 
     python -m cf.render_check <file.mp4> [--target-lufs -14] [--target-tp -1]
-                              [--expect-duration S] [--fix-loudness]
+                              [--expect-duration S] [--fix-loudness] [--canvas WxH]
 
 Checks (docs/research/03-color-iphone-osmo/result-a.md Section D, and
 docs/research/05-music-and-sound/result-a.md for loudness): ffprobe says
-bt709/bt709/bt709, color_range tv, yuv420p, 1080x1920, 30 fps, no Dolby Vision side data,
+bt709/bt709/bt709, color_range tv, yuv420p, the ``style.json`` canvas size and fps (2160x3840,
+30 fps by default; ``--canvas 1080x1920`` checks a comparison render), no Dolby Vision side data,
 AAC 48 kHz audio; ffmpeg ``loudnorm`` (print mode) gives integrated loudness within
 ``--lufs-tolerance`` LU of the target and true peak at or below the target.
 Prints a PASS/FAIL table and exits 1 on any FAIL.
@@ -32,6 +33,10 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from cf.canvas import Canvas, from_style
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+STYLE_PATH = REPO_ROOT / "style.json"
 FFPROBE = shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"
 FFMPEG = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
 
@@ -40,10 +45,7 @@ TARGET_TP = -1.0
 TARGET_LRA = 11.0
 LUFS_TOLERANCE = 1.0
 DURATION_TOLERANCE = 0.1  # seconds; the AAC stream can run a frame or two past the video
-EXPECTED = {
-    "width": 1080,
-    "height": 1920,
-    "fps": 30.0,
+BASE_EXPECTED = {
     "pix_fmt": "yuv420p",
     "color_range": "tv",
     "color_primaries": "bt709",
@@ -57,6 +59,19 @@ NORMALIZED_SUFFIX = ".normalized"
 AUDIO_BITRATE = "256k"
 TP_MARGIN = 0.5  # dB of true-peak headroom kept for the AAC encode
 MAX_ROUNDS = 3
+
+
+def expected_for(canvas: Canvas) -> dict:
+    """The checked facts for a file rendered at ``canvas``."""
+    return {"width": canvas.width, "height": canvas.height, "fps": float(canvas.fps), **BASE_EXPECTED}
+
+
+def style_canvas(override: str | None = None) -> Canvas:
+    try:
+        style = json.loads(STYLE_PATH.read_text())
+    except (OSError, ValueError):
+        style = {}
+    return from_style(style, override)
 
 
 @dataclass
@@ -136,20 +151,23 @@ def parse_loudnorm(stderr: str) -> dict:
 
 
 def evaluate(facts: dict, loud: dict | None, target_lufs: float = TARGET_LUFS, target_tp: float = TARGET_TP,
-             lufs_tolerance: float = LUFS_TOLERANCE, expect_duration: float | None = None) -> list[Check]:
-    """One Check per rule; ``ok`` is the verdict for that row."""
+             lufs_tolerance: float = LUFS_TOLERANCE, expect_duration: float | None = None,
+             expected: dict | None = None) -> list[Check]:
+    """One Check per rule; ``ok`` is the verdict for that row. ``expected`` defaults to the
+    style.json canvas (``expected_for``)."""
+    exp = expected or expected_for(style_canvas())
     rows: list[Check] = []
 
     def eq(name: str, key: str) -> None:
-        rows.append(Check(name, EXPECTED[key], facts.get(key), facts.get(key) == EXPECTED[key]))
+        rows.append(Check(name, exp[key], facts.get(key), facts.get(key) == exp[key]))
 
     eq("video codec", "video_codec")
-    rows.append(Check("resolution", f"{EXPECTED['width']}x{EXPECTED['height']}",
+    rows.append(Check("resolution", f"{exp['width']}x{exp['height']}",
                       f"{facts.get('width')}x{facts.get('height')}",
-                      (facts.get("width"), facts.get("height")) == (EXPECTED["width"], EXPECTED["height"])))
+                      (facts.get("width"), facts.get("height")) == (exp["width"], exp["height"])))
     fps = facts.get("fps")
-    rows.append(Check("frame rate", EXPECTED["fps"], None if fps is None else round(fps, 3),
-                      fps is not None and abs(fps - EXPECTED["fps"]) < 1e-3))
+    rows.append(Check("frame rate", exp["fps"], None if fps is None else round(fps, 3),
+                      fps is not None and abs(fps - exp["fps"]) < 1e-3))
     eq("pixel format", "pix_fmt")
     eq("color range", "color_range")
     eq("color primaries", "color_primaries")
@@ -284,18 +302,19 @@ def fix_loudness(path: Path, measured: dict, target_lufs: float = TARGET_LUFS, t
 
 
 def check_file(path: Path, target_lufs: float = TARGET_LUFS, target_tp: float = TARGET_TP,
-               lufs_tolerance: float = LUFS_TOLERANCE,
-               expect_duration: float | None = None) -> tuple[list[Check], dict, dict | None]:
+               lufs_tolerance: float = LUFS_TOLERANCE, expect_duration: float | None = None,
+               expected: dict | None = None) -> tuple[list[Check], dict, dict | None]:
     facts = parse_probe(ffprobe(path))
     loud = measure_loudness(path, target_lufs, target_tp) if facts.get("audio_codec") else None
-    return evaluate(facts, loud, target_lufs, target_tp, lufs_tolerance, expect_duration), facts, loud
+    return evaluate(facts, loud, target_lufs, target_tp, lufs_tolerance, expect_duration, expected), facts, loud
 
 
 def run(path: Path, target_lufs: float = TARGET_LUFS, target_tp: float = TARGET_TP,
         lufs_tolerance: float = LUFS_TOLERANCE, expect_duration: float | None = None,
-        fix: bool = False, report: Path | None = None) -> int:
+        fix: bool = False, report: Path | None = None, expected: dict | None = None) -> int:
     """Check ``path`` (and with ``fix`` its normalized copy); print tables; 0 when the final file passes."""
-    rows, facts, loud = check_file(path, target_lufs, target_tp, lufs_tolerance, expect_duration)
+    expected = expected or expected_for(style_canvas())
+    rows, facts, loud = check_file(path, target_lufs, target_tp, lufs_tolerance, expect_duration, expected)
     print(format_table(path, rows, facts, loud))
     result: dict[str, Any] = {"file": str(path), "pass": passed(rows), "checks": [asdict(r) for r in rows],
                               "facts": facts, "loudness": loud}
@@ -313,7 +332,8 @@ def run(path: Path, target_lufs: float = TARGET_LUFS, target_tp: float = TARGET_
                 print(f"  round {r['round']}: {r['normalization_type']:<8} I {r['integrated']} LUFS, "
                       f"TP {r['true_peak']} dBTP, LRA {r['lra']} LU")
             print(f"normalized -> {out}")
-            rows2, facts2, loud2 = check_file(out, target_lufs, target_tp, lufs_tolerance, expect_duration)
+            rows2, facts2, loud2 = check_file(out, target_lufs, target_tp, lufs_tolerance, expect_duration,
+                                              expected)
             print(format_table(out, rows2, facts2, loud2))
             result["normalized"] = {"file": str(out), "pass": passed(rows2), "rounds": rounds,
                                     "checks": [asdict(r) for r in rows2], "facts": facts2, "loudness": loud2}
@@ -333,13 +353,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--fix-loudness", action="store_true",
                     help="two-pass loudnorm into <name>.normalized.mp4 (video copied), then check it")
     ap.add_argument("--report", help="also write the results as JSON here")
+    ap.add_argument("--canvas", help="expected size WxH instead of style.json canvas (e.g. 1080x1920)")
     args = ap.parse_args(argv)
+    try:
+        expected = expected_for(style_canvas(args.canvas))
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
     path = Path(args.file).expanduser().resolve()
     if not path.exists():
         print(f"no such file: {path}", file=sys.stderr)
         return 2
     return run(path, args.target_lufs, args.target_tp, args.lufs_tolerance, args.expect_duration,
-               args.fix_loudness, Path(args.report) if args.report else None)
+               args.fix_loudness, Path(args.report) if args.report else None, expected)
 
 
 if __name__ == "__main__":

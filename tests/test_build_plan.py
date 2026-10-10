@@ -1,9 +1,10 @@
 """Pure planning tests for cf.build: Script + manifest -> AppendToTimeline infos. No Resolve."""
 
 import unittest
+from pathlib import Path
 
 from cf.build import (BuildError, append_infos, beat_marker_plan, loop_seam, plan_shots, plan_track,
-                      source_end, timecode)
+                      source_end, still_stats, timecode)
 from cf.script_schema import from_dict
 
 START = 108000  # 01:00:00:00 at 30 fps (read from GetStartFrame() in a real build)
@@ -253,6 +254,30 @@ class AppendInfosTest(unittest.TestCase):
         self.assertEqual(timecode(108000, 30), "01:00:00:00")
         self.assertEqual(timecode(108000 + 45, 30), "01:00:01:15")
         self.assertEqual(timecode(108000 + 30 * 61 + 7, 30), "01:01:01:07")
+
+
+class StillStatsTest(unittest.TestCase):
+    def test_4k_still_is_compared_at_the_proxy_size(self):
+        import tempfile
+
+        import cv2
+        import numpy as np
+
+        # 2160x3840 still: top half white, bottom half black, one 1-px white line in the black.
+        a = np.zeros((3840, 2160, 3), np.uint8)
+        a[:1920] = 255
+        a[3000] = 255
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "s.png"
+            cv2.imwrite(str(f), a)
+            st = still_stats(f, (540, 960))
+            self.assertEqual((st["width"], st["height"]), (2160, 3840))
+            small = st["at_proxy_size"]
+            self.assertEqual((small["width"], small["height"]), (540, 960))
+            self.assertAlmostEqual(small["mean_luma"], st["mean_luma"], delta=0.5)
+            # The 1-px line is averaged away on the proxy grid; at full size it counts.
+            self.assertGreater(st["pct_ge_235"], small["pct_ge_235"])
+            self.assertNotIn("at_proxy_size", still_stats(f, (2160, 3840)))
 
 
 if __name__ == "__main__":

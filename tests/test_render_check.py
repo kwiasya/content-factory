@@ -3,11 +3,16 @@
 import unittest
 from pathlib import Path
 
-from cf.render import JOB_EXPECT, job_mismatches
-from cf.render_check import evaluate, normalized_path, parse_loudnorm, parse_probe, passed, video_duration
+from cf.canvas import Canvas
+from cf.render import job_expect, job_mismatches, preset_settings
+from cf.render_check import (evaluate, expected_for, normalized_path, parse_loudnorm, parse_probe, passed,
+                             style_canvas, video_duration)
+
+UHD = Canvas(2160, 3840, 30)
+HD = Canvas(1080, 1920, 30)
 
 GOOD_VIDEO = {
-    "codec_type": "video", "codec_name": "h264", "profile": "High", "width": 1080, "height": 1920,
+    "codec_type": "video", "codec_name": "h264", "profile": "High", "width": 2160, "height": 3840,
     "pix_fmt": "yuv420p", "color_range": "tv", "color_space": "bt709", "color_transfer": "bt709",
     "color_primaries": "bt709", "r_frame_rate": "30/1", "avg_frame_rate": "30/1", "nb_frames": "705",
     "duration": "23.500000", "bit_rate": "22200000",
@@ -49,7 +54,7 @@ def failing(rows):
 class ParseProbeTest(unittest.TestCase):
     def test_flattens_streams_and_format(self):
         f = parse_probe(probe())
-        self.assertEqual((f["width"], f["height"], f["fps"], f["nb_frames"]), (1080, 1920, 30.0, 705))
+        self.assertEqual((f["width"], f["height"], f["fps"], f["nb_frames"]), (2160, 3840, 30.0, 705))
         self.assertEqual((f["audio_codec"], f["sample_rate"], f["channels"]), ("aac", 48000, 2))
         self.assertAlmostEqual(f["duration"], 23.573333)
         self.assertFalse(f["dovi"])
@@ -108,6 +113,17 @@ class EvaluateTest(unittest.TestCase):
         self.assertEqual(failing(rows), {"color transfer", "color primaries", "color matrix",
                                          "Dolby Vision side data"})
 
+    def test_default_expectation_is_the_style_canvas(self):
+        self.assertEqual(style_canvas(), UHD)  # style.json: 4K vertical by default
+        self.assertEqual(expected_for(UHD)["width"], 2160)
+
+    def test_1080_file_fails_4k_check_and_passes_1080_override(self):
+        f = parse_probe(probe(video={"width": 1080, "height": 1920}))
+        self.assertEqual(failing(evaluate(f, LOUD_OK)), {"resolution"})
+        self.assertFalse(failing(evaluate(f, LOUD_OK, expected=expected_for(style_canvas("1080x1920")))))
+        self.assertEqual(failing(evaluate(parse_probe(probe()), LOUD_OK, expected=expected_for(HD))),
+                         {"resolution"})
+
     def test_wrong_size_and_rate_fail(self):
         rows = evaluate(parse_probe(probe(video={"width": 1920, "height": 1080, "r_frame_rate": "60/1"})), LOUD_OK)
         self.assertEqual(failing(rows), {"resolution", "frame rate"})
@@ -143,12 +159,20 @@ class NamesAndJobsTest(unittest.TestCase):
 
     def test_job_mismatches(self):
         out = Path("/tmp/reel/out/reel.mp4")
-        job = {"FormatWidth": 1080, "FormatHeight": 1920, "FrameRate": "30", "IsExportVideo": True,
+        job = {"FormatWidth": 2160, "FormatHeight": 3840, "FrameRate": "30", "IsExportVideo": True,
                "IsExportAudio": True, "AudioSampleRate": 48000, "TargetDir": "/tmp/reel/out",
                "OutputFilename": "reel.mp4"}
-        self.assertEqual(job_mismatches(job, JOB_EXPECT, out), [])
-        bad = job_mismatches(dict(job, FrameRate="29.97", OutputFilename="reel_1.mp4"), JOB_EXPECT, out)
+        self.assertEqual(job_mismatches(job, job_expect(UHD), out), [])
+        bad = job_mismatches(dict(job, FrameRate="29.97", OutputFilename="reel_1.mp4"), job_expect(UHD), out)
         self.assertEqual(len(bad), 2)
+        # A 4K job checked against a 1080 comparison render's expectation.
+        self.assertEqual(len(job_mismatches(job, job_expect(HD), out)), 2)
+
+    def test_preset_settings_follow_the_canvas(self):
+        s = dict(preset_settings(UHD, 45000))
+        self.assertEqual((s["FormatWidth"], s["FormatHeight"], s["FrameRate"], s["VideoQuality"]),
+                         (2160, 3840, 30.0, 45000))
+        self.assertEqual(dict(preset_settings(HD, 22000))["FormatWidth"], 1080)
 
 
 if __name__ == "__main__":

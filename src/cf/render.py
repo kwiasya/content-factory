@@ -1,11 +1,14 @@
 """Render a Reel's timeline from DaVinci Resolve Studio and verify the file.
 
-    python -m cf.render <reel_dir> [--walk <walk_dir>] [--preset cf-instagram-1080x1920]
+    python -m cf.render <reel_dir> [--walk <walk_dir>] [--preset NAME] [--canvas WxH]
                         [--out <path.mp4>] [--no-check] [--fix-loudness]
 
 Opens project ``cf-<walk>-<reel>`` (never creates one), selects timeline ``<reel>``,
-creates or updates the render preset (mp4 / H.264, 1080x1920, 30 fps, about 22 Mbit/s,
-AAC 48 kHz, ``ColorSpaceTag='Rec.709'``, ``GammaTag='Rec.709-A'``), targets
+creates or updates the render preset ``cf-instagram-<w>x<h>`` (``style.json``: ``render``
+format/codec, ``canvas`` size and fps, ``render.bitrate_mbps`` for that size, i.e. mp4 /
+H.264 High, 2160x3840, 30 fps, about 45 Mbit/s by default; AAC 48 kHz,
+``ColorSpaceTag='Rec.709'``, ``GammaTag='Rec.709-A'``). ``--canvas 1080x1920`` renders a
+comparison file at that size (22 Mbit/s); Resolve scales the timeline to it. It targets
 ``reels/<reel>/out/<reel>.mp4``, deletes this timeline's old render jobs, queues one job,
 renders it with progress, restores the UI page, and runs ``cf.render_check`` on the file.
 A JSON report goes to ``out/render-report.json``. Exit code: non-zero when the render
@@ -25,35 +28,41 @@ from pathlib import Path
 from typing import Any
 
 from cf import render_check
+from cf.canvas import Canvas, from_style, preset_name, render_bitrate_kbps, render_codec
 from cf.script_schema import load_json
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STYLE_PATH = REPO_ROOT / "style.json"
-DEFAULT_PRESET = "cf-instagram-1080x1920"
-VIDEO_KBPS = 22000  # RenderSettings VideoQuality: an int > 0 is the bit rate cap (kbit/s)
-
-# Written one key per call, in this order, so a rejected key is named (a False return
-# leaves the old value). Data levels are not a RenderSettings key; the project's
-# videoDataLevels='Video' gives limited range, and render_check verifies color_range=tv.
-PRESET_SETTINGS = (
-    ("ExportVideo", True),
-    ("ExportAudio", True),
-    ("FormatWidth", 1080),
-    ("FormatHeight", 1920),
-    ("FrameRate", 30.0),
-    ("VideoQuality", VIDEO_KBPS),
-    ("EncodingProfile", "High"),
-    ("NetworkOptimization", True),
-    ("AudioCodec", "aac"),
-    ("AudioSampleRate", 48000),
-    ("ColorSpaceTag", "Rec.709"),
-    ("GammaTag", "Rec.709-A"),
-)
 OPTIONAL_KEYS = {"EncodingProfile", "NetworkOptimization"}  # nice to have; a False here is a note
-# What GetRenderJobList must report for the queued job.
-JOB_EXPECT = {"FormatWidth": 1080, "FormatHeight": 1920, "FrameRate": "30", "IsExportVideo": True,
-              "IsExportAudio": True, "AudioSampleRate": 48000}
 DONE = ("Complete", "Failed", "Cancelled")
+
+
+def preset_settings(canvas: Canvas, video_kbps: int) -> tuple[tuple[str, Any], ...]:
+    """RenderSettings written one key per call, in this order, so a rejected key is named
+    (a False return leaves the old value). ``VideoQuality``: an int > 0 is the bit rate cap
+    in kbit/s (22000 gave 22.2 Mbit/s at 1080x1920). Data levels are not a RenderSettings
+    key; the project's videoDataLevels='Video' gives limited range, and render_check
+    verifies color_range=tv."""
+    return (
+        ("ExportVideo", True),
+        ("ExportAudio", True),
+        ("FormatWidth", canvas.width),
+        ("FormatHeight", canvas.height),
+        ("FrameRate", float(canvas.fps)),
+        ("VideoQuality", int(video_kbps)),
+        ("EncodingProfile", "High"),
+        ("NetworkOptimization", True),
+        ("AudioCodec", "aac"),
+        ("AudioSampleRate", 48000),
+        ("ColorSpaceTag", "Rec.709"),
+        ("GammaTag", "Rec.709-A"),
+    )
+
+
+def job_expect(canvas: Canvas) -> dict:
+    """What GetRenderJobList must report for the queued job."""
+    return {"FormatWidth": canvas.width, "FormatHeight": canvas.height, "FrameRate": str(canvas.fps),
+            "IsExportVideo": True, "IsExportAudio": True, "AudioSampleRate": 48000}
 
 
 class RenderError(RuntimeError):
@@ -83,8 +92,17 @@ def job_mismatches(job: dict, expect: dict, out: Path) -> list[str]:
 
 
 class Renderer:
-    def __init__(self, reel_dir: Path, walk_dir: Path, preset: str, out: Path | None, project: str | None):
+    def __init__(self, reel_dir: Path, walk_dir: Path, preset: str | None, out: Path | None, project: str | None,
+                 canvas: str | None = None):
         self.reel_dir = reel_dir
+        style = load_json(STYLE_PATH)
+        self.canvas = from_style(style, canvas)
+        self.fmt, self.codec = render_codec(style)
+        try:
+            self.video_kbps = render_bitrate_kbps(style, self.canvas)
+        except ValueError as exc:
+            raise RenderError(str(exc)) from exc
+        preset = preset or preset_name(self.canvas)
         self.reel = reel_dir.name
         manifest = load_json(walk_dir / "clip_manifest.json")
         self.walk = manifest.get("walk") or walk_dir.name
@@ -93,9 +111,12 @@ class Renderer:
         self.out = (out or reel_dir / "out" / f"{self.reel}.mp4").expanduser().resolve()
         if self.out.suffix.lower() != ".mp4":
             raise RenderError(f"--out must end in .mp4: {self.out}")
-        self.fps = int((load_json(STYLE_PATH).get("canvas") or {}).get("fps", 30))
+        self.fps = self.canvas.fps
         self.report: dict[str, Any] = {"reel": self.reel, "project": self.project_name, "preset": self.preset,
-                                       "out": str(self.out), "notes": []}
+                                       "out": str(self.out), "notes": [],
+                                       "canvas": {"width": self.canvas.width, "height": self.canvas.height,
+                                                  "fps": self.canvas.fps, "override": canvas},
+                                       "format": self.fmt, "codec": self.codec, "video_kbps": self.video_kbps}
         self.d: Any = None
 
     # ---- steps
@@ -132,12 +153,12 @@ class Renderer:
         rows = []
         # Both calls switch the UI to the Deliver page (S8); the page is restored at the end.
         rows.append({"key": "RenderMode", "value": "Single clip", "returned": d.call(p.SetCurrentRenderMode, 1)})
-        ok = d.call(p.SetCurrentRenderFormatAndCodec, "mp4", "H264")
+        ok = d.call(p.SetCurrentRenderFormatAndCodec, self.fmt, self.codec)
         got = d.call(p.GetCurrentRenderFormatAndCodec) or {}
-        rows.append({"key": "format/codec", "value": "mp4/H264", "returned": ok, "read": got})
-        if (got.get("format"), got.get("codec")) != ("mp4", "H264"):
-            raise RenderError(f"SetCurrentRenderFormatAndCodec('mp4', 'H264') -> {ok}, reads {got}")
-        for key, value in PRESET_SETTINGS:
+        rows.append({"key": "format/codec", "value": f"{self.fmt}/{self.codec}", "returned": ok, "read": got})
+        if (got.get("format"), got.get("codec")) != (self.fmt, self.codec):
+            raise RenderError(f"SetCurrentRenderFormatAndCodec({self.fmt!r}, {self.codec!r}) -> {ok}, reads {got}")
+        for key, value in preset_settings(self.canvas, self.video_kbps):
             ok = bool(d.call(p.SetRenderSettings, {key: value}))
             rows.append({"key": key, "value": value, "returned": ok})
             if not ok:
@@ -183,7 +204,7 @@ class Renderer:
         if job is None:
             raise RenderError(f"job {job_id} not in GetRenderJobList")
         self.report["job"] = job
-        bad = job_mismatches(job, JOB_EXPECT, self.out)
+        bad = job_mismatches(job, job_expect(self.canvas), self.out)
         if bad:
             raise RenderError(f"queued job {job_id} does not match: " + "; ".join(bad))
         return job_id
@@ -235,7 +256,8 @@ class Renderer:
                   f"({self.frames / self.fps:.2f} s)  -> {self.out}")
             self.ensure_preset()
             job_id = self.queue()
-            print(f"preset {self.preset} ({self.report['preset_action']}), job {job_id}")
+            print(f"preset {self.preset} ({self.report['preset_action']}): {self.fmt}/{self.codec} "
+                  f"{self.canvas.name} @{self.fps}, {self.video_kbps / 1000:g} Mbit/s cap, job {job_id}")
             status = self.render(job_id)
             print(f"rendered in {status.get('TimeTakenToRenderInMs', 0) / 1000:.1f} s "
                   f"(wall {status['wall_s']} s): {self.out}")
@@ -249,7 +271,8 @@ class Renderer:
         if code == 0 and check:
             print()
             code = render_check.run(self.out, expect_duration=self.frames / self.fps, fix=fix_loudness,
-                                    report=self.out.parent / "render-check.json")
+                                    report=self.out.parent / "render-check.json",
+                                    expected=render_check.expected_for(self.canvas))
             self.report["check"] = "PASS" if code == 0 else "FAIL"
         for n in self.report["notes"]:
             print(f"note: {n}")
@@ -263,7 +286,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cf.render", description=__doc__.splitlines()[0])
     ap.add_argument("reel_dir", help="reels/<reel>/ inside the Walk folder")
     ap.add_argument("--walk", help="Walk folder with clip_manifest.json (default: two levels up)")
-    ap.add_argument("--preset", default=DEFAULT_PRESET, help=f"render preset to create/update (default {DEFAULT_PRESET})")
+    ap.add_argument("--preset", help="render preset to create/update (default cf-instagram-<w>x<h> of the canvas)")
+    ap.add_argument("--canvas", help="output size WxH overriding style.json canvas, e.g. 1080x1920 for a "
+                                     "comparison render (fps and bitrate table from style.json)")
     ap.add_argument("--out", help="output .mp4 (default: <reel_dir>/out/<reel>.mp4)")
     ap.add_argument("--project-name", help="Resolve project (default: cf-<walk>-<reel>)")
     ap.add_argument("--no-check", action="store_true", help="skip cf.render_check")
@@ -276,8 +301,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no clip_manifest.json in {walk_dir}", file=sys.stderr)
         return 2
     try:
-        r = Renderer(reel_dir, walk_dir, args.preset, Path(args.out) if args.out else None, args.project_name)
-    except RenderError as exc:
+        r = Renderer(reel_dir, walk_dir, args.preset, Path(args.out) if args.out else None, args.project_name,
+                     canvas=args.canvas)
+    except (RenderError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 2
     return r.run(check=not args.no_check, fix_loudness=args.fix_loudness)

@@ -27,7 +27,14 @@ export type Anchor =
 export type OverlayPosition = { anchor: Anchor; x?: number; y: number };
 
 export type Style = {
-  canvas: { width: number; height: number; fps: number };
+  /** Output pixels. `reference_width` (default 1080) is the width every other pixel
+   * number in style.json, presets.ts and slots.json is written for; see designScale. */
+  canvas: {
+    width: number;
+    height: number;
+    fps: number;
+    reference_width?: number;
+  };
   safe_zone: {
     top: number;
     bottom: number;
@@ -103,12 +110,53 @@ export const easingFromName = (name: string): ((t: number) => number) => {
   return Easing.inOut(curve);
 };
 
+/** Width of the design space: presets, slots, safe_zone, overlay_positions, font
+ * sizes and animation distances are all in pixels of a canvas this wide. */
+export const REFERENCE_WIDTH = 1080;
+
+/** The one scale factor of the overlay design: canvas pixels per reference pixel
+ * (2 at 2160×3840). Overlay.tsx lays everything out in reference pixels and scales the
+ * whole design by this factor, so a 4K overlay is the 1080 design at 2× size: font
+ * sizes, paddings, radii, outlines, shadows, blur, ornaments, slots and the slide-in
+ * distance all scale together, and rotation stays in degrees. */
+export const designScale = (style: Style): number =>
+  style.canvas.width / (style.canvas.reference_width ?? REFERENCE_WIDTH);
+
+/** The canvas in reference pixels (1080×1920 for any 9:16 canvas). */
+export const referenceSize = (
+  style: Style,
+): { width: number; height: number } => {
+  const k = designScale(style);
+  return { width: style.canvas.width / k, height: style.canvas.height / k };
+};
+
+/** style.safe_zone in canvas pixels (style.json keeps it in reference pixels). */
+export const scaledSafeZone = (style: Style): Style["safe_zone"] => {
+  const k = designScale(style);
+  const z = style.safe_zone;
+  return {
+    top: z.top * k,
+    bottom: z.bottom * k,
+    left: z.left * k,
+    right: z.right * k,
+    ...(z.right_rail
+      ? {
+          right_rail: {
+            width: z.right_rail.width * k,
+            from_y: z.right_rail.from_y * k,
+          },
+        }
+      : {}),
+  };
+};
+
 export type Box = { left: number; top: number; right: number; bottom: number };
 
-/** Returns a list of violations (empty = inside the safe zone). */
+/** Returns a list of violations (empty = inside the safe zone). `box` is in canvas
+ * pixels; the safe zone is scaled from reference pixels by designScale. */
 export const safeZoneViolations = (box: Box, style: Style): string[] => {
   const { width, height } = style.canvas;
-  const z = style.safe_zone;
+  const z = scaledSafeZone(style);
   const out: string[] = [];
   const minX = z.left;
   const maxX = width - z.right;

@@ -2,7 +2,7 @@
 
     python -m cf.build <reel_dir> [--walk <walk_dir>] [--project-name NAME] [--no-stills]
                        [--look <file.cube>|none] [--stills-only [--stills-dir DIR]] [--script FILE]
-                       [--no-track] [--ambience-db DB]
+                       [--no-track] [--ambience-db DB] [--canvas WxH] [--no-superscale]
 
 Rules: ``docs/resolve-rules.md``; contract: ``.claude/skills/build-reel/SKILL.md``;
 decision to rebuild rather than patch: ``docs/adr/0001-timeline-rebuilt-from-plan.md``.
@@ -22,6 +22,13 @@ the timeline start for the picture's length, source in-point ``script.track_in_s
 (default 0.6 s); the A1 ambience sits at ``style.audio.ambience_db``. ``cuts.json``
 ``beat_markers`` become timeline markers (downbeats Blue, other beats Cyan).
 
+The project and timeline resolution come from ``style.json`` ``canvas`` (2160x3840 by
+default; ``--canvas 1080x1920`` for a comparison build). Source clips whose display height
+is below the canvas height get Resolve Studio Super Scale (``style.json`` ``upscale``:
+plain 2x by default, ``2x-enhanced`` optional; ``cf.canvas.upscale_plan``);
+``--no-superscale`` turns it off on every clip. Stills are exported at the canvas size and
+downscaled to the proxy size for the luma comparison.
+
 The planning part (``plan_shots``, ``plan_track``, ``beat_marker_plan``, ``append_infos``,
 ``source_end``) is pure and has no Resolve dependency, so it is unit-tested in
 ``tests/test_build_plan.py``.
@@ -40,13 +47,15 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from cf.canvas import Canvas, from_style, scaled_safe_zone, upscale_plan
 from cf.script_schema import Script, load, load_json, manifest_clips, validate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STYLE_PATH = REPO_ROOT / "style.json"
 
-# docs/resolve-rules.md "Exact strings". Resolution and fps first: they can only be
-# written at project level while the project has no timelines.
+# docs/resolve-rules.md "Exact strings". Resolution and fps first. The frame rate can only
+# be written at project level while the project has no timelines; the resolution can be
+# changed later, and timelines without custom settings follow it (probe, 2026-10-11).
 PROJECT_SETTINGS_ORDER = (
     "timelineResolutionWidth", "timelineResolutionHeight", "timelineFrameRate",
     "colorScienceMode", "separateColorSpaceAndGamma", "isAutoColorManage",
@@ -325,11 +334,21 @@ def luma_stats(rgb: Any) -> dict:
     return {"mean_luma": round(float(y.mean()), 1), "pct_ge_235": round(float((y >= 235).mean() * 100), 2)}
 
 
-def still_stats(path: Path) -> dict:
+def still_stats(path: Path, compare_size: tuple[int, int] | None = None) -> dict:
+    """Size of a still, its luma stats, and (with ``compare_size`` = proxy (w, h)) the stats
+    of the still downscaled to that size (area average), which is what is compared with the
+    proxy frame: a 2160x3840 still and a 540x960 proxy are then measured on the same grid."""
     import cv2  # noqa: PLC0415
 
     bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
-    return luma_stats(bgr[..., ::-1]) if bgr is not None else {}
+    if bgr is None:
+        return {}
+    h, w = bgr.shape[:2]
+    out = {"width": w, "height": h, **luma_stats(bgr[..., ::-1])}
+    if compare_size and (w, h) != tuple(compare_size):
+        small = cv2.resize(bgr, tuple(compare_size), interpolation=cv2.INTER_AREA)
+        out["at_proxy_size"] = {"width": compare_size[0], "height": compare_size[1], **luma_stats(small[..., ::-1])}
+    return out
 
 
 def proxy_frame_stats(proxy: Path, t: float) -> dict | None:
@@ -346,7 +365,8 @@ def proxy_frame_stats(proxy: Path, t: float) -> dict | None:
                             "stream=width,height", "-of", "csv=p=0", str(proxy)], capture_output=True, text=True)
     try:
         w, h = (int(x) for x in probe.stdout.strip().split(",")[:2])
-        return {"time_s": round(t, 3), **luma_stats(np.frombuffer(res.stdout, np.uint8).reshape(h, w, 3))}
+        return {"time_s": round(t, 3), "width": w, "height": h,
+                **luma_stats(np.frombuffer(res.stdout, np.uint8).reshape(h, w, 3))}
     except ValueError:
         return None
 
@@ -365,6 +385,8 @@ class Report:
     shots: list[dict] = field(default_factory=list)
     audio: list[dict] = field(default_factory=list)
     writes: list[dict] = field(default_factory=list)
+    canvas: dict = field(default_factory=dict)
+    upscale: list[dict] = field(default_factory=list)
     overlays: dict = field(default_factory=dict)
     look: dict = field(default_factory=dict)
     stills: list[dict] = field(default_factory=list)
@@ -394,8 +416,9 @@ class Builder:
     def __init__(self, reel_dir: Path, walk_dir: Path, project_name: str | None, stills: bool,
                  look: str | None = None, stills_only: bool = False, stills_dir: Path | None = None,
                  script_path: Path | None = None, use_track: bool = True,
-                 ambience_db: float | None = None):
+                 ambience_db: float | None = None, canvas: str | None = None, superscale: bool = True):
         self.reel_dir = reel_dir
+        self.superscale = superscale
         self.use_track = use_track
         self.ambience_db_override = ambience_db
         self.reel = reel_dir.name
@@ -420,11 +443,13 @@ class Builder:
             self.beats_path = next((bp for bp in (track.with_name("beats.json"), reel_dir / "beats.json")
                                     if bp.exists()), None)
             self.beats = load_json(self.beats_path) if self.beats_path else None
-        canvas = self.style.get("canvas", {})
-        self.width, self.height = int(canvas.get("width", 1080)), int(canvas.get("height", 1920))
-        self.fps = int(canvas.get("fps", 30))
+        self.canvas: Canvas = from_style(self.style, canvas)
+        self.width, self.height, self.fps = self.canvas.width, self.canvas.height, self.canvas.fps
         self.project_name = project_name or f"cf-{self.walk}-{self.reel}"
         self.r = Report(reel=self.reel, walk=self.walk, project=self.project_name)
+        self.r.canvas = {"width": self.width, "height": self.height, "fps": self.fps,
+                         "reference_width": self.canvas.reference_width, "scale": self.canvas.scale,
+                         "override": canvas, "safe_zone_px": scaled_safe_zone(self.style, self.canvas)}
         self.d: Any = None
 
     # ---- steps
@@ -506,7 +531,41 @@ class Builder:
             if abs(row["resolve_fps"] - float(row["manifest_fps"])) > 1e-3:
                 self.r.notes.append(f"{c}: Resolve reads {row['resolve_fps']:g} fps, the manifest says "
                                     f"{row['manifest_fps']:g}; source frames use Resolve's value")
+        self.super_scale(items, {c: clips[c] for c in order})
         return items
+
+    def super_scale(self, items: dict[str, Any], clips: dict[str, dict]) -> None:
+        """Super Scale on each media pool clip per ``upscale_plan``, read back.
+
+        The read-back cannot tell 2x from 2x Enhanced (both read ``Super Scale`` = 2); for
+        Enhanced the sharpness and noise-reduction values it wrote are read back instead.
+        The stills are the pixel-level check (Enhanced, plain 2x and off differ).
+        """
+        d, r = self.d, self.r
+        for u in upscale_plan(clips, self.canvas, self.style, enabled=self.superscale):
+            mpi = items[u.clip]
+            before = d.call(mpi.GetClipProperty) or {}
+            if u.super_scale != 1:
+                # Writing 2 over 2x Enhanced keeps Enhanced (same read-back, same pixels;
+                # 2026-10-11), so go through off first and the target mode always applies.
+                d.call(mpi.SetClipProperty, "Super Scale", 1)
+            ok = d.call(mpi.SetClipProperty, "Super Scale", *u.set_args())
+            got = d.call(mpi.GetClipProperty) or {}
+            row = {"clip": u.clip, "display_height": u.display_height, "reason": u.reason,
+                   "wanted": "2x Enhanced" if u.enhanced else ("2x" if u.super_scale == 2 else "off"),
+                   "set_args": list(u.set_args()), "returned": ok,
+                   "before": before.get("Super Scale"), "super_scale": got.get("Super Scale"),
+                   "sharpness": got.get("SuperScale Sharpness"),
+                   "noise_reduction": got.get("SuperScale Noise Reduction"),
+                   "resolution": got.get("Resolution")}
+            r.upscale.append(row)
+            r.check(f"{u.clip} Super Scale ({row['wanted']}, returned {ok})", u.super_scale,
+                    int(got.get("Super Scale") or 0))
+            if u.enhanced:
+                got_sn = [float(got.get("SuperScale Sharpness") or -1),
+                          float(got.get("SuperScale Noise Reduction") or -1)]
+                r.check(f"{u.clip} SuperScale Sharpness / Noise Reduction", [u.sharpness, u.noise_reduction],
+                        got_sn, ok=abs(got_sn[0] - u.sharpness) < 1e-3 and abs(got_sn[1] - u.noise_reduction) < 1e-3)
 
     def build_timeline(self, items: dict[str, Any]) -> None:
         d, r, fps = self.d, self.r, self.fps
@@ -708,6 +767,10 @@ class Builder:
             elif not ok:
                 r.notes.append(f"{s.id}: ReplaceClip returned {ok}")
             r.check(f"{s.id} overlay pool frames = file frames", on_disk or frames, frames)
+            res = (d.call(mpi.GetClipProperty) or {}).get("Resolution")
+            if res and res != f"{self.width}x{self.height}":
+                r.notes.append(f"{s.id}: overlay is {res}, the canvas {self.width}x{self.height}; Resolve scales "
+                               "it to fit (soft text when upscaled): re-render the overlay at the canvas size")
             if frames != s.duration:
                 r.notes.append(f"{s.id}: overlay is {frames} frames, the shot {s.duration}; "
                                "re-render the overlay with the shot's duration")
@@ -903,15 +966,20 @@ class Builder:
             row = {"shot": s.id, "frame": frame, "timecode": tc, "playhead": got_tc, "set_returned": set_ok,
                    "export_returned": ok, "file": str(f), "bytes": size}
             if size:
-                row.update(still_stats(f))
                 src_t = (s.src_start + (s.duration // 2) * s.speed * s.clip_fps / self.fps) / s.clip_fps
                 proxy = self.walk_dir / "proxy" / (Path(s.clip).stem + ".mp4")
                 ref = proxy_frame_stats(proxy, src_t) if proxy.exists() else None
+                row.update(still_stats(f, (ref["width"], ref["height"]) if ref else None))
                 if ref:
                     row["proxy"] = ref
-                    if abs(row["mean_luma"] - ref["mean_luma"]) > 20:
-                        r.notes.append(f"{s.id}: still mean luma {row['mean_luma']} vs proxy {ref['mean_luma']} "
+                    # Compared on the proxy's grid: the still downscaled to the proxy size.
+                    mine = row.get("at_proxy_size") or row
+                    if abs(mine["mean_luma"] - ref["mean_luma"]) > 20:
+                        r.notes.append(f"{s.id}: still mean luma {mine['mean_luma']} (at "
+                                       f"{ref['width']}x{ref['height']}) vs proxy {ref['mean_luma']} "
                                        "(check the color settings)")
+                r.check(f"{s.id} still size = canvas", [self.width, self.height],
+                        [row.get("width"), row.get("height")])
             r.stills.append(row)
             r.check(f"{s.id} still at {tc}", True, bool(ok) and size > 0 and got_tc == tc)
 
@@ -993,10 +1061,20 @@ class Builder:
         print("\nsettings:")
         for s in r.settings:
             print(f"  {'ok ' if s['ok'] else 'BAD'} {s['key']:<30} {s['action']:<8} {s['after']!r}")
+        c = r.canvas
+        override = f"  (--canvas {c['override']})" if c.get("override") else ""
+        print(f"canvas {c.get('width')}x{c.get('height')} @{c.get('fps')}  scale x{c.get('scale'):g} from the "
+              f"{c.get('reference_width')}-wide reference{override}  safe zone px {c.get('safe_zone_px')}")
         print("\nmedia:")
         for m in r.media:
             print(f"  {m['clip']:<14} {m['pool']:<8} copies={m['copies_in_pool']} fps={m['resolve_fps']:g} "
                   f"(manifest {m['manifest_fps']:g})  {m['input_color_space']!r} [{m['color_action']}]")
+        if r.upscale:
+            print("\nSuper Scale (read back; 2x and 2x Enhanced both read 2):")
+            for u in r.upscale:
+                print(f"  {u['clip']:<14} h={u['display_height']!s:<5} {u['wanted']:<12} -> {u['super_scale']}"
+                      + (f"  sharp {u['sharpness']} nr {u['noise_reduction']}" if u["wanted"] == "2x Enhanced" else "")
+                      + f"  ({u['reason']})")
         print("\nV1 read-back (frames; offsets from timeline start):")
         hdr = f"  {'shot':<5}{'clip':<14}{'role':<8}{'spd':>5}{'exp start':>10}{'got':>7}{'exp end':>9}{'got':>7}" \
               f"{'dur':>5}{'got':>5}{'src in':>8}{'src out':>9}  ok"
@@ -1025,11 +1103,15 @@ class Builder:
         if r.stills:
             print(f"stills: {sum(1 for s in r.stills if s['bytes'])}/{len(r.stills)} written to "
                   f"{self.stills_dir}")
-            print(f"  {'shot':<5}{'clip':<14}{'mean luma':>10}{'>=235 %':>9}{'proxy luma':>12}{'proxy %':>9}")
+            print(f"  {'shot':<5}{'clip':<14}{'size':>10}{'mean luma':>10}{'>=235 %':>9}{'@proxy':>8}"
+                  f"{'proxy luma':>12}{'proxy %':>9}")
             for st in r.stills:
                 px = st.get("proxy") or {}
+                small = st.get("at_proxy_size") or {}
                 clip = next((p.clip for p in self.plan if p.id == st["shot"]), "")
-                print(f"  {st['shot']:<5}{clip:<14}{st.get('mean_luma', '-')!s:>10}{st.get('pct_ge_235', '-')!s:>9}"
+                size = f"{st.get('width', '-')}x{st.get('height', '-')}"
+                print(f"  {st['shot']:<5}{clip:<14}{size:>10}{st.get('mean_luma', '-')!s:>10}"
+                      f"{st.get('pct_ge_235', '-')!s:>9}{small.get('mean_luma', '-')!s:>8}"
                       f"{px.get('mean_luma', '-')!s:>12}{px.get('pct_ge_235', '-')!s:>9}")
         print("\nnotes:")
         for n in r.notes:
@@ -1059,7 +1141,19 @@ def main(argv: list[str] | None = None) -> int:
                     help="leave the Track out (ambience-only build for a sound added in Instagram)")
     ap.add_argument("--ambience-db", type=float,
                     help="A1 ambience volume in dB (default: style.audio.ambience_db with a Track, else 0)")
+    ap.add_argument("--canvas", help="timeline size WxH overriding style.json canvas, e.g. 1080x1920 "
+                                     "for a comparison build (fps stays style.json's)")
+    ap.add_argument("--no-superscale", action="store_true",
+                    help="Super Scale off (1) on every clip instead of style.json upscale on the low-res ones")
     args = ap.parse_args(argv)
+    if args.canvas:
+        from cf.canvas import parse_size  # noqa: PLC0415
+
+        try:
+            parse_size(args.canvas)
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 2
     reel_dir = Path(args.reel_dir).expanduser().resolve()
     walk_dir = Path(args.walk).expanduser().resolve() if args.walk else reel_dir.parent.parent
     script_path = Path(args.script).expanduser().resolve() if args.script else reel_dir / "script.json"
@@ -1075,7 +1169,8 @@ def main(argv: list[str] | None = None) -> int:
     stills_dir = Path(args.stills_dir).expanduser().resolve() if args.stills_dir else None
     return Builder(reel_dir, walk_dir, args.project_name, stills=not args.no_stills, look=args.look,
                    stills_only=args.stills_only, stills_dir=stills_dir, script_path=script_path,
-                   use_track=not args.no_track, ambience_db=args.ambience_db).run()
+                   use_track=not args.no_track, ambience_db=args.ambience_db, canvas=args.canvas,
+                   superscale=not args.no_superscale).run()
 
 
 if __name__ == "__main__":
