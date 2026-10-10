@@ -1,0 +1,289 @@
+S02_project_settings: PASS
+{
+  "after_v2_switch": {
+    "colorSpaceInput": "Rec.709 Gamma 2.4",
+    "colorSpaceInputGamma": "",
+    "colorSpaceOutput": "Rec.709 Gamma 2.4",
+    "colorSpaceOutputGamma": "Gamma 2.4",
+    "colorSpaceOutputGamutMapping": "None",
+    "colorSpaceOutputGamutSaturationKnee": "0.9",
+    "colorSpaceOutputGamutSaturationMax": "1",
+    "colorSpaceOutputToneLuminanceMax": "100",
+    "colorSpaceOutputToneMapping": "None",
+    "colorSpaceTimeline": "DaVinci WG/Intermediate",
+    "colorSpaceTimelineGamma": "DaVinci Intermediate",
+    "inputDRT": "DaVinci",
+    "inputDRTSatRolloffLimit": "10000",
+    "inputDRTSatRolloffStart": "100",
+    "isAutoColorManage": "0",
+    "outputDRT": "DaVinci",
+    "outputDRTSatRolloffLimit": "10000",
+    "outputDRTSatRolloffStart": "100",
+    "rcmPresetMode": "Custom",
+    "separateColorSpaceAndGamma": "0"
+  },
+  "after_separate_1": {
+    "colorSpaceInput": "Rec.709 Gamma 2.4",
+    "colorSpaceInputGamma": "",
+    "colorSpaceOutput": "Rec.709",
+    "colorSpaceOutputGamma": "Gamma 2.4",
+    "colorSpaceOutputGamutMapping": "None",
+    "colorSpaceOutputGamutSaturationKnee": "0.9",
+    "colorSpaceOutputGamutSaturationMax": "1",
+    "colorSpaceOutputToneLuminanceMax": "100",
+    "colorSpaceOutputToneMapping": "None",
+    "colorSpaceTimeline": "DaVinci WG",
+    "colorSpaceTimelineGamma": "DaVinci Intermediate"
+  },
+  "separate_1_state": {
+    "colorSpaceInput": "Rec.709 Gamma 2.4",
+    "colorSpaceInputGamma": "",
+    "colorSpaceOutput": "Rec.709",
+    "colorSpaceOutputGamma": "Gamma 2.4",
+    "colorSpaceOutputGamutMapping": "None",
+    "colorSpaceOutputGamutSaturationKnee": "0.9",
+    "colorSpaceOutputGamutSaturationMax": "1",
+    "colorSpaceOutputToneLuminanceMax": "100",
+    "colorSpaceOutputToneMapping": "None",
+    "colorSpaceTimeline": "DaVinci WG",
+    "colorSpaceTimelineGamma": "DaVinci Intermediate"
+  },
+  "after_separate_0_again": {
+    "colorSpaceInput": "Rec.709 Gamma 2.4",
+    "colorSpaceInputGamma": "",
+    "colorSpaceOutput": "Rec.709 (Scene)",
+    "colorSpaceOutputGamma": "Gamma 2.4",
+    "colorSpaceOutputGamutMapping": "None",
+    "colorSpaceOutputGamutSaturationKnee": "0.9",
+    "colorSpaceOutputGamutSaturationMax": "1",
+    "colorSpaceOutputToneLuminanceMax": "100",
+    "colorSpaceOutputToneMapping": "None",
+    "colorSpaceTimeline": "DaVinci WG/Intermediate",
+    "colorSpaceTimelineGamma": "DaVinci Intermediate"
+  },
+  "deprecated_SetSetting": {
+    "returned": true,
+    "GetSetting": "None"
+  },
+  "tries": [
+    {
+      "key": "colorScienceMode",
+      "wrote": "davinciYRGBColorManagedv2",
+      "returned": true,
+      "read": "davinciYRGBColorManagedv2",
+      "accepted": true
+    },
+    {
+      "key": "isAutoColorManage",
+      "wrote": "0",
+      "returned": true,
+      "read": "0",
+      "accepted": true
+    },
+    {
+      "key": "timelineWorkingLuminanceMode",
+      "wrote": "SDR 100",
+      "returned": true,
+      "read": "SDR 100",
+      "accepted": true
+    },
+    {
+      "key": "separateColorSpaceAndGamma",
+      "wrote": "0",
+      "returned": true,
+      "read": "0",
+      "accepted": true
+    },
+    {
+      "key": "colorSpaceTimeline",
+      "wrote": "DaVinci WG/Intermediate",
+      "returned": true,
+      "read": "DaVinci WG/Intermediate",
+      "accepted": true
+    },
+    {
+      "key": "colorSpaceTimeline",
+      "wrote": "DaVinci Wide Gamut Intermediate",
+      "returned": false,
+      "read": "DaVinci WG/Intermediate",
+      "accepted": false
+    },
+    {
+      "key": "colorSpaceTimeline",
+      "wrote": "DaVinci WG Intermediate",
+      "returned": false,
+      "read": "DaVinci WG/Intermediate",
+      "accepted": false
+    },
+    {
+      "key": "colorSpaceTimeline",
+      "wrote": "DaVinci Wide Gamut/DaVinci Intermediate",
+      "returned": false,
+      "read": "DaVinci WG/Intermediate",
+      "accepted": false
+    },
+    {
+      "key": "colorSpaceOutput",
+      "wrote": "Rec.709 Gamma 2.4",
+      "returned": true,
+      "read": "Rec.709 Gamma 2.4",
+      "accepted": true
+    },
+    {
+      "key": "colorSpaceOutput",
+      "wrote": "Rec.709 (Scene)",
+      "returned": true,
+      "read": "Rec.709 (Scene)",
+      "accepted": true
+    },
+    {
+      "key": "inputDRT",
+      "wrote": "DaVinci",
+      "returned": true,
+      "read": "DaVinci",
+      "accepted": true
+    },
+    {
+      "key": "inputDRT",
+      "wrote": "Luminance Mapping",
+      "returned": true,
+      "read": "Luminance Mapping",
+      "accepted": true
+    },
+    {
+      "key": "inputDRT",
+      "wrote": "None",
+      "returned": true,
+      "read": "None",
+      "accepted": true
+    },
+    {
+      "key": "outputDRT",
+      "wrote": "DaVinci",
+      "returned": true,
+      "read": "DaVinci",
+      "accepted": true
+    },
+    {
+      "key": "outputDRT",
+      "wrote": "None",
+      "returned": true,
+      "read": "None",
+      "accepted": true
+    },
+    {
+      "key": "separateColorSpaceAndGamma",
+      "wrote": "1",
+      "returned": true,
+      "read": "1",
+      "accepted": true
+    },
+    {
+      "key": "colorSpaceTimeline",
+      "wrote": "DaVinci WG",
+      "returned": true,
+      "read": "DaVinci WG",
+      "accepted": true
+    },
+    {
+      "key": "colorSpaceTimeline",
+      "wrote": "DaVinci Wide Gamut",
+      "returned": false,
+      "read": "DaVinci WG",
+      "accepted": false
+    },
+    {
+      "key": "colorSpaceTimelineGamma",
+      "wrote": "DaVinci Intermediate",
+      "returned": true,
+      "read": "DaVinci Intermediate",
+      "accepted": true
+    },
+    {
+      "key": "colorSpaceOutput",
+      "wrote": "Rec.709",
+      "returned": true,
+      "read": "Rec.709",
+      "accepted": true
+    },
+    {
+      "key": "colorSpaceOutputGamma",
+      "wrote": "Gamma 2.4",
+      "returned": true,
+      "read": "Gamma 2.4",
+      "accepted": true
+    },
+    {
+      "key": "colorSpaceOutputGamma",
+      "wrote": "Rec.709 Gamma 2.4",
+      "returned": false,
+      "read": "Gamma 2.4",
+      "accepted": false
+    },
+    {
+      "key": "separateColorSpaceAndGamma",
+      "wrote": "0",
+      "returned": true,
+      "read": "0",
+      "accepted": true
+    },
+    {
+      "key": "colorSpaceTimeline",
+      "wrote": "DaVinci WG/Intermediate",
+      "returned": true,
+      "read": "DaVinci WG/Intermediate",
+      "accepted": true
+    },
+    {
+      "key": "colorSpaceOutput",
+      "wrote": "Rec.709 Gamma 2.4",
+      "returned": true,
+      "read": "Rec.709 Gamma 2.4",
+      "accepted": true
+    },
+    {
+      "key": "inputDRT",
+      "wrote": "DaVinci",
+      "returned": true,
+      "read": "DaVinci",
+      "accepted": true
+    },
+    {
+      "key": "outputDRT",
+      "wrote": "DaVinci",
+      "returned": true,
+      "read": "DaVinci",
+      "accepted": true
+    }
+  ],
+  "final": {
+    "colorSpaceTimeline": "DaVinci WG/Intermediate",
+    "colorSpaceOutput": "Rec.709 Gamma 2.4",
+    "inputDRT": "DaVinci",
+    "outputDRT": "DaVinci"
+  },
+  "final_color_settings": {
+    "colorScienceMode": "davinciYRGBColorManagedv2",
+    "colorSpaceInput": "Rec.709 Gamma 2.4",
+    "colorSpaceInputGamma": "",
+    "colorSpaceOutput": "Rec.709 Gamma 2.4",
+    "colorSpaceOutputGamma": "Gamma 2.4",
+    "colorSpaceOutputGamutMapping": "None",
+    "colorSpaceOutputGamutSaturationKnee": "0.9",
+    "colorSpaceOutputGamutSaturationMax": "1",
+    "colorSpaceOutputToneLuminanceMax": "100",
+    "colorSpaceOutputToneMapping": "None",
+    "colorSpaceTimeline": "DaVinci WG/Intermediate",
+    "colorSpaceTimelineGamma": "DaVinci Intermediate",
+    "inputDRT": "DaVinci",
+    "inputDRTSatRolloffLimit": "10000",
+    "inputDRTSatRolloffStart": "100",
+    "isAutoColorManage": "0",
+    "outputDRT": "DaVinci",
+    "outputDRTSatRolloffLimit": "10000",
+    "outputDRTSatRolloffStart": "100",
+    "separateColorSpaceAndGamma": "0",
+    "timelineWorkingLuminance": "1000",
+    "timelineWorkingLuminanceMode": "SDR 100"
+  }
+}

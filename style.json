@@ -1,0 +1,46 @@
+{
+  "schema": "cf-style/1",
+  "name": "travel-walk-v1",
+  "status": "draft: defaults from research, not yet reviewed by the author",
+  "audience": "one person planning a city break who wants to feel the place before going",
+  "canvas": { "width": 1080, "height": 1920, "fps": 30 },
+  "safe_zone": {
+    "top": 269,
+    "bottom": 672,
+    "left": 65,
+    "right": 65,
+    "right_rail": { "width": 230, "from_y": 1150 },
+    "source": "Meta Ads Guide 14% / 35% / 6% as relayed in docs/research/02-overlays-and-motion-graphics/result-a.md Section D"
+  },
+  "typography": {
+    "display": { "family": "Playfair Display", "weight": 500, "size": 72, "case": "sentence", "file": null },
+    "body": { "family": "Inter", "weight": 500, "size": 44, "case": "sentence", "file": null },
+    "max_words_per_line": 5,
+    "max_lines": 2
+  },
+  "colors": {
+    "text": "#FFFFFF",
+    "text_shadow": "rgba(0,0,0,0.45)",
+    "accent": "#F2C14E",
+    "backdrop": "rgba(0,0,0,0.25)"
+  },
+  "overlay_positions": {
+    "hook": { "anchor": "center", "y": 760 },
+    "place": { "anchor": "top-left", "x": 90, "y": 340 },
+    "fact": { "anchor": "top-left", "x": 90, "y": 440 },
+    "line": { "anchor": "center", "y": 900 }
+  },
+  "animation": {
+    "in": { "type": "fade_slide_up", "frames": 12, "ease": "out-cubic", "distance_px": 24 },
+    "out": { "type": "fade", "frames": 8, "ease": "in-cubic" },
+    "min_hold_s": 2.0
+  },
+  "pacing": {
+    "shot_s": { "min": 1.5, "max": 3.0, "payoff_max": 5.0 },
+    "cut_lead_frames": 1,
+    "target_length_s": { "min": 45, "max": 60 }
+  },
+  "transitions": { "default": "cut", "scene_change": "dissolve", "dissolve_frames": 8 },
+  "look": { "drx": "looks/travel_v1.drx", "status": "not built yet; build by hand in Resolve once" },
+  "audio": { "ambience_db": -20, "target_lufs": -14, "true_peak_dbtp": -1 }
+}

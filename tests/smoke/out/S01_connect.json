@@ -1,0 +1,15 @@
+{
+  "result": "PASS",
+  "version_string": "21.1.1.10",
+  "version": [
+    21,
+    1,
+    1,
+    10,
+    ""
+  ],
+  "product_name": "DaVinci Resolve Studio",
+  "is_studio": true,
+  "project": "smoke-2026-10-10",
+  "page": "edit"
+}

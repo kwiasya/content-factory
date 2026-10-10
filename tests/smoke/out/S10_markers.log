@@ -1,0 +1,76 @@
+S10_markers: PASS
+{
+  "timeline_marker": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "agent note",
+    "name": "beat-3",
+    "customData": "{\"beat\": 3, \"shot\": \"IMG_1621#2\", \"note\": \"hook ends\", \"ünï\": \"ok\"}"
+  },
+  "timeline_markers_all": {
+    "45": {
+      "color": "Blue",
+      "duration": 1,
+      "note": "agent note",
+      "name": "beat-3",
+      "customData": "{\"beat\": 3, \"shot\": \"IMG_1621#2\", \"note\": \"hook ends\", \"ünï\": \"ok\"}"
+    }
+  },
+  "timeline_absolute_frame_attempt": true,
+  "timeline_markers_after_abs": [
+    45,
+    108060
+  ],
+  "timeline_GetMarkerByCustomData": {
+    "color": "Blue",
+    "duration": 1,
+    "note": "agent note",
+    "name": "beat-3",
+    "customData": "{\"beat\": 3, \"shot\": \"IMG_1621#2\", \"note\": \"hook ends\", \"ünï\": \"ok\"}"
+  },
+  "timeline_UpdateMarkerCustomData": true,
+  "timeline_GetMarkerCustomData": "{\"beat\": 4}",
+  "item_marker": {
+    "color": "Green",
+    "duration": 5,
+    "note": "sharp, stable",
+    "name": "shot-good",
+    "customData": "{\"beat\": 3, \"shot\": \"IMG_1621#2\", \"note\": \"hook ends\", \"ünï\": \"ok\"}"
+  },
+  "item_markers_all": {
+    "10": {
+      "color": "Green",
+      "duration": 5,
+      "note": "sharp, stable",
+      "name": "shot-good",
+      "customData": "{\"beat\": 3, \"shot\": \"IMG_1621#2\", \"note\": \"hook ends\", \"ünï\": \"ok\"}"
+    }
+  },
+  "item_source_frame_attempt": true,
+  "item_markers_after_src": [
+    10,
+    120
+  ],
+  "mediapool_clip_markers": {},
+  "item_left_offset": 100,
+  "item_clamp_probe": {
+    "add_2000": true,
+    "add_-5": true,
+    "keys": [
+      0,
+      10,
+      120,
+      1007
+    ]
+  },
+  "timeline_beyond_end": {
+    "add_5000": true,
+    "timeline_duration": 90,
+    "keys": [
+      45,
+      5000,
+      108060
+    ]
+  },
+  "json_roundtrip": true
+}

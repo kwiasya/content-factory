@@ -1,0 +1,1197 @@
+{
+  "result": "PASS",
+  "clips": [
+    [
+      108000,
+      108030
+    ],
+    [
+      108030,
+      108060
+    ],
+    [
+      108060,
+      108090
+    ],
+    [
+      108090,
+      108120
+    ],
+    [
+      108120,
+      108150
+    ],
+    [
+      108150,
+      108180
+    ],
+    [
+      108180,
+      108210
+    ],
+    [
+      108210,
+      108240
+    ],
+    [
+      108240,
+      108270
+    ],
+    [
+      108270,
+      108300
+    ],
+    [
+      108300,
+      108330
+    ],
+    [
+      108330,
+      108360
+    ],
+    [
+      108360,
+      108390
+    ],
+    [
+      108390,
+      108420
+    ],
+    [
+      108420,
+      108450
+    ],
+    [
+      108450,
+      108480
+    ],
+    [
+      108480,
+      108510
+    ],
+    [
+      108510,
+      108540
+    ],
+    [
+      108540,
+      108570
+    ],
+    [
+      108570,
+      108600
+    ],
+    [
+      108600,
+      108630
+    ],
+    [
+      108630,
+      108660
+    ],
+    [
+      108660,
+      108690
+    ],
+    [
+      108690,
+      108720
+    ],
+    [
+      108720,
+      108750
+    ],
+    [
+      108750,
+      108780
+    ],
+    [
+      108780,
+      108810
+    ],
+    [
+      108810,
+      108840
+    ],
+    [
+      108840,
+      108870
+    ],
+    [
+      108870,
+      108900
+    ],
+    [
+      108900,
+      108930
+    ],
+    [
+      108930,
+      108960
+    ],
+    [
+      108960,
+      108990
+    ],
+    [
+      108990,
+      109020
+    ]
+  ],
+  "trials": [
+    {
+      "opts": {
+        "type": "Cross Dissolve",
+        "position": "end"
+      },
+      "returned": false,
+      "clip_before": [
+        108000,
+        108030,
+        108030
+      ],
+      "clip_after": [
+        108000,
+        108030,
+        108030
+      ]
+    },
+    {
+      "opts": {
+        "type": "Cross Dissolve",
+        "position": "end",
+        "alignment": "center"
+      },
+      "returned": false,
+      "clip_before": [
+        108030,
+        108060,
+        108060
+      ],
+      "clip_after": [
+        108030,
+        108060,
+        108060
+      ]
+    },
+    {
+      "opts": {
+        "type": "Cross Dissolve",
+        "position": "end",
+        "alignment": "center",
+        "duration": 10
+      },
+      "returned": false,
+      "clip_before": [
+        108060,
+        108090,
+        108090
+      ],
+      "clip_after": [
+        108060,
+        108090,
+        108090
+      ]
+    },
+    {
+      "opts": {
+        "type": "Cross Dissolve",
+        "position": "end",
+        "alignment": "left",
+        "category": "simple"
+      },
+      "returned": true,
+      "clip_before": [
+        108090,
+        108120,
+        108120
+      ],
+      "clip_after": [
+        108090,
+        108120,
+        108120
+      ],
+      "tr_type": "transition",
+      "tr_name": "Cross Dissolve",
+      "tr_start": 108090,
+      "tr_end": 108120,
+      "tr_track": [
+        "video",
+        1
+      ]
+    },
+    {
+      "opts": {
+        "type": "Dip To Color Dissolve",
+        "position": "end",
+        "alignment": "center"
+      },
+      "returned": false,
+      "clip_before": [
+        108120,
+        108150,
+        108150
+      ],
+      "clip_after": [
+        108120,
+        108150,
+        108150
+      ]
+    },
+    {
+      "opts": {
+        "type": "Dip To Color Dissolve",
+        "position": "end"
+      },
+      "returned": false,
+      "clip_before": [
+        108150,
+        108180,
+        108180
+      ],
+      "clip_after": [
+        108150,
+        108180,
+        108180
+      ]
+    },
+    {
+      "opts": {
+        "type": "Smooth Cut",
+        "position": "end",
+        "alignment": "center"
+      },
+      "returned": false,
+      "clip_before": [
+        108180,
+        108210,
+        108210
+      ],
+      "clip_after": [
+        108180,
+        108210,
+        108210
+      ]
+    },
+    {
+      "opts": {
+        "type": "Smooth Cut",
+        "position": "end"
+      },
+      "returned": false,
+      "clip_before": [
+        108210,
+        108240,
+        108240
+      ],
+      "clip_after": [
+        108210,
+        108240,
+        108240
+      ]
+    },
+    {
+      "opts": {
+        "type": "Fade",
+        "position": "end",
+        "alignment": "center"
+      },
+      "returned": false,
+      "clip_before": [
+        108240,
+        108270,
+        108270
+      ],
+      "clip_after": [
+        108240,
+        108270,
+        108270
+      ]
+    },
+    {
+      "opts": {
+        "type": "Dip to Color Dissolve",
+        "position": "end",
+        "alignment": "center"
+      },
+      "returned": false,
+      "clip_before": [
+        108270,
+        108300,
+        108300
+      ],
+      "clip_after": [
+        108270,
+        108300,
+        108300
+      ]
+    },
+    {
+      "opts": {
+        "type": "Additive Dissolve",
+        "position": "end",
+        "alignment": "center"
+      },
+      "returned": false,
+      "clip_before": [
+        108300,
+        108330,
+        108330
+      ],
+      "clip_after": [
+        108300,
+        108330,
+        108330
+      ]
+    },
+    {
+      "opts": {
+        "type": "Blur Dissolve",
+        "position": "end",
+        "alignment": "center"
+      },
+      "returned": false,
+      "clip_before": [
+        108330,
+        108360,
+        108360
+      ],
+      "clip_after": [
+        108330,
+        108360,
+        108360
+      ]
+    },
+    {
+      "opts": {
+        "type": "Non-Additive Dissolve",
+        "position": "end",
+        "alignment": "center"
+      },
+      "returned": false,
+      "clip_before": [
+        108360,
+        108390,
+        108390
+      ],
+      "clip_after": [
+        108360,
+        108390,
+        108390
+      ]
+    },
+    {
+      "opts": {
+        "type": "Cross Dissolve",
+        "category": "simple",
+        "position": "end"
+      },
+      "returned": false,
+      "clip_before": [
+        108390,
+        108420,
+        108420
+      ],
+      "clip_after": [
+        108390,
+        108420,
+        108420
+      ]
+    },
+    {
+      "opts": {
+        "type": "Cross Dissolve",
+        "category": "simple",
+        "position": "end",
+        "duration": 10
+      },
+      "returned": false,
+      "clip_before": [
+        108420,
+        108450,
+        108450
+      ],
+      "clip_after": [
+        108420,
+        108450,
+        108450
+      ]
+    },
+    {
+      "opts": {
+        "type": "Smooth Cut",
+        "category": "simple",
+        "position": "end",
+        "duration": 4
+      },
+      "returned": false,
+      "clip_before": [
+        108450,
+        108480,
+        108480
+      ],
+      "clip_after": [
+        108450,
+        108480,
+        108480
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Cross Dissolve",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Cross Dissolve",
+        "position": "end"
+      },
+      "tr_name": "Cross Dissolve",
+      "tr_start": 108505,
+      "tr_end": 108515,
+      "clip_after": [
+        108480,
+        108510,
+        108510
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Cross Dissolve",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Cross Dissolve",
+        "position": "end",
+        "alignment": "center"
+      },
+      "tr_name": "Cross Dissolve",
+      "tr_start": 108535,
+      "tr_end": 108545,
+      "clip_after": [
+        108510,
+        108540,
+        108540
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Cross Dissolve",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Cross Dissolve",
+        "position": "end",
+        "alignment": "center",
+        "duration": 10
+      },
+      "tr_name": "Cross Dissolve",
+      "tr_start": 108565,
+      "tr_end": 108575,
+      "clip_after": [
+        108540,
+        108570,
+        108570
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Dip To Color Dissolve",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Dip To Color Dissolve",
+        "position": "end",
+        "alignment": "center"
+      },
+      "tr_name": "Dip To Color Dissolve",
+      "tr_start": 108595,
+      "tr_end": 108605,
+      "clip_after": [
+        108570,
+        108600,
+        108600
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Dip To Color Dissolve",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Dip To Color Dissolve",
+        "position": "end"
+      },
+      "tr_name": "Dip To Color Dissolve",
+      "tr_start": 108625,
+      "tr_end": 108635,
+      "clip_after": [
+        108600,
+        108630,
+        108630
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Smooth Cut",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Smooth Cut",
+        "position": "end",
+        "alignment": "center"
+      },
+      "tr_name": "Smooth Cut",
+      "tr_start": 108655,
+      "tr_end": 108665,
+      "clip_after": [
+        108630,
+        108660,
+        108660
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Smooth Cut",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Smooth Cut",
+        "position": "end"
+      },
+      "tr_name": "Smooth Cut",
+      "tr_start": 108685,
+      "tr_end": 108695,
+      "clip_after": [
+        108660,
+        108690,
+        108690
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Fade",
+        "position": "end"
+      },
+      "returned": false,
+      "retry_of": {
+        "type": "Fade",
+        "position": "end",
+        "alignment": "center"
+      }
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Dip to Color Dissolve",
+        "position": "end"
+      },
+      "returned": false,
+      "retry_of": {
+        "type": "Dip to Color Dissolve",
+        "position": "end",
+        "alignment": "center"
+      }
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Additive Dissolve",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Additive Dissolve",
+        "position": "end",
+        "alignment": "center"
+      },
+      "tr_name": "Additive Dissolve",
+      "tr_start": 108775,
+      "tr_end": 108785,
+      "clip_after": [
+        108750,
+        108780,
+        108780
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Blur Dissolve",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Blur Dissolve",
+        "position": "end",
+        "alignment": "center"
+      },
+      "tr_name": "Blur Dissolve",
+      "tr_start": 108805,
+      "tr_end": 108815,
+      "clip_after": [
+        108780,
+        108810,
+        108810
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Non-Additive Dissolve",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Non-Additive Dissolve",
+        "position": "end",
+        "alignment": "center"
+      },
+      "tr_name": "Non-Additive Dissolve",
+      "tr_start": 108835,
+      "tr_end": 108845,
+      "clip_after": [
+        108810,
+        108840,
+        108840
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Cross Dissolve",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Cross Dissolve",
+        "category": "simple",
+        "position": "end"
+      },
+      "tr_name": "Cross Dissolve",
+      "tr_start": 108865,
+      "tr_end": 108875,
+      "clip_after": [
+        108840,
+        108870,
+        108870
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 10,
+        "type": "Cross Dissolve",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Cross Dissolve",
+        "category": "simple",
+        "position": "end",
+        "duration": 10
+      },
+      "tr_name": "Cross Dissolve",
+      "tr_start": 108895,
+      "tr_end": 108905,
+      "clip_after": [
+        108870,
+        108900,
+        108900
+      ]
+    },
+    {
+      "opts": {
+        "category": "simple",
+        "alignment": "center",
+        "duration": 4,
+        "type": "Smooth Cut",
+        "position": "end"
+      },
+      "returned": true,
+      "retry_of": {
+        "type": "Smooth Cut",
+        "category": "simple",
+        "position": "end",
+        "duration": 4
+      },
+      "tr_name": "Smooth Cut",
+      "tr_start": 108928,
+      "tr_end": 108932,
+      "clip_after": [
+        108900,
+        108930,
+        108930
+      ]
+    },
+    {
+      "opts": {
+        "type": "Cross Dissolve",
+        "category": "simple",
+        "position": "start",
+        "alignment": "right",
+        "duration": 10,
+        "clip": 0
+      },
+      "returned": true,
+      "tr_start": 108000,
+      "tr_end": 108010
+    }
+  ],
+  "v1_after": [
+    [
+      "transition",
+      "Cross Dissolve",
+      108000,
+      108010
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108000,
+      108030
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108030,
+      108060
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108060,
+      108090
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108090,
+      108120
+    ],
+    [
+      "transition",
+      "Cross Dissolve",
+      108090,
+      108120
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108120,
+      108150
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108150,
+      108180
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108180,
+      108210
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108210,
+      108240
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108240,
+      108270
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108270,
+      108300
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108300,
+      108330
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108330,
+      108360
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108360,
+      108390
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108390,
+      108420
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108420,
+      108450
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108450,
+      108480
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108480,
+      108510
+    ],
+    [
+      "transition",
+      "Cross Dissolve",
+      108505,
+      108515
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108510,
+      108540
+    ],
+    [
+      "transition",
+      "Cross Dissolve",
+      108535,
+      108545
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108540,
+      108570
+    ],
+    [
+      "transition",
+      "Cross Dissolve",
+      108565,
+      108575
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108570,
+      108600
+    ],
+    [
+      "transition",
+      "Dip To Color Dissolve",
+      108595,
+      108605
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108600,
+      108630
+    ],
+    [
+      "transition",
+      "Dip To Color Dissolve",
+      108625,
+      108635
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108630,
+      108660
+    ],
+    [
+      "transition",
+      "Smooth Cut",
+      108655,
+      108665
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108660,
+      108690
+    ],
+    [
+      "transition",
+      "Smooth Cut",
+      108685,
+      108695
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108690,
+      108720
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108720,
+      108750
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108750,
+      108780
+    ],
+    [
+      "transition",
+      "Additive Dissolve",
+      108775,
+      108785
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108780,
+      108810
+    ],
+    [
+      "transition",
+      "Blur Dissolve",
+      108805,
+      108815
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108810,
+      108840
+    ],
+    [
+      "transition",
+      "Non-Additive Dissolve",
+      108835,
+      108845
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108840,
+      108870
+    ],
+    [
+      "transition",
+      "Cross Dissolve",
+      108865,
+      108875
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108870,
+      108900
+    ],
+    [
+      "transition",
+      "Cross Dissolve",
+      108895,
+      108905
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108900,
+      108930
+    ],
+    [
+      "transition",
+      "Smooth Cut",
+      108928,
+      108932
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108930,
+      108960
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108960,
+      108990
+    ],
+    [
+      "video",
+      "IMG_1621.mov",
+      108990,
+      109020
+    ]
+  ],
+  "accepted_types": [
+    "Additive Dissolve",
+    "Blur Dissolve",
+    "Cross Dissolve",
+    "Dip To Color Dissolve",
+    "Non-Additive Dissolve",
+    "Smooth Cut"
+  ],
+  "rejected_types": [
+    "Dip to Color Dissolve",
+    "Fade"
+  ],
+  "working_option_sets": [
+    {
+      "type": "Cross Dissolve",
+      "position": "end",
+      "alignment": "left",
+      "category": "simple"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Cross Dissolve",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Cross Dissolve",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Cross Dissolve",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Dip To Color Dissolve",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Dip To Color Dissolve",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Smooth Cut",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Smooth Cut",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Additive Dissolve",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Blur Dissolve",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Non-Additive Dissolve",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Cross Dissolve",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 10,
+      "type": "Cross Dissolve",
+      "position": "end"
+    },
+    {
+      "category": "simple",
+      "alignment": "center",
+      "duration": 4,
+      "type": "Smooth Cut",
+      "position": "end"
+    },
+    {
+      "type": "Cross Dissolve",
+      "category": "simple",
+      "position": "start",
+      "alignment": "right",
+      "duration": 10,
+      "clip": 0
+    }
+  ]
+}

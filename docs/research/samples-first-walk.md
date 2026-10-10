@@ -26,3 +26,25 @@
 - Smoke-тест S6 (Input Color Space) запускать сразу на этих файлах: `Rec.2100 HLG (Scene)` для 13 клипов, `Rec.709 Gamma 2.4` для IMG_1621.
 - В ingest добавить поле `pixel_range` (tv/pc) и `rotation`.
 - Первый Reel собирается из этой папки: `~/Movies/content-factory/potsdam-2026-10-04/raw/` (копия или симлинк на исходники, решить при ingest).
+
+## Ingest run 2026-10-10
+
+Walk: `~/Movies/content-factory/potsdam-2026-10-04/` (`raw/`, `proxy/`, `shotlog/`, `reels/`). 14 клипов скопированы в `raw/` (`cp -p`, оригиналы не тронуты, `.aae` не копировался). Манифест: `clip_manifest.json` (`schema: cf-manifest/1`), команды `python -m cf.probe raw/` и `python -m cf.proxy clip_manifest.json proxy/`.
+
+**Манифест.** Все 14 клипов `confidence: high`, вопросов к человеку нет.
+
+| Профиль | Клипы | Resolve Input Color Space | source_field |
+|---|---|---|---|
+| `iphone_hlg_dv` | 13 (все iPhone 16 Pro) | `Rec.2100 HLG (Scene)` | `color_transfer=arib-std-b67` + `color_primaries=bt2020`, DOVI 8 / compat 4 |
+| `rec709` | IMG_1621 (iPhone 15 Pro Max) | `Rec.709 Gamma 2.4` | все три поля `bt709`, без DOVI |
+
+Поворот: 11 клипов `-90`, три клипа `+90` (IMG_0386, IMG_0405, IMG_0415; вероятно, фронтальная камера: IMG_0386 явно селфи). После autorotate все прокси вертикальные и стоят правильно.
+
+**Прокси.** 14 из 14 сделаны полной цепочкой (zscale + `tonemap=hable`), approx-прокси нет. К моменту запуска полный ffmpeg уже стоял как keg-only `ffmpeg-full` (`/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg`, не в PATH); `cf.proxy` находит его сам (порядок: `$CF_FFMPEG`, ffmpeg-full, ffmpeg из PATH). Approx-ветка проверена отдельно на IMG_0332 во временной папке и выглядит пересвеченной, но смотрибельной. Все прокси 540×960 H.264 (VideoToolbox), теги bt709/tv, число кадров совпадает с исходником. Вся прогулка заняла 74 с, 3–14 с на клип, с декодом через `-hwaccel videotoolbox`.
+
+**Что удивило.**
+- **VFR по порогу 0,5% не срабатывает ни на одном клипе.** `avg_frame_rate` отличается от `r_frame_rate` на 0,05% и меньше (59,97 против 60). Это дрожание таймстемпов, а не настоящий VFR. Брать время из PTS всё равно правильно. IMG_0457 записан в 59,94 (`60000/1001`), а не в 60.
+- **IMG_1621 снят в режиме Cinematic** (`Keys:Cinematic-video-intent=1`). Отсюда 4K30. Его `QuickTime:CreateDate` (17:22:28 UTC) не совпадает с `Keys:CreationDate` (17:39:44+02:00, то есть 15:39 UTC): видимо, файл пересохранили на телефоне. Поэтому fallback на `QuickTime:CreateDate` может врать, а `Keys:CreationDate` надёжнее.
+- **GPS есть только у IMG_1621.** У iPhone 16 Pro геотеги в видео выключены, так что место прогулки определяется по одному клипу.
+- Прокси наследуют side data `Ambient viewing environment` от исходника. Это безвредно.
+- Строки Resolve для DJI (`DJI D-Gamut / DJI D-Log`, `DJI D-Gamut2 / D-Log2`) взяты из Table A как есть, по живому выпадающему списку не проверены (S6).

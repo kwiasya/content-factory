@@ -1,2 +1,9 @@
 .venv/
 .DS_Store
+__pycache__/
+*.egg-info/
+tools/vision-score/.build/
+
+# Remotion overlays
+overlays/node_modules/
+overlays/out/

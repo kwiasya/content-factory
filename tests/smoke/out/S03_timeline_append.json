@@ -1,0 +1,228 @@
+{
+  "result": "PASS",
+  "clips": {
+    "IMG_0332.MOV": {
+      "FPS": 60.0,
+      "Resolution": "1080x1920",
+      "Frames": "786",
+      "Input Color Space": "Rec.2100 HLG",
+      "Video Codec": "H.265 Main 10 L4.1",
+      "Type": "Video + Audio"
+    },
+    "IMG_1621.mov": {
+      "FPS": 30.0,
+      "Resolution": "2160x3840",
+      "Frames": "1008",
+      "Input Color Space": "Rec.709 (Scene)",
+      "Video Codec": "H.265 Main L5.0",
+      "Type": "Video + Audio"
+    }
+  },
+  "project_level": {
+    "timelineResolutionWidth": {
+      "returned": true,
+      "read": "1080"
+    },
+    "timelineResolutionHeight": {
+      "returned": true,
+      "read": "1920"
+    },
+    "timelineFrameRate": {
+      "returned": true,
+      "read": 30.0
+    }
+  },
+  "timeline_settings": {
+    "useCustomSettings": "1",
+    "timelineResolutionWidth": "1080",
+    "timelineResolutionHeight": "1920",
+    "timelineFrameRate": 30.0
+  },
+  "timeline_start_frame": 108000,
+  "timeline_start_tc": "01:00:00:00",
+  "tracks_before": {
+    "video": 1,
+    "audio": 1
+  },
+  "AddTrack_video": true,
+  "returned_count": 3,
+  "items": [
+    {
+      "name": "IMG_1621.mov",
+      "type": "video",
+      "track": [
+        "video",
+        1
+      ],
+      "start": 108000,
+      "end": 108089,
+      "duration": 89,
+      "src_start": 0,
+      "src_end": 89
+    },
+    {
+      "name": "IMG_0332.MOV",
+      "type": "video",
+      "track": [
+        "video",
+        1
+      ],
+      "start": 108090,
+      "end": 108149,
+      "duration": 59,
+      "src_start": 0,
+      "src_end": 118
+    },
+    {
+      "name": "IMG_0332.MOV",
+      "type": "video",
+      "track": [
+        "video",
+        2
+      ],
+      "start": 108045,
+      "end": 108074,
+      "duration": 29,
+      "src_start": 200,
+      "src_end": 258
+    }
+  ],
+  "tracks_after": {
+    "video": 2,
+    "audio": 5
+  },
+  "track_contents": {
+    "video1": [
+      {
+        "name": "IMG_1621.mov",
+        "type": "video",
+        "track": [
+          "video",
+          1
+        ],
+        "start": 108000,
+        "end": 108089,
+        "duration": 89,
+        "src_start": 0,
+        "src_end": 89
+      },
+      {
+        "name": "IMG_0332.MOV",
+        "type": "video",
+        "track": [
+          "video",
+          1
+        ],
+        "start": 108090,
+        "end": 108149,
+        "duration": 59,
+        "src_start": 0,
+        "src_end": 118
+      }
+    ],
+    "video2": [
+      {
+        "name": "IMG_0332.MOV",
+        "type": "video",
+        "track": [
+          "video",
+          2
+        ],
+        "start": 108045,
+        "end": 108074,
+        "duration": 29,
+        "src_start": 200,
+        "src_end": 258
+      }
+    ],
+    "audio1": [
+      {
+        "name": "IMG_1621.mov",
+        "type": "audio",
+        "track": [
+          "audio",
+          1
+        ],
+        "start": 108000,
+        "end": 108089,
+        "duration": 89,
+        "src_start": 0,
+        "src_end": 89
+      },
+      {
+        "name": "IMG_0332.MOV",
+        "type": "audio",
+        "track": [
+          "audio",
+          1
+        ],
+        "start": 108090,
+        "end": 108149,
+        "duration": 59,
+        "src_start": 0,
+        "src_end": 118
+      }
+    ],
+    "audio2": [
+      {
+        "name": "IMG_0332.MOV",
+        "type": "audio",
+        "track": [
+          "audio",
+          2
+        ],
+        "start": 108090,
+        "end": 108149,
+        "duration": 59,
+        "src_start": 0,
+        "src_end": 118
+      }
+    ],
+    "audio3": [
+      {
+        "name": "IMG_0332.MOV",
+        "type": "audio",
+        "track": [
+          "audio",
+          3
+        ],
+        "start": 108090,
+        "end": 108149,
+        "duration": 59,
+        "src_start": 0,
+        "src_end": 118
+      }
+    ],
+    "audio4": [
+      {
+        "name": "IMG_0332.MOV",
+        "type": "audio",
+        "track": [
+          "audio",
+          4
+        ],
+        "start": 108090,
+        "end": 108149,
+        "duration": 59,
+        "src_start": 0,
+        "src_end": 118
+      }
+    ],
+    "audio5": [
+      {
+        "name": "IMG_0332.MOV",
+        "type": "audio",
+        "track": [
+          "audio",
+          5
+        ],
+        "start": 108090,
+        "end": 108149,
+        "duration": 59,
+        "src_start": 0,
+        "src_end": 118
+      }
+    ]
+  },
+  "timeline_end_frame": 108149
+}

@@ -1,0 +1,377 @@
+S06_clip_color_space: PASS
+{
+  "detected": {
+    "hlg": {
+      "Input Color Space": "Rec.2100 HLG",
+      "Input Gamma": "Rec.2100 HLG",
+      "Input LUT": "",
+      "IDT": ""
+    },
+    "sdr": {
+      "Input Color Space": "Rec.709 (Scene)",
+      "Input Gamma": "Rec.709",
+      "Input LUT": "",
+      "IDT": ""
+    }
+  },
+  "project_separate_before": "0",
+  "combined": {
+    "hlg": [
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.2100 HLG (Scene)",
+        "returned": true,
+        "read": "Rec.2100 HLG (Scene)",
+        "accepted": true
+      },
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.2020 HLG ARIB STD-B67",
+        "returned": true,
+        "read": "Rec.2020 HLG ARIB STD-B67",
+        "accepted": true
+      },
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.2100 HLG",
+        "returned": true,
+        "read": "Rec.2100 HLG",
+        "accepted": true
+      },
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.2020 HLG",
+        "returned": false,
+        "read": "Rec.2100 HLG",
+        "accepted": false
+      },
+      {
+        "key": "Input Color Space",
+        "wrote": "Apple Log",
+        "returned": true,
+        "read": "Apple Log",
+        "accepted": true
+      },
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.709 Gamma 2.4",
+        "returned": true,
+        "read": "Rec.709 Gamma 2.4",
+        "accepted": true
+      }
+    ],
+    "sdr": [
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.709 Gamma 2.4",
+        "returned": true,
+        "read": "Rec.709 Gamma 2.4",
+        "accepted": true
+      },
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.709-A",
+        "returned": true,
+        "read": "Rec.709-A",
+        "accepted": true
+      },
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.709 (Scene)",
+        "returned": true,
+        "read": "Rec.709 (Scene)",
+        "accepted": true
+      },
+      {
+        "key": "Input Color Space",
+        "wrote": "sRGB",
+        "returned": true,
+        "read": "sRGB",
+        "accepted": true
+      },
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.709",
+        "returned": false,
+        "read": "sRGB",
+        "accepted": false
+      }
+    ]
+  },
+  "after_separate_1": {
+    "hlg": {
+      "Input Color Space": "Rec.709 (Scene)",
+      "Input Gamma": "Gamma 2.4",
+      "Input LUT": "",
+      "IDT": ""
+    },
+    "sdr": {
+      "Input Color Space": "sRGB",
+      "Input Gamma": "sRGB",
+      "Input LUT": "",
+      "IDT": ""
+    }
+  },
+  "separate": {
+    "hlg_cs": [
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.2020",
+        "returned": true,
+        "read": "Rec.2020 (Scene)",
+        "accepted": false
+      },
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.709",
+        "returned": true,
+        "read": "Rec.709 (Scene)",
+        "accepted": false
+      },
+      {
+        "key": "Input Color Space",
+        "wrote": "Rec.2100",
+        "returned": false,
+        "read": "Rec.709 (Scene)",
+        "accepted": false
+      }
+    ],
+    "hlg_gamma": [
+      {
+        "key": "Input Gamma",
+        "wrote": "Rec.2100 HLG",
+        "returned": false,
+        "read": "Gamma 2.4",
+        "accepted": false
+      },
+      {
+        "key": "Input Gamma",
+        "wrote": "Gamma 2.4",
+        "returned": false,
+        "read": "Gamma 2.4",
+        "accepted": true
+      },
+      {
+        "key": "Input Gamma",
+        "wrote": "Rec.709",
+        "returned": false,
+        "read": "Gamma 2.4",
+        "accepted": false
+      },
+      {
+        "key": "Input Gamma",
+        "wrote": "Rec.2100 ST2084",
+        "returned": false,
+        "read": "Gamma 2.4",
+        "accepted": false
+      },
+      {
+        "key": "Input Gamma",
+        "wrote": "Gamma 2.4 (Scene)",
+        "returned": false,
+        "read": "Gamma 2.4",
+        "accepted": false
+      }
+    ],
+    "sdr_gamma": [
+      {
+        "key": "Input Gamma",
+        "wrote": "Rec.2100 HLG",
+        "returned": false,
+        "read": "sRGB",
+        "accepted": false
+      },
+      {
+        "key": "Input Gamma",
+        "wrote": "Gamma 2.4",
+        "returned": false,
+        "read": "sRGB",
+        "accepted": false
+      },
+      {
+        "key": "Input Gamma",
+        "wrote": "Rec.709",
+        "returned": false,
+        "read": "sRGB",
+        "accepted": false
+      },
+      {
+        "key": "Input Gamma",
+        "wrote": "Rec.2100 ST2084",
+        "returned": false,
+        "read": "sRGB",
+        "accepted": false
+      },
+      {
+        "key": "Input Gamma",
+        "wrote": "Gamma 2.4 (Scene)",
+        "returned": false,
+        "read": "sRGB",
+        "accepted": false
+      }
+    ]
+  },
+  "separate_state": {
+    "hlg": {
+      "Input Color Space": "Rec.709 (Scene)",
+      "Input Gamma": "Gamma 2.4",
+      "Input LUT": "",
+      "IDT": ""
+    },
+    "sdr": {
+      "Input Color Space": "sRGB",
+      "Input Gamma": "sRGB",
+      "Input LUT": "",
+      "IDT": ""
+    }
+  },
+  "separate_retry": [
+    {
+      "key": "Input Color Space",
+      "wrote": "Rec.2020 (Scene)",
+      "returned": false,
+      "read": "Rec.709 (Scene)",
+      "accepted": false
+    },
+    {
+      "key": "Input Gamma",
+      "wrote": "Rec.2100 HLG",
+      "returned": false,
+      "read": "Gamma 2.4",
+      "accepted": false
+    },
+    {
+      "key": "Input Gamma",
+      "wrote": "Rec.2100 HLG (Scene)",
+      "returned": false,
+      "read": "Gamma 2.4",
+      "accepted": false
+    },
+    {
+      "key": "Input Gamma",
+      "wrote": "ARIB STD-B67 HLG",
+      "returned": false,
+      "read": "Gamma 2.4",
+      "accepted": false
+    },
+    {
+      "key": "Input Gamma",
+      "wrote": "Linear",
+      "returned": false,
+      "read": "Gamma 2.4",
+      "accepted": false
+    },
+    {
+      "key": "Input Gamma",
+      "wrote": "Gamma 2.2",
+      "returned": false,
+      "read": "Gamma 2.4",
+      "accepted": false
+    },
+    {
+      "key": "Input Gamma",
+      "wrote": "sRGB",
+      "returned": false,
+      "read": "Gamma 2.4",
+      "accepted": false
+    },
+    {
+      "key": "Input Gamma",
+      "wrote": "Rec.709",
+      "returned": false,
+      "read": "Gamma 2.4",
+      "accepted": false
+    }
+  ],
+  "input_lut": [
+    {
+      "key": "Input LUT",
+      "wrote": "DJI/DJI_X7_DLOG2Rec709.cube",
+      "returned": false,
+      "read": "",
+      "accepted": false
+    },
+    {
+      "key": "Input LUT",
+      "wrote": "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/DJI/DJI_X7_DLOG2Rec709.cube",
+      "returned": false,
+      "read": "",
+      "accepted": false
+    }
+  ],
+  "RefreshLUTList": true,
+  "input_lut_retry": [
+    {
+      "key": "Input LUT",
+      "wrote": "DJI/DJI_X7_DLOG2Rec709.cube",
+      "returned": false,
+      "read": "",
+      "accepted": false
+    },
+    {
+      "key": "Input LUT",
+      "wrote": "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/DJI/DJI_X7_DLOG2Rec709.cube",
+      "returned": false,
+      "read": "",
+      "accepted": false
+    }
+  ],
+  "input_lut_clear": {
+    "key": "Input LUT",
+    "wrote": "",
+    "returned": false,
+    "read": "",
+    "accepted": true
+  },
+  "final": {
+    "hlg": {
+      "Input Color Space": "Rec.2100 HLG",
+      "Input Gamma": "Gamma 2.4",
+      "Input LUT": "",
+      "IDT": ""
+    },
+    "sdr": {
+      "Input Color Space": "Rec.709 (Scene)",
+      "Input Gamma": "sRGB",
+      "Input LUT": "",
+      "IDT": ""
+    }
+  },
+  "final_after_rewrite": {
+    "hlg": {
+      "Input Color Space": "Rec.2100 HLG",
+      "Input Gamma": "Gamma 2.4",
+      "Input LUT": "",
+      "IDT": ""
+    },
+    "sdr": {
+      "Input Color Space": "Rec.709 (Scene)",
+      "Input Gamma": "sRGB",
+      "Input LUT": "",
+      "IDT": ""
+    }
+  },
+  "accepted": {
+    "hlg_combined": [
+      "Rec.2100 HLG (Scene)",
+      "Rec.2020 HLG ARIB STD-B67",
+      "Rec.2100 HLG",
+      "Apple Log",
+      "Rec.709 Gamma 2.4"
+    ],
+    "sdr_combined": [
+      "Rec.709 Gamma 2.4",
+      "Rec.709-A",
+      "Rec.709 (Scene)",
+      "sRGB"
+    ],
+    "separate_cs": [],
+    "separate_gamma_hlg": [
+      "Gamma 2.4"
+    ],
+    "separate_gamma_sdr": [],
+    "input_lut": [],
+    "separate_retry": [],
+    "input_lut_retry": []
+  }
+}

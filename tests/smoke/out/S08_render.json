@@ -1,0 +1,167 @@
+{
+  "result": "PASS",
+  "codecs_mp4": {
+    "H.264": "H264",
+    "H.265": "H265",
+    "YUV 422 10-bit": "APVYUV422_10"
+  },
+  "SetCurrentRenderMode_single": true,
+  "page_after_SetCurrentRenderMode": "deliver",
+  "SetCurrentRenderFormatAndCodec": true,
+  "GetCurrentRenderFormatAndCodec": {
+    "format": "mp4",
+    "codec": "H264"
+  },
+  "bogus_tag_returned": false,
+  "bogus_key_returned": false,
+  "renders": [
+    {
+      "ColorSpaceTag": "Rec.709",
+      "GammaTag": "Rec.709-A",
+      "tag_returned": true,
+      "status": {
+        "JobStatus": "Complete",
+        "CompletionPercentage": 100,
+        "TimeTakenToRenderInMs": 2153,
+        "JobId": "799c0650-22eb-47ef-abcd-c612aceaae1b"
+      },
+      "file": "/Users/anastasiiahlushchenko/Movies/content-factory/smoke/s08_Rec709_Rec709-A.mp4",
+      "ffprobe": {
+        "codec_name": "h264",
+        "profile": "High",
+        "width": 1080,
+        "height": 1920,
+        "pix_fmt": "yuv420p",
+        "color_range": "tv",
+        "color_space": "bt709",
+        "color_transfer": "bt709",
+        "color_primaries": "bt709",
+        "r_frame_rate": "30/1",
+        "nb_frames": "90",
+        "duration": "3.072000"
+      }
+    },
+    {
+      "ColorSpaceTag": "Same as Project",
+      "GammaTag": "Same as Project",
+      "tag_returned": true,
+      "status": {
+        "JobStatus": "Complete",
+        "CompletionPercentage": 100,
+        "TimeTakenToRenderInMs": 2140,
+        "JobId": "21c710ed-07de-4bfb-95ac-8f99c7f97cb6"
+      },
+      "file": "/Users/anastasiiahlushchenko/Movies/content-factory/smoke/s08_Same_as_Project_Same_as_Project.mp4",
+      "ffprobe": {
+        "codec_name": "h264",
+        "profile": "High",
+        "width": 1080,
+        "height": 1920,
+        "pix_fmt": "yuv420p",
+        "color_range": "tv",
+        "color_space": "bt709",
+        "color_primaries": "bt709",
+        "r_frame_rate": "30/1",
+        "nb_frames": "90",
+        "duration": "3.072000"
+      }
+    },
+    {
+      "ColorSpaceTag": "Rec.709",
+      "GammaTag": "Gamma 2.4",
+      "tag_returned": true,
+      "status": {
+        "JobStatus": "Complete",
+        "CompletionPercentage": 100,
+        "TimeTakenToRenderInMs": 1752,
+        "JobId": "d01f9aa7-1f84-4007-993c-ab491f737666"
+      },
+      "file": "/Users/anastasiiahlushchenko/Movies/content-factory/smoke/s08_Rec709_Gamma_24.mp4",
+      "ffprobe": {
+        "codec_name": "h264",
+        "profile": "High",
+        "width": 1080,
+        "height": 1920,
+        "pix_fmt": "yuv420p",
+        "color_range": "tv",
+        "color_space": "bt709",
+        "color_primaries": "bt709",
+        "r_frame_rate": "30/1",
+        "nb_frames": "90",
+        "duration": "3.072000"
+      }
+    },
+    {
+      "ColorSpaceTag": "Rec.709",
+      "GammaTag": "Rec.709",
+      "tag_returned": true,
+      "status": {
+        "JobStatus": "Complete",
+        "CompletionPercentage": 100,
+        "TimeTakenToRenderInMs": 2149,
+        "JobId": "ebb50984-b800-430a-a949-307c37b21d4c"
+      },
+      "file": "/Users/anastasiiahlushchenko/Movies/content-factory/smoke/s08_Rec709_Rec709.mp4",
+      "ffprobe": {
+        "codec_name": "h264",
+        "profile": "High",
+        "width": 1080,
+        "height": 1920,
+        "pix_fmt": "yuv420p",
+        "color_range": "tv",
+        "color_space": "bt709",
+        "color_transfer": "bt709",
+        "color_primaries": "bt709",
+        "r_frame_rate": "30/1",
+        "nb_frames": "90",
+        "duration": "3.072000"
+      }
+    },
+    {
+      "ColorSpaceTag": "Rec.709-A",
+      "GammaTag": "Rec.709-A",
+      "tag_returned": false,
+      "error": "ResolveError: SetRenderSettings({'TargetDir': '/Users/anastasiiahlushchenko/Movies/content-factory/smoke', 'CustomName': 's08_Rec709-A_Rec709-A', 'SelectAllFrames': True, 'FormatWidth': 1080, 'FormatHeight': 1920, 'FrameRate': 30.0, 'ExportVideo': True, 'ExportAudio': True, 'ColorSpaceTag': 'Rec.709-A', 'GammaTag': 'Rec.709-A'}) returned False"
+    }
+  ],
+  "job_list_tail": [
+    {
+      "JobId": "ebb50984-b800-430a-a949-307c37b21d4c",
+      "RenderJobName": "Job 6",
+      "TimelineName": "S08",
+      "TargetDir": "/Users/anastasiiahlushchenko/Movies/content-factory/smoke",
+      "IsExportVideo": true,
+      "IsExportAudio": true,
+      "FormatWidth": 1080,
+      "FormatHeight": 1920,
+      "FrameRate": "30",
+      "PixelAspectRatio": 1.0,
+      "MarkIn": 108000,
+      "MarkOut": 108089,
+      "AudioBitDepth": 32,
+      "AudioSampleRate": 48000,
+      "ExportAlpha": false,
+      "OutputFilename": "s08_Rec709_Rec709.mp4",
+      "RenderMode": "Single clip",
+      "PresetName": "Custom",
+      "VideoFormat": "MP4",
+      "VideoCodec": "H.264",
+      "AudioCodec": "aac",
+      "EncodingProfile": "Auto",
+      "MultiPassEncode": false,
+      "NetworkOptimization": false,
+      "ClipStartFrame": 1,
+      "TimelineStartTimecode": "01:00:00:00"
+    }
+  ],
+  "one_one_one": [
+    [
+      "Rec.709",
+      "Rec.709-A"
+    ],
+    [
+      "Rec.709",
+      "Rec.709"
+    ]
+  ]
+}

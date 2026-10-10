@@ -9,7 +9,7 @@ Rules and connection details: `docs/resolve-rules.md`. Test list and the claim e
 
 ## Steps
 
-1. Confirm Resolve is running with a scratch project open (name starts with `smoke-`). Ask the user to open one if not; never run against a real project.
+1. Confirm Resolve is running (`pgrep -x Resolve`; launch with `open -a "DaVinci Resolve"` and wait ~5 s if not). The suite creates and uses its own project `smoke-<date>`; it never touches any other project.
 2. Run every test script in `tests/smoke/` in order (`S01_*.py` … `S10_*.py`) with `.venv/bin/python`. Each prints `PASS`, `FAIL` or `SKIP` plus the raw values it read back.
 3. For every FAIL, grep the stub for the method and try the documented signature once more; record both attempts.
 4. Write `docs/research/smoke-results.md`: a table of test, result, exact strings discovered (color space names, transition type names, where a Fusion title landed), Resolve version, date.

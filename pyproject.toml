@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cf"
+version = "0.1.0"
+description = "Content Factory: the Editor's pipeline tools (ingest, analysis, build) for Reels."
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "opencv-python-headless",
+    "ultralytics",
+    "lap>=0.5.12",  # ByteTrack matching for ultralytics track()
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

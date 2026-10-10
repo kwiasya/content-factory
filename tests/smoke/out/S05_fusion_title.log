@@ -1,0 +1,95 @@
+S05_fusion_title: PASS
+{
+  "layout_before": {
+    "video1": [
+      [
+        "IMG_1621.mov",
+        108000,
+        108060
+      ],
+      [
+        "IMG_1621.mov",
+        108060,
+        108120
+      ],
+      [
+        "IMG_1621.mov",
+        108120,
+        108180
+      ]
+    ],
+    "video2": [
+      [
+        "IMG_0332.MOV",
+        108150,
+        108180
+      ]
+    ],
+    "audio1": []
+  },
+  "SetCurrentTimecode": true,
+  "playhead_tc": "01:00:01:00",
+  "page": "edit",
+  "returned": true,
+  "title": {
+    "name": "Text+",
+    "type": "video",
+    "track": [
+      "video",
+      1
+    ],
+    "start": 108030,
+    "end": 108180,
+    "duration": 150
+  },
+  "layout_after": {
+    "video1": [
+      [
+        "IMG_1621.mov",
+        108000,
+        108030
+      ],
+      [
+        "Text+",
+        108030,
+        108180
+      ],
+      [
+        "IMG_1621.mov",
+        108180,
+        108210
+      ],
+      [
+        "IMG_1621.mov",
+        108210,
+        108270
+      ],
+      [
+        "IMG_1621.mov",
+        108270,
+        108330
+      ]
+    ],
+    "video2": [
+      [
+        "IMG_0332.MOV",
+        108300,
+        108330
+      ]
+    ],
+    "audio1": []
+  },
+  "rippled": true,
+  "comp_count": 1,
+  "textplus_tools": 1,
+  "default_StyledText": "Custom Title",
+  "SetInput_returned": null,
+  "readback_StyledText": "SMOKE",
+  "render_frame": 108040,
+  "ExportCurrentFrameAsStill": true,
+  "files": [
+    "/Users/anastasiiahlushchenko/Movies/content-factory/smoke/s05/title_on00108040.png",
+    "/Users/anastasiiahlushchenko/Movies/content-factory/smoke/s05/title_off00108040.png"
+  ],
+  "pixels_changed_pct": 0.173
+}

@@ -1,0 +1,139 @@
+S07_audio: PASS
+{
+  "a1_items": [
+    [
+      "IMG_1621.mov",
+      "audio",
+      108000,
+      108090
+    ],
+    [
+      "IMG_1621.mov",
+      "audio",
+      108090,
+      108180
+    ]
+  ],
+  "linked_from_video": [
+    "audio"
+  ],
+  "audio_props_before": {
+    "AudioVolumeEnabled": true,
+    "AudioVolume": 0.0,
+    "AudioPan": 0.0,
+    "AudioPitchEnabled": true
+  },
+  "video_props_has_AudioVolume": false,
+  "SetProperties_AudioVolume": {
+    "returned": true,
+    "read": -20.0
+  },
+  "SetProperty_AudioVolume_deprecated": {
+    "returned": true,
+    "read": -12.0
+  },
+  "SetProperties_AudioVolume_on_video_item": {
+    "returned": false,
+    "read": null
+  },
+  "fades_before": {
+    "audio": {
+      "FadeIn": 0.0,
+      "FadeOut": 0.0
+    },
+    "video": {
+      "FadeIn": 0.0,
+      "FadeOut": 0.0
+    }
+  },
+  "SetFades_audio": {
+    "returned": true,
+    "read": {
+      "FadeIn": 15.0,
+      "FadeOut": 20.0
+    }
+  },
+  "SetFades_video": {
+    "returned": true,
+    "read": {
+      "FadeIn": 10.0,
+      "FadeOut": 0.0
+    }
+  },
+  "normalize_modes": [
+    "Sample Peak Program",
+    "True Peak",
+    "ITU-R BS.1770-1",
+    "ITU-R BS.1770-4",
+    "ATSC A/85",
+    "EBU R128",
+    "OP-59",
+    "TR-B32",
+    "AGCOM 219/09/CSP",
+    "Netflix",
+    "YouTube",
+    "Disney - 2.0",
+    "Disney - 5.1+",
+    "TencentVideo"
+  ],
+  "normalize": [
+    {
+      "opts": {
+        "normalizationMode": "Sample Peak Program",
+        "targetLevel": -9.0
+      },
+      "returned": true,
+      "aud_after": {
+        "AudioVolumeEnabled": true,
+        "AudioVolume": 5.300000000000001,
+        "AudioPan": 0.0,
+        "AudioPitchEnabled": true
+      },
+      "aud2_after": {
+        "AudioVolumeEnabled": true,
+        "AudioVolume": 13.4,
+        "AudioPan": 0.0,
+        "AudioPitchEnabled": true
+      }
+    },
+    {
+      "opts": {
+        "normalizationMode": "ITU-R BS.1770-1",
+        "targetLoudness": -14.0
+      },
+      "returned": true,
+      "aud_after": {
+        "AudioVolumeEnabled": true,
+        "AudioVolume": 21.1,
+        "AudioPan": 0.0,
+        "AudioPitchEnabled": true
+      },
+      "aud2_after": {
+        "AudioVolumeEnabled": true,
+        "AudioVolume": 29.200000000000003,
+        "AudioPan": 0.0,
+        "AudioPitchEnabled": true
+      }
+    },
+    {
+      "opts": {
+        "normalizationMode": "ITU-R BS.1770-4",
+        "targetLoudness": -14.0
+      },
+      "returned": true,
+      "aud_after": {
+        "AudioVolumeEnabled": true,
+        "AudioVolume": 12.4,
+        "AudioPan": 0.0,
+        "AudioPitchEnabled": true
+      },
+      "aud2_after": {
+        "AudioVolumeEnabled": true,
+        "AudioVolume": 20.5,
+        "AudioPan": 0.0,
+        "AudioPitchEnabled": true
+      }
+    }
+  ],
+  "normalize_no_options": true
+}
