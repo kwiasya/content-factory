@@ -2,8 +2,8 @@
 
 import unittest
 
-from cf.build import (BuildError, append_infos, beat_marker_plan, plan_shots, plan_track, source_end,
-                      timecode)
+from cf.build import (BuildError, append_infos, beat_marker_plan, loop_seam, plan_shots, plan_track,
+                      source_end, timecode)
 from cf.script_schema import from_dict
 
 START = 108000  # 01:00:00:00 at 30 fps (read from GetStartFrame() in a real build)
@@ -170,6 +170,31 @@ class RecordFrameTest(unittest.TestCase):
                           {"id": "s02", "record_frame_offset": 72, "duration_frames": 81}]}
         with self.assertRaises(BuildError):
             plan_shots(s, MANIFEST, START, 30, cuts=cuts)
+
+
+class LoopSeamTest(unittest.TestCase):
+    def cuts(self, last_frames: int) -> dict:
+        return {"fps": 30, "shots": [
+            {"id": "s01", "record_frame_offset": 0, "duration_frames": 75, "src_in_s": 9.3},
+            {"id": "s02", "record_frame_offset": 75, "duration_frames": 60, "src_in_s": 2.0},
+            {"id": "s03", "record_frame_offset": 135, "duration_frames": last_frames, "src_in_s": 7.8333}]}
+
+    def shots(self):
+        return [shot("A60.MOV", 9.3, 11.8, role="hook"), shot("C30.mov", 2.0, 4.0),
+                shot("A60.MOV", 7.8333, 9.3, role="loop")]
+
+    def test_run_up_ends_on_the_hooks_first_source_frame(self):
+        plan, _ = plan_shots(script(self.shots()), MANIFEST, START, 30, self.cuts(44))
+        seam = loop_seam(plan)
+        self.assertEqual((plan[-1].src_start, seam["last_src_end"], seam["first_src_start"]), (470, 558, 558))
+        self.assertEqual(seam["gap_frames"], 0)
+        self.assertTrue(seam["ok"])
+
+    def test_a_frame_too_many_in_cuts_json_breaks_the_seam(self):
+        plan, _ = plan_shots(script(self.shots()), MANIFEST, START, 30, self.cuts(45))
+        seam = loop_seam(plan)
+        self.assertEqual(seam["gap_frames"], 2)  # one timeline frame = two 60 fps source frames
+        self.assertFalse(seam["ok"])
 
 
 class TrackPlanTest(unittest.TestCase):

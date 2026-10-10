@@ -27,7 +27,7 @@ HOOK_TYPES = ("visual_payoff", "pov", "list", "contrast", "question", "curiosity
 ROLES = ("hook", "build", "payoff", "loop")
 OVERLAY_TYPES = ("place", "fact", "line")
 TRANSITIONS = ("cut", "dissolve", "dip")
-ENDINGS = ("loop_match", "reveal_last", "question_overlay")
+ENDINGS = ("loop_seamless", "loop_match", "reveal_last", "question_overlay")
 
 HOOK_WORDS = (5, 8)
 OVERLAY_MAX_WORDS = 8
@@ -36,6 +36,7 @@ SHOT_MAX_S = 5.0
 TOTAL_TOLERANCE_S = 3.0
 TARGET_MAX_S = 90
 MAX_HASHTAGS = 5
+DEFAULT_FPS = 30.0  # timeline fps; the seam tolerance falls back to it without a manifest
 EPS = 1e-6
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -288,6 +289,9 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
             if d < min_hold - EPS:
                 v.append(f"{w}: overlay holds {d:.2f} s, must hold >= {min_hold:g} s")
 
+    if script.ending == "loop_seamless":
+        v.extend(loop_seamless_problems(script, clips, style))
+
     total = script.total_s
     if abs(total - script.target_length_s) > TOTAL_TOLERANCE_S + EPS:
         v.append(f"total: shots add up to {total:.2f} s, target is {script.target_length_s:g} "
@@ -311,6 +315,42 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
             v.append("caption: empty")
         elif script.cta and script.cta.strip() not in script.caption:
             v.append("caption: must end with the CTA (cta text not found in the caption)")
+    return v
+
+
+def loop_seamless_problems(script: Script, clips: dict[str, dict], style: dict) -> list[str]:
+    """``ending: loop_seamless``: the last shot runs into the first one's first source frame.
+
+    One continuous action from one Clip is split at a seam P: the last shot plays O->P and
+    the first shot P->Q, both at speed 1.0, so when the Reel loops the last frame is
+    followed by the next source frame. Tolerance: half a frame at the Clip's fps (the
+    manifest's; without a manifest, the timeline's).
+    """
+    v: list[str] = []
+    if len(script.shots) < 2:
+        return ["ending loop_seamless: needs at least 2 shots (the last one runs into the first)"]
+    first, last = script.shots[0], script.shots[-1]
+    w = f"ending loop_seamless ({last.id} -> {first.id})"
+    if last.clip != first.clip:
+        v.append(f"{w}: the last shot's clip {last.clip!r} must be the first shot's clip {first.clip!r}")
+    fps = float((clips.get(first.clip) or {}).get("fps") or (style.get("canvas") or {}).get("fps") or DEFAULT_FPS)
+    tol = 0.5 / fps
+    if abs(last.out_s - first.in_s) > tol + EPS:
+        v.append(f"{w}: the last shot's out_s {last.out_s:g} must equal the first shot's in_s {first.in_s:g} "
+                 f"(within half a frame, {tol:.4f} s at {fps:g} fps)")
+    for s in (first, last):
+        if abs(s.speed - 1.0) > EPS:
+            v.append(f"{w}: {s.id} speed must be 1.0, got {s.speed:g}")
+    if first.transition != "cut":
+        v.append(f"{w}: {first.id} transition must be 'cut' (Instagram loops without black), "
+                 f"got {first.transition!r}")
+    if first.fade_in_s > EPS:
+        v.append(f"{w}: {first.id} fade_in_s must be 0, got {first.fade_in_s:g}")
+    if last.fade_out_s > EPS:
+        v.append(f"{w}: {last.id} fade_out_s must be 0, got {last.fade_out_s:g}")
+    if last.overlay is not None:
+        v.append(f"{w}: {last.id} must have overlay null: an overlay fills its shot, so it would "
+                 f"vanish at the seam ({last.overlay.text!r})")
     return v
 
 

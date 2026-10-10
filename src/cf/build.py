@@ -219,6 +219,19 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
     return out, notes
 
 
+def loop_seam(shots: list[PlannedShot]) -> dict:
+    """The seam of a ``loop_seamless`` Reel in source frames of the shared clip.
+
+    ``gap`` is the last shot's exclusive source end minus the first shot's source start:
+    0 means the loop shows the next source frame; within half a source frame counts as on it.
+    """
+    first, last = shots[0], shots[-1]
+    gap = round(float(last.src_end_after_speed) - first.src_start, 4)
+    return {"clip": first.clip, "same_clip": first.clip == last.clip, "last_src_end": last.src_end_after_speed,
+            "first_src_start": first.src_start, "gap_frames": gap,
+            "ok": first.clip == last.clip and abs(gap) <= 0.5 + 1e-3}
+
+
 def append_infos(shots: list[PlannedShot], items: dict[str, Any], media_type: int,
                  track_index: int = 1) -> list[dict]:
     """``AppendToTimeline`` clip infos: source frames at clip fps, exclusive end, absolute record."""
@@ -830,6 +843,15 @@ class Builder:
                 rows.append(row)
                 if not row["ok"]:
                     r.mismatches.append(f"{kind} {s.id}: {row}")
+        if self.script.ending == "loop_seamless" and len(self.plan) > 1:
+            seam = loop_seam(self.plan)
+            first, last = r.shots[0], r.shots[-1]
+            if first.get("src_start") is not None and last.get("src_end") is not None:
+                seam["read_back_gap_frames"] = round(float(last["src_end"]) - float(first["src_start"]), 4)
+            r.timeline["loop_seam"] = seam
+            r.check("loop seam: last shot's source end = first shot's source start (plan, read-back)",
+                    [0, 0], [seam["gap_frames"], seam.get("read_back_gap_frames")],
+                    ok=seam["ok"] and abs(seam.get("read_back_gap_frames", 99)) <= 0.5 + 1e-3)
         r.timeline["end_frame"] = int(d.call(tl.GetEndFrame))
         r.timeline["duration_frames"] = r.timeline["end_frame"] - start
         r.timeline["expected_duration_frames"] = self.plan[-1].record_end - start

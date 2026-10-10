@@ -113,5 +113,9 @@
     "on_camera_allowed": false,
     "off_camera_allowed": true,
     "note": "the author films and talks from behind the camera; that is fine (music covers it). Only the person ON camera talking is a reject, until the voiceover phase."
+  },
+  "ending": {
+    "default": "loop_seamless",
+    "note": "every Reel loops: the last shot and the first shot are one continuous action from one clip, split at the seam (author rule, 2026-10-10)"
   }
 }

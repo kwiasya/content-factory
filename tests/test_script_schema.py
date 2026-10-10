@@ -195,6 +195,93 @@ class BadScriptTest(unittest.TestCase):
             from_dict(d)
 
 
+def seamless() -> dict:
+    """good() as a seamless loop: s04 is the run-up A.MOV 0.0-1.5 into the hook's first frame at 1.5."""
+    d = good()
+    d["ending"] = "loop_seamless"
+    d["shots"][0].update(in_s=1.5, out_s=4.0)  # hook, 2.5 s
+    d["shots"].append({"clip": "A.MOV", "in_s": 0.0, "out_s": 1.5, "role": "loop", "speed": 1.0,
+                       "overlay": None, "transition": "cut", "beat_index": None})
+    d["target_length_s"] = 10
+    return d
+
+
+class LoopSeamlessTest(unittest.TestCase):
+    def found(self, d: dict, manifest=MANIFEST) -> list[str]:
+        return [p for p in problems(d, manifest) if p.startswith("ending loop_seamless")]
+
+    def assertSeam(self, d: dict, needle: str, manifest=MANIFEST):
+        got = self.found(d, manifest)
+        self.assertTrue(any(needle in p for p in got), f"{needle!r} not in {got}")
+
+    def test_seamless_loop_is_valid(self):
+        self.assertEqual(problems(seamless()), [])
+        self.assertEqual(problems(seamless(), manifest=None), [])
+
+    def test_loop_seamless_is_an_ending(self):
+        d = seamless()
+        d["ending"] = "loop_match"  # the weaker option needs no seam
+        d["shots"][-1]["clip"] = "C.mov"
+        self.assertEqual(problems(d), [])
+
+    def test_last_shot_must_use_the_first_shots_clip(self):
+        d = seamless()
+        d["shots"][-1]["clip"] = "B.MOV"
+        self.assertSeam(d, "must be the first shot's clip 'A.MOV'")
+
+    def test_seam_within_half_a_frame_at_the_clip_fps(self):
+        d = seamless()
+        d["shots"][-1]["out_s"] = 1.5 + 0.008  # under half a 60 fps frame (0.0083 s)
+        self.assertEqual(self.found(d), [])
+        d["shots"][-1]["out_s"] = 1.5 + 0.009
+        self.assertSeam(d, "must equal the first shot's in_s 1.5")
+        self.assertSeam(d, "0.0083 s at 60 fps")
+        # Without a manifest the timeline fps (30) sets the tolerance.
+        self.assertEqual(self.found(d, manifest=None), [])
+        d["shots"][-1]["out_s"] = 1.5 + 0.02
+        self.assertSeam(d, "at 30 fps", manifest=None)
+
+    def test_gap_or_overlap_at_the_seam(self):
+        d = seamless()
+        d["shots"][-1].update(in_s=0.0, out_s=1.4)
+        self.assertSeam(d, "out_s 1.4 must equal")
+
+    def test_both_shots_at_speed_one(self):
+        d = seamless()
+        d["shots"][0]["speed"] = 0.5
+        d["shots"][0]["out_s"] = 2.75  # still 2.5 s on the timeline
+        self.assertSeam(d, "s01 speed must be 1.0")
+        d = seamless()
+        d["shots"][-1]["speed"] = 1.25
+        self.assertSeam(d, "s04 speed must be 1.0")
+
+    def test_no_transition_or_fade_across_the_seam(self):
+        d = seamless()
+        d["shots"][0]["transition"] = "dip"
+        self.assertSeam(d, "s01 transition must be 'cut'")
+        d = seamless()
+        d["shots"][0]["fade_in_s"] = 0.3
+        self.assertSeam(d, "s01 fade_in_s must be 0")
+        d = seamless()
+        d["shots"][-1]["fade_out_s"] = 0.3
+        self.assertSeam(d, "s04 fade_out_s must be 0")
+
+    def test_no_overlay_on_the_last_shot(self):
+        d = seamless()
+        d["shots"][-1]["overlay"] = {"text": "Again?", "type": "line"}
+        self.assertSeam(d, "s04 must have overlay null")
+        # The hook overlay on the first shot is fine: it fades in after the seam.
+        d = seamless()
+        d["shots"][0]["overlay"] = {"text": "This lake hides a whole palace", "type": "line"}
+        self.assertEqual(self.found(d), [])
+
+    def test_needs_two_shots(self):
+        d = seamless()
+        d["shots"] = d["shots"][:1]
+        d["target_length_s"] = 3
+        self.assertSeam(d, "needs at least 2 shots")
+
+
 class CliTest(unittest.TestCase):
     def run_cli(self, tmp: Path, d: dict) -> subprocess.CompletedProcess:
         (tmp / "script.json").write_text(json.dumps(d))

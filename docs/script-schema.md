@@ -18,7 +18,7 @@ A Script is the text plan of one Reel, written before anything touches Resolve. 
 | `shots[]` | list | Ordered. Each: `clip`, `in_s`, `out_s`, `role` (`hook` · `build` · `payoff` · `loop`), `speed` (1.0 default), `overlay` (`{text, type}` or `null`, type ∈ `place` · `fact` · `line`), `transition` (`cut` · `dissolve` · `dip`), `beat_index` (int or null) |
 | `shots[].id` | string, optional | Shot id used for markers, `cuts.json` and `overlays/<id>.mov`; defaults to `s01`, `s02`, … by position |
 | `shots[].fade_in_s`, `fade_out_s` | number, optional | Fade from/to black on picture and sound, seconds (default 0) |
-| `ending` | enum | `loop_match` (last shot continues into frame 0) · `reveal_last` · `question_overlay` |
+| `ending` | enum | `loop_seamless` (default: the last shot is the run-up into the first shot's first source frame, see below) · `loop_match` (weaker: the last shot ends in a similar pose or move to frame 0) · `reveal_last` · `question_overlay`. Default from `style.ending.default` |
 | `cta` | string | A send or save prompt |
 | `caption` | string | First line carries the place name; then 1–3 lines of value; then the CTA |
 | `hashtags` | list ≤5 | Mix of place, niche, format |
@@ -44,3 +44,15 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 - Text reads without sound: overlays carry the story.
 - Only the user's own footage; no watermarks.
 - No on-camera speech: a shot never overlaps a second flagged `speech_on_camera` in the Shot log (until the voiceover phase). Off-camera speech (the author filming) is allowed; music covers it.
+
+## Seamless loop (`ending: loop_seamless`)
+
+Every Reel loops: Instagram replays it without a gap, so the last frame should be followed by the next frame of the same action. Take one continuous action from one Clip and split it at a seam P: the first shot plays P→Q, the last shot plays O→P. The validator checks:
+
+- `shots[-1].clip == shots[0].clip`.
+- `shots[-1].out_s == shots[0].in_s` within half a frame at the Clip's fps (manifest `fps`; without a manifest, the timeline's).
+- Both shots at `speed` 1.0.
+- `shots[0].transition` is `cut` and `shots[0].fade_in_s` is 0; `shots[-1].fade_out_s` is 0. The first play starts with a hard cut from black; the loop has no black.
+- `shots[-1].overlay` is null. An overlay fills its shot, so one on the last shot would vanish at the seam. The hook overlay on the first shot is fine: it fades in after the seam.
+
+Choose the hook from a Clip whose preceding seconds are usable, so the last shot (1–1.5 s, about 3 beats) can be the run-up. On a beat grid, end the last shot on a downbeat; its `in_s` is P minus its frame count, so the build lays it exactly up to the hook's first source frame (`cf.build` checks the seam in its read-back). The music cannot loop seamlessly: it restarts at `track_in_s` when the picture does.

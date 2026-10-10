@@ -12,7 +12,7 @@ Schema, enums and the writing rules: `docs/script-schema.md`. Style: `style.json
 1. Read every `shotlog/*.json` and `clip_manifest.json`. Build a one-line card per clip: id, duration, best segments with tags, light, motion, people flags. Reason over the cards, never over frames; open a contact sheet (`.venv/bin/python -m cf.sheet <clip> <in> <out>`) only to settle a choice between two candidates.
 2. Ask the user two things if not already known: the place (for `location_tag` and overlays) and whether a Track is already chosen (its tempo shapes shot lengths).
 3. Draft 3–5 hooks of different `hook.type`, each paired with the clip that proves it. Critique them against the writing rules; keep one.
-4. Write `reels/<reel>/script.json`: order shots for impact (reorder freely), one overlay per scene, `loop_match` ending by default, caption led by the place name, ≤5 hashtags.
+4. Write `reels/<reel>/script.json`: order shots for impact (reorder freely), one overlay per scene, caption led by the place name, ≤5 hashtags. The default ending is `loop_seamless`: pick the hook from a clip whose preceding seconds are usable, so the last shot can be the run-up into the hook's first frame (see `docs/script-schema.md`, Seamless loop).
 5. Run `.venv/bin/python -m cf.script_schema validate reels/<reel>/script.json`; fix every reported rule until it passes.
 6. Show the user the Script as a shot list table plus the caption. Apply their edits in the JSON, re-validate.
 
