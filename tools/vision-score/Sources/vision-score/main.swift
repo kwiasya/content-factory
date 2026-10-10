@@ -1,5 +1,5 @@
 // vision-score: score sampled video frames with Apple's Vision framework.
-// Usage: vision-score <video> [--fps 1] [--json out.json] [--max-side 1024]
+// Usage: vision-score <video> [--fps 1] [--json out.json] [--max-side 1024] [--landmarks] [--faces-only]
 
 import AVFoundation
 import CoreGraphics
@@ -13,6 +13,8 @@ struct Options {
     var fps: Double = 1
     var jsonOut: URL?
     var maxSide: Int = 1024
+    var landmarks = false
+    var facesOnly = false
 }
 
 func usage() -> Never {
@@ -21,6 +23,8 @@ func usage() -> Never {
       --fps N        frames sampled per second (default 1)
       --json PATH    write the JSON array to PATH instead of stdout
       --max-side PX  downscale frames so the longer side is at most PX (default 1024, 0 = native)
+      --landmarks    face landmarks; adds mouth_open (inner-lip gap / face height, largest face)
+      --faces-only   skip aesthetics and humans (faster; those fields are null)
 
     """.utf8))
     exit(2)
@@ -42,6 +46,10 @@ func parseOptions() -> Options {
         case "--max-side":
             guard let v = args.first.flatMap(Int.init), v >= 0 else { usage() }
             opts.maxSide = v; args.removeFirst()
+        case "--landmarks":
+            opts.landmarks = true
+        case "--faces-only":
+            opts.facesOnly = true
         case "-h", "--help":
             usage()
         default:
@@ -64,6 +72,8 @@ struct FrameScore {
     var maxFaceH: Double?
     var humans: Int?
     var maxHumanH: Double?
+    var mouthOpen: Double?
+    var landmarks = false
     var errors: [String] = []
 
     var json: String {
@@ -73,6 +83,7 @@ struct FrameScore {
         s += ", \"is_utility\": \(isUtility.map { $0 ? "true" : "false" } ?? "null")"
         s += ", \"faces\": \(int(faces)), \"max_face_h\": \(num(maxFaceH))"
         s += ", \"humans\": \(int(humans)), \"max_human_h\": \(num(maxHumanH))"
+        if landmarks { s += ", \"mouth_open\": \(num(mouthOpen))" }
         if !errors.isEmpty {
             let escaped = errors.joined(separator: "; ")
                 .replacingOccurrences(of: "\\", with: "\\\\")
@@ -98,28 +109,45 @@ func log(_ msg: String) {
 
 let aestheticsRequest = CalculateImageAestheticsScoresRequest()
 let faceRequest = DetectFaceRectanglesRequest()
+let landmarksRequest = DetectFaceLandmarksRequest()
+
+/// Inner-lip vertical extent over face-box height, both in image pixels; nil without inner-lip points.
+func mouthOpen(_ face: FaceObservation, size: CGSize) -> Double? {
+    guard let lips = face.landmarks?.innerLips else { return nil }
+    let ys = lips.pointsInImageCoordinates(size).map { Double($0.y) }
+    let faceH = Double(face.boundingBox.height) * Double(size.height)
+    guard let lo = ys.min(), let hi = ys.max(), faceH > 0 else { return nil }
+    return (hi - lo) / faceH
+}
 
 func score(_ image: CGImage, at t: Double, humanReq: DetectHumanRectanglesRequest) async -> FrameScore {
     var out = FrameScore(t: t)
+    out.landmarks = opts.landmarks
     // One handler per frame so Vision can share the decoded image across requests.
     let handler = ImageRequestHandler(image)
 
-    do {
-        let obs = try await handler.perform(aestheticsRequest)
-        out.aesthetic = obs.overallScore
-        out.isUtility = obs.isUtility
-    } catch {
-        out.errors.append("aesthetics: \(brief(error))")
+    if !opts.facesOnly {
+        do {
+            let obs = try await handler.perform(aestheticsRequest)
+            out.aesthetic = obs.overallScore
+            out.isUtility = obs.isUtility
+        } catch {
+            out.errors.append("aesthetics: \(brief(error))")
+        }
     }
 
     do {
-        let faces = try await handler.perform(faceRequest)
+        let faces = opts.landmarks ? try await handler.perform(landmarksRequest) : try await handler.perform(faceRequest)
         out.faces = faces.count
         out.maxFaceH = faces.map { Double($0.boundingBox.height) }.max() ?? 0
+        if opts.landmarks, let big = faces.max(by: { $0.boundingBox.height < $1.boundingBox.height }) {
+            out.mouthOpen = mouthOpen(big, size: CGSize(width: image.width, height: image.height))
+        }
     } catch {
         out.errors.append("faces: \(brief(error))")
     }
 
+    if opts.facesOnly { return out }
     do {
         let humans = try await handler.perform(humanReq)
         out.humans = humans.count

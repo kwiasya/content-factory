@@ -41,4 +41,4 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 - The stake comes before any name: say what the viewer gets, then name the place.
 - Text reads without sound: overlays carry the story.
 - Only the user's own footage; no watermarks.
-- No speech: a shot never overlaps a second flagged `speech` in the Shot log (until the voiceover phase).
+- No on-camera speech: a shot never overlaps a second flagged `speech_on_camera` in the Shot log (until the voiceover phase). Off-camera speech (the author filming) is allowed; music covers it.
