@@ -20,7 +20,7 @@
     "source": "Meta Ads Guide 14% / 35% / 6% as relayed in docs/research/02-overlays-and-motion-graphics/result-a.md Section D"
   },
   "typography": {
-    "preset": "legacy",
+    "preset": "tiktok-hype",
     "preset_note": "overlay design system from overlays/src/presets.ts: legacy | editorial-serif | clean-grotesk | lower-third-tag | tiktok-hype | pinterest-aesthetic | coquette-girly | y2k-gloss | diary-typewriter | handwritten-note. Non-legacy presets override display/body, colors.text/backdrop and overlay_positions for overlays. Board: reels/reel-01/overlay-design/board.png",
     "display": {
       "family": "Playfair Display",
@@ -38,7 +38,7 @@
     },
     "max_words_per_line": 5,
     "max_lines": 2,
-    "status": "rejected by the author on 2026-10-10: font and overall overlay design; redesign in progress"
+    "status": "author chose tiktok-hype (2026-10-10)"
   },
   "colors": {
     "text": "#FFFFFF",
