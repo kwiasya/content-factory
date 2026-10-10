@@ -34,7 +34,7 @@ PROJECT_SETTINGS_ORDER = (
     "timelineResolutionWidth", "timelineResolutionHeight", "timelineFrameRate",
     "colorScienceMode", "separateColorSpaceAndGamma", "isAutoColorManage",
     "colorSpaceTimeline", "colorSpaceOutput", "inputDRT", "outputDRT",
-    "timelineWorkingLuminanceMode",
+    "timelineWorkingLuminanceMode", "useInverseDRT",
 )
 COLOR_SETTINGS = {
     "colorScienceMode": "davinciYRGBColorManagedv2",
@@ -44,13 +44,19 @@ COLOR_SETTINGS = {
     "colorSpaceOutput": "Rec.709 Gamma 2.4",
     "inputDRT": "DaVinci",
     "outputDRT": "DaVinci",
-    "timelineWorkingLuminanceMode": "SDR 100",
+    # HDR 1000 working luminance: HLG highlights reach the output DRT unclipped, and the
+    # inverse DRT lifts SDR clips into it so they round-trip unchanged
+    # (docs/research/color-hlg-experiment.md).
+    "timelineWorkingLuminanceMode": "HDR 1000",
+    "useInverseDRT": "1",
 }
-# Resolve auto-detects these strings on import; each is accepted for the manifest value.
-INPUT_COLOR_EQUIVALENT = {
-    "Rec.2100 HLG (Scene)": {"Rec.2100 HLG (Scene)", "Rec.2100 HLG"},
-    "Rec.709 Gamma 2.4": {"Rec.709 Gamma 2.4", "Rec.709 (Scene)"},
-}
+# Node-1 CDL on every HLG item (docs/research/color-hlg-experiment.md). Resolve's
+# BT.2408 HLG conversion puts HLG reference white at 203 nits, twice SDR white, so the
+# SDR render comes out a stop too bright and flat. Offset -0.0749 in DaVinci
+# Intermediate is -1.02 stops (log2(203/100) x 0.07329); Saturation 1.25 makes up for the
+# DRT's highlight desaturation. The Look DRX must leave node 1 free for this.
+HLG_NORMALIZE_CDL = {"NodeIndex": "1", "Slope": "1 1 1", "Offset": "-0.0749 -0.0749 -0.0749",
+                     "Power": "1 1 1", "Saturation": "1.25"}
 TRANSITION_TYPES = {"dissolve": "Cross Dissolve", "dip": "Dip To Color Dissolve"}
 ROLE_MARKER_COLOR = {"hook": "Red", "build": "Blue", "payoff": "Yellow", "loop": "Purple"}
 VIDEO_TRACK_NAMES = {1: "shots", 2: "overlays", 3: "overlays 2"}
@@ -176,6 +182,41 @@ def timecode(frame: int, fps: int) -> str:
     return f"{s // 3600:02d}:{s // 60 % 60:02d}:{s % 60:02d}:{ff:02d}"
 
 
+def luma_stats(rgb: Any) -> dict:
+    """Mean Rec.709 luma (0-255) and % of pixels with luma >= 235 of an 8-bit RGB array."""
+    import numpy as np  # noqa: PLC0415
+
+    a = np.asarray(rgb, dtype=np.float64)
+    y = 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
+    return {"mean_luma": round(float(y.mean()), 1), "pct_ge_235": round(float((y >= 235).mean() * 100), 2)}
+
+
+def still_stats(path: Path) -> dict:
+    import cv2  # noqa: PLC0415
+
+    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    return luma_stats(bgr[..., ::-1]) if bgr is not None else {}
+
+
+def proxy_frame_stats(proxy: Path, t: float) -> dict | None:
+    """Luma stats of the proxy frame at source time ``t`` (the proxies are the tone-map reference)."""
+    import subprocess  # noqa: PLC0415
+
+    import numpy as np  # noqa: PLC0415
+
+    res = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.4f}", "-i", str(proxy), "-frames:v", "1",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=False)
+    if res.returncode or not res.stdout:
+        return None
+    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                            "stream=width,height", "-of", "csv=p=0", str(proxy)], capture_output=True, text=True)
+    try:
+        w, h = (int(x) for x in probe.stdout.strip().split(",")[:2])
+        return {"time_s": round(t, 3), **luma_stats(np.frombuffer(res.stdout, np.uint8).reshape(h, w, 3))}
+    except ValueError:
+        return None
+
+
 # -- report ----------------------------------------------------------------------
 @dataclass
 class Report:
@@ -291,8 +332,11 @@ class Builder:
             props = d.call(mpi.GetClipProperty) or {}
             want_cs = clips[c].get("resolve_input_color_space")
             got_cs = props.get("Input Color Space")
-            ok_set = INPUT_COLOR_EQUIVALENT.get(want_cs, {want_cs})
-            action = "kept (equivalent)" if got_cs in ok_set else None
+            if not want_cs:
+                raise BuildError(f"{c}: the manifest has no resolve_input_color_space")
+            # Forced: Resolve auto-detects iPhone HLG as 'Rec.2100 HLG', which is not the
+            # transform the experiment chose.
+            action = "kept" if got_cs == want_cs else None
             if action is None:
                 try:
                     got_cs = d.set_clip_property_verified(mpi, "Input Color Space", want_cs)
@@ -461,6 +505,23 @@ class Builder:
             r.check(f"{s.id} ApplyGradeFromDRX (returned value only; a grade cannot be read back)", True, bool(ok))
         r.look = {"drx": str(drx), "applied": True, "items": res}
 
+    def normalize_hlg(self) -> None:
+        """Node-1 CDL (HLG_NORMALIZE_CDL) on every V1 item whose clip is tagged HLG.
+
+        Runs after the Look so ApplyGradeFromDRX cannot wipe it. The API has no GetCDL,
+        so the stills' luma (``stills``) is the read-back.
+        """
+        d, r = self.d, self.r
+        clips = manifest_clips(self.manifest)
+        rows = []
+        for s, v in zip(self.plan, self.vids):
+            if "HLG" not in (clips[s.clip].get("resolve_input_color_space") or ""):
+                continue
+            ok = d.call(v.SetCDL, HLG_NORMALIZE_CDL)
+            rows.append({"shot": s.id, "clip": s.clip, "returned": ok})
+            r.check(f"{s.id} HLG normalize SetCDL (returned value only; no GetCDL)", True, bool(ok))
+        r.timeline["hlg_normalize"] = {"cdl": HLG_NORMALIZE_CDL, "items": rows}
+
     def read_back(self) -> None:
         d, r, tl = self.d, self.r, self.tl
         # GetItemListInTrack also returns transitions as items (no MediaPoolItem, no source frames).
@@ -521,6 +582,16 @@ class Builder:
             size = f.stat().st_size if f.exists() else 0
             row = {"shot": s.id, "frame": frame, "timecode": tc, "playhead": got_tc, "set_returned": set_ok,
                    "export_returned": ok, "file": str(f), "bytes": size}
+            if size:
+                row.update(still_stats(f))
+                src_t = (s.src_start + (s.duration // 2) * s.speed * s.clip_fps / self.fps) / s.clip_fps
+                proxy = self.walk_dir / "proxy" / (Path(s.clip).stem + ".mp4")
+                ref = proxy_frame_stats(proxy, src_t) if proxy.exists() else None
+                if ref:
+                    row["proxy"] = ref
+                    if abs(row["mean_luma"] - ref["mean_luma"]) > 20:
+                        r.notes.append(f"{s.id}: still mean luma {row['mean_luma']} vs proxy {ref['mean_luma']} "
+                                       "(check the color settings)")
             r.stills.append(row)
             r.check(f"{s.id} still at {tc}", True, bool(ok) and size > 0 and got_tc == tc)
 
@@ -534,6 +605,7 @@ class Builder:
             self.build_timeline(items)
             self.overlays()
             self.look()
+            self.normalize_hlg()
             self.read_back()
             if self.want_stills:
                 self.stills()
@@ -580,6 +652,12 @@ class Builder:
         if r.stills:
             print(f"stills: {sum(1 for s in r.stills if s['bytes'])}/{len(r.stills)} written to "
                   f"{self.reel_dir / 'stills'}")
+            print(f"  {'shot':<5}{'clip':<14}{'mean luma':>10}{'>=235 %':>9}{'proxy luma':>12}{'proxy %':>9}")
+            for st in r.stills:
+                px = st.get("proxy") or {}
+                clip = next((p.clip for p in self.plan if p.id == st["shot"]), "")
+                print(f"  {st['shot']:<5}{clip:<14}{st.get('mean_luma', '-')!s:>10}{st.get('pct_ge_235', '-')!s:>9}"
+                      f"{px.get('mean_luma', '-')!s:>12}{px.get('pct_ge_235', '-')!s:>9}")
         print("\nnotes:")
         for n in r.notes:
             print("  - " + n.strip().replace("\n", "\n    "))

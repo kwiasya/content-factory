@@ -24,10 +24,13 @@ VFR_TOLERANCE = 0.005  # r_frame_rate vs avg_frame_rate relative difference
 
 # Resolve "Input Color Space" strings per color_profile (Table A). The DJI
 # strings are as written in the research and still need checking against the
-# Resolve dropdown (smoke test S6).
+# Resolve dropdown (smoke test S6). HLG: 'Rec.2020 HLG ARIB STD-B67' won the
+# experiment in docs/research/color-hlg-experiment.md (fewer clipped highlights than
+# 'Rec.2100 HLG (Scene)'); cf.build forces it over Resolve's auto-detected 'Rec.2100 HLG'.
+HLG_INPUT = "Rec.2020 HLG ARIB STD-B67"
 RESOLVE_INPUT = {
-    "iphone_hlg_dv": "Rec.2100 HLG (Scene)",
-    "hlg": "Rec.2100 HLG (Scene)",
+    "iphone_hlg_dv": HLG_INPUT,
+    "hlg": HLG_INPUT,
     "rec709": "Rec.709 Gamma 2.4",
     "apple_log": "Apple Log",
     "dji_dlog": "DJI D-Gamut / DJI D-Log",

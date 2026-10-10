@@ -50,7 +50,7 @@ class ClassifyTest(unittest.TestCase):
         r = classify(IPHONE_HLG, APPLE_EXIF)
         self.assertEqual(r["color_profile"], "iphone_hlg_dv")
         self.assertEqual(r["confidence"], "high")
-        self.assertEqual(r["resolve_input_color_space"], "Rec.2100 HLG (Scene)")
+        self.assertEqual(r["resolve_input_color_space"], "Rec.2020 HLG ARIB STD-B67")
         self.assertIn("arib-std-b67", r["source_field"])
 
     def test_iphone_sdr(self):
