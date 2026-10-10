@@ -20,7 +20,13 @@ reject (`speech_on_camera`). Two cheap cues, combined per segment:
 
 Each cue is evidence in [-1, 1] (+ = far); missing evidence is 0. p_far is a
 logistic of the weighted sum. `side_confidence` = |2 p_far - 1| (0 = coin flip,
-1 = certain), so "far with confidence >= 0.5" means p_far >= 0.75.
+1 = certain), then scaled by Whisper's word probability (0.5x at prob 0, 1x from
+prob 0.5: low-probability words are often noise). Two guards:
+  - a far segment with no visible face (max_face_h < FACE_VISIBLE) is capped at
+    AUDIO_ONLY_CAP: a far voice nobody can see talking is music-covered like the
+    operator's, so it stays a soft flag;
+  - big faces alone add little (W_FACE): the subject is on camera while the
+    operator talks too. Mouth movement is what separates the two.
 
 Not used: reverb / dryness (direct-to-reverberant ratio needs more than a WAV and a
 guess); speaker identity.
@@ -36,7 +42,9 @@ import numpy as np
 FRAME_S = 0.05
 FACE_FPS = 5.0
 FACE_BIG = 0.12            # face height (share of frame height) that counts as "on camera, close"
-FACE_SMALL = 0.03          # below this a detected face is too small to matter
+FACE_SMALL = 0.03          # face evidence ramps from 0 here to 1 at FACE_BIG
+FACE_VISIBLE = 0.04        # far needs a face at least this big to reach MIN_CONF
+AUDIO_ONLY_CAP = 0.4
 FACE_TRUST_LO = 0.05       # mouth landmarks ignored below this face height ...
 FACE_TRUST_HI = 0.12       # ... and fully trusted above it
 MIN_MOUTH_FRAMES = 2
@@ -50,7 +58,8 @@ SNR_MID_DB = 14.0          # level over the clip noise floor that is neutral
 SNR_SPAN_DB = 8.0
 MOUTH_MID = 0.012          # std of mouth_open that is neutral
 MOUTH_SPAN = 0.008
-W_REL, W_SNR, W_FACE, W_MOUTH = 0.6, 0.4, 0.6, 1.2
+W_REL, W_SNR, W_FACE, W_MOUTH = 0.5, 0.5, 0.4, 1.2
+PROB_FULL = 0.5            # Whisper word probability at/above which confidence is not reduced
 GAIN = 2.0
 
 
@@ -140,8 +149,8 @@ def evidence(seg: dict, noise_floor: float | None, walk_ref: float | None) -> di
     fh = seg.get("max_face_h")
     if fh is None:
         e_face = None
-    elif fh < FACE_SMALL:
-        e_face = -1.0  # nobody visible to be talking
+    elif fh <= 0:
+        e_face = -1.0  # no face: nobody visible to be talking
     else:
         e_face = _clamp((fh - FACE_SMALL) / (FACE_BIG - FACE_SMALL), 0.0, 1.0)
 
@@ -166,9 +175,15 @@ def classify(seg: dict, noise_floor: float | None, walk_ref: float | None) -> di
     """{side, side_confidence, p_far, rel_db, snr_db} for one segment with levels and face stats."""
     ev = evidence(seg, noise_floor, walk_ref)
     p = p_far(ev)
+    side = "far" if p >= 0.5 else "near"
+    prob = seg.get("prob")
+    reliability = 1.0 if prob is None else 0.5 + 0.5 * _clamp(prob / PROB_FULL, 0.0, 1.0)
+    conf = abs(2 * p - 1) * reliability
+    if side == "far" and (seg.get("max_face_h") or 0.0) < FACE_VISIBLE:
+        conf = min(conf, AUDIO_ONLY_CAP)
     return {
-        "side": "far" if p >= 0.5 else "near",
-        "side_confidence": round(abs(2 * p - 1), 2),
+        "side": side,
+        "side_confidence": round(conf, 2),
         "p_far": round(p, 2),
         "rel_db": ev["rel_db"],
         "snr_db": ev["snr_db"],

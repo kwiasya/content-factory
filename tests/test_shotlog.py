@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 
 from cf import scoring
-from cf.metrics import common, ffstats, motion, people, speech, vision
-from cf.shotlog import clip_id, finalize, find_manifest_entry, has_speech
+from cf.metrics import common, ffstats, motion, people, speech, speech_side, vision
+from cf.shotlog import classify_speech, clip_id, finalize, find_manifest_entry, has_speech, has_speech_side, load_overrides
 
 
 # --------------------------------------------------------------------------- binning
@@ -105,12 +105,28 @@ def test_bin_flags_each_rule():
     assert flags[3] == ["scd_spike"]
 
 
-def test_bin_flags_speech_makes_a_second_unusable():
-    ps = _ps(4, speech=[False, True, False, True], shake_px=[0.5, 0.5, 0.5, 9.0])
-    flags = scoring.bin_flags(ps)
-    assert flags == [[], ["speech"], [], ["shake_px>6", "speech"]]
-    # reel-shotlog/1.0 logs have no speech array: nothing flagged for speech
+def test_bin_flags_speech_is_soft_only_on_camera_rejects():
+    ps = _ps(4, speech=[True, True, False, True], speech_on_camera=[False, True, False, True],
+             shake_px=[0.5, 0.5, 0.5, 9.0])
+    assert scoring.bin_flags(ps) == [[], ["speech_on_camera"], [], ["shake_px>6", "speech_on_camera"]]
+    # reel-shotlog/1.1 logs: speech but no speech_on_camera -> nothing rejected for speech
+    assert scoring.bin_flags(_ps(2, speech=[True, True])) == [[], []]
+    # reel-shotlog/1.0 logs have no speech array at all
     assert scoring.bin_flags(_ps(2)) == [[], []]
+
+
+def test_apply_overrides_allow_then_reject():
+    flags = [["speech_on_camera"], ["speech_on_camera", "shake_px>6"], [], [], ["blur_worst20%"]]
+    ov = {"allow": [[0.0, 2.0], [4.2, 4.5]], "reject": [[1.5, 3.2, "speech_on_camera"], [3.9, 4.0]]}
+    out = scoring.apply_overrides(flags, ov)
+    # allow clears every automatic flag; reject wins over allow on second 1; 3.9-4.0 touches second 3 only
+    assert out == [[], ["speech_on_camera"], ["speech_on_camera"], ["speech_on_camera", "override"], []]
+    assert flags[0] == ["speech_on_camera"]  # input untouched
+    assert scoring.apply_overrides(flags, None) == flags
+    # a range past the last full bin folds into the last bin (open-ended, as in speech_bins)
+    assert scoring.apply_overrides([[], []], {"reject": [[2.1, 2.4, "x"]]}) == [[], ["x"]]
+    # exact boundaries do not leak into the neighbour
+    assert scoring.apply_overrides([[], [], []], {"reject": [[1.0, 2.0, "x"]]}) == [[], ["x"], []]
 
 
 def test_quality_weights_and_aes_redistribution():
@@ -362,7 +378,7 @@ def test_find_raw_prefers_manifest_path_then_walk_raw(tmp_path):
     assert speech.find_raw(None, "IMG_1621", str(raw)) == raw
 
 
-def _log(n=8, speech_arr=None):
+def _log(n=8, speech_arr=None, on_cam=None):
     ps = _ps(n)
     ps.update({
         "t": list(range(n)), "persons": [0] * n, "sat": [0.2] * n, "warmth": [0.0] * n, "contrast": [0.5] * n,
@@ -370,6 +386,8 @@ def _log(n=8, speech_arr=None):
     })
     if speech_arr is not None:
         ps["speech"] = speech_arr
+    if on_cam is not None:
+        ps["speech_on_camera"] = on_cam
     return {
         "schema": "reel-shotlog/1.0",
         "clip": {"id": "IMG_X", "duration_s": float(n), "created": None, "gps": None},
@@ -380,25 +398,147 @@ def _log(n=8, speech_arr=None):
     }
 
 
-def test_finalize_speech_rejects_and_new_best():
-    data = finalize(_log(8, [False, False, False, True, True, False, False, False]))
+def test_finalize_on_camera_rejects_off_camera_is_soft():
+    talk = [True, True, False, True, True, False, False, False]
+    on_cam = [False, False, False, True, True, False, False, False]
+    data = finalize(_log(8, talk, on_cam))
     ps = data["per_second"]
     assert ps["usable"] == [True, True, True, False, False, True, True, True]
-    assert data["rejects"] == [{"in_s": 3.0, "out_s": 5.0, "why": ["speech"]}]
+    assert data["rejects"] == [{"in_s": 3.0, "out_s": 5.0, "why": ["speech_on_camera"]}]
     for seg in data["segments"]:
         assert seg["out_s"] <= 3.0 or seg["in_s"] >= 5.0
-    assert data["summary"]["speech_s"] == 2
-    assert data["summary"]["flags"] == ["author_on_camera", "speech"]
+        # a candidate over off-camera talk keeps a soft "speech" flag
+        assert ("speech" in seg["flags"]) == (seg["in_s"] < 2.0)
+    assert data["summary"]["speech_s"] == 4 and data["summary"]["speech_on_camera_s"] == 2
+    assert data["summary"]["flags"] == ["author_on_camera", "speech", "speech_on_camera"]
     assert data["summary"]["usable_s"] == 6
 
 
-def test_finalize_reads_old_log_without_speech():
+def test_finalize_reads_old_logs():
     old = _log(6)
     assert not has_speech(old)
     data = finalize(old)
-    assert data["summary"]["speech_s"] is None
+    assert data["summary"]["speech_s"] is None and data["summary"]["speech_on_camera_s"] is None
     assert data["rejects"] == [] and data["summary"]["usable_s"] == 6
-    # a log where everything is speech becomes a reject with that reason
-    talk = finalize(_log(4, [True] * 4))
+    # a 1.1 log (speech, no sides): speech is a soft flag, nothing is rejected for it
+    v11 = _log(4, [True] * 4)
+    v11["speech_segments"] = [{"start": 0.0, "end": 3.9, "text": "Ближе", "prob": 0.9}]
+    assert has_speech(v11) and not has_speech_side(v11)
+    v11 = finalize(v11)
+    assert v11["summary"]["usable_s"] == 4 and v11["summary"]["speech_s"] == 4
+    assert v11["summary"]["flags"] == ["author_on_camera", "speech"]
+    # a log where every second is on-camera speech becomes a reject with that reason
+    talk = finalize(_log(4, [True] * 4, [True] * 4))
     assert talk["segments"] == [] and talk["summary"]["reject_clip"]
-    assert talk["summary"]["reject_why"] == ["speech"]
+    assert talk["summary"]["reject_why"] == ["speech_on_camera"]
+
+
+def test_finalize_overrides_applied_last():
+    on_cam = [False, True, True, False, False, False]
+    ov = {"allow": [[1.0, 3.0]], "reject": [[4.0, 5.0, "speech_on_camera"]]}
+    data = finalize(_log(6, [False, True, True, False, True, False], on_cam), override=ov)
+    assert data["per_second"]["usable"] == [True, True, True, True, False, True]
+    assert data["rejects"] == [{"in_s": 4.0, "out_s": 5.0, "why": ["speech_on_camera"]}]
+    assert data["summary"]["speech_on_camera_s"] == 1
+    assert data["overrides"] == ov and "overrides" in data["summary"]["flags"]
+    # re-finalizing without the override drops it again
+    again = finalize(data)
+    assert "overrides" not in again and "overrides" not in again["summary"]["flags"]
+    assert again["per_second"]["usable"] == [True, False, False, True, True, True]
+
+
+def test_load_overrides(tmp_path):
+    assert load_overrides(tmp_path) == {}
+    (tmp_path / "shotlog").mkdir()
+    f = tmp_path / "shotlog" / "overrides.json"
+    f.write_text('{"IMG_0412": {"reject": [[0.6, 3.3, "speech_on_camera"]], "allow": [[16, 18]]}}')
+    assert load_overrides(tmp_path)["IMG_0412"]["allow"] == [[16, 18]]
+    f.write_text('{"IMG_0412": {"reject": [[3.0, 1.0]]}}')
+    with pytest.raises(ValueError):
+        load_overrides(tmp_path)
+    f.write_text('{"IMG_0412": {"rejects": []}}')
+    with pytest.raises(ValueError):
+        load_overrides(tmp_path)
+
+
+# --------------------------------------------------------------------------- speech side
+
+
+def test_segment_levels_and_noise_floor():
+    sr = 16000
+    t = np.arange(sr * 3) / sr
+    x = 0.001 * np.sin(2 * np.pi * 200 * t)            # quiet bed, about -63 dBFS
+    x[sr: 2 * sr] = 0.1 * np.sin(2 * np.pi * 200 * t[sr: 2 * sr])  # a loud second, about -23 dBFS
+    segs = [{"start": 1.0, "end": 2.0}, {"start": 2.2, "end": 2.8}]
+    floor = speech_side.add_levels(segs, x, sr)
+    assert floor == pytest.approx(-63.0, abs=0.5)
+    assert segs[0]["rms_dbfs"] == pytest.approx(-23.0, abs=0.5) and segs[0]["level_dbfs"] == pytest.approx(-23.0, abs=0.5)
+    assert segs[1]["level_dbfs"] == pytest.approx(-63.0, abs=0.5)
+
+
+def test_walk_reference_is_median_of_loudest():
+    assert speech_side.walk_reference([-40, -20, -16, -22, None, -30]) == -20.0
+    assert speech_side.walk_reference([-35.0]) == -35.0
+    assert speech_side.walk_reference([]) is None
+
+
+def test_face_stats_window_and_mouth_variance():
+    frames = [{"t": i / 5, "max_face_h": 0.15 if i >= 5 else 0.0, "mouth_open": None if i < 5 else (0.02 if i % 2 else 0.05)}
+              for i in range(15)]
+    st = speech_side.face_stats(frames, 1.0, 2.0)
+    assert st["face_frames"] == "6/6" and st["max_face_h"] == 0.15 and st["median_face_h"] == 0.15
+    assert st["mouth_open_std"] == pytest.approx(0.015, abs=1e-4)
+    assert st["mouth_open_var"] == pytest.approx(0.015 ** 2, abs=1e-6)
+    empty = speech_side.face_stats(frames, 0.0, 0.5)
+    assert empty["max_face_h"] == 0.0 and empty["mouth_open_var"] is None
+
+
+def _seg(level, face=0.0, mouth_sd=None, med=None, prob=0.9):
+    return {"level_dbfs": level, "max_face_h": face, "median_face_h": face if med is None else med,
+            "mouth_open_std": mouth_sd, "prob": prob}
+
+
+def test_side_operator_is_near():
+    # loud, well above the floor, nobody in frame: the author behind the camera
+    c = speech_side.classify(_seg(-21.0), noise_floor=-60.0, walk_ref=-19.0)
+    assert c["side"] == "near" and c["side_confidence"] > 0.8
+    assert not speech_side.is_on_camera(_seg(-21.0) | c)
+
+
+def test_side_quiet_voice_with_visible_face_is_on_camera():
+    # 20 dB under the operator, close to the floor, a face looking at the camera
+    c = speech_side.classify(_seg(-39.0, face=0.052, med=0.049), noise_floor=-44.0, walk_ref=-19.0)
+    assert c["side"] == "far" and c["side_confidence"] >= speech_side.MIN_CONF
+    # the same voice with nobody visible stays a soft flag (capped)
+    c2 = speech_side.classify(_seg(-39.0), noise_floor=-44.0, walk_ref=-19.0)
+    assert c2["side"] == "far" and c2["side_confidence"] <= speech_side.AUDIO_ONLY_CAP
+    # low Whisper probability (likely noise) lowers the confidence
+    c3 = speech_side.classify(_seg(-39.0, face=0.052, med=0.049, prob=0.05), noise_floor=-44.0, walk_ref=-19.0)
+    assert c3["side_confidence"] < c["side_confidence"]
+
+
+def test_side_mouth_movement_beats_face_size():
+    # big face, mid level, lips still (smiling while the operator talks): near
+    still = speech_side.classify(_seg(-38.0, face=0.14, mouth_sd=0.009), noise_floor=-60.0, walk_ref=-19.0)
+    assert still["side"] == "near"
+    # selfie: loud (the speaker holds the camera) but a big face with a moving mouth: on camera
+    talking = speech_side.classify(_seg(-30.0, face=0.2, mouth_sd=0.025), noise_floor=-50.0, walk_ref=-19.0)
+    assert talking["side"] == "far" and talking["side_confidence"] >= speech_side.MIN_CONF
+    # mouth landmarks on a tiny face are not trusted
+    ev = speech_side.evidence(_seg(-30.0, face=0.04, mouth_sd=0.03), -50.0, -19.0)
+    assert ev["e_mouth"] is None
+
+
+def test_classify_speech_marks_on_camera_seconds():
+    data = _log(6, [False, True, True, True, False, True])
+    data["speech_noise_floor_dbfs"] = -44.0
+    data["speech_segments"] = [
+        {"start": 1.9, "end": 2.96, "text": "Снимаешь?", **_seg(-39.0, face=0.052, med=0.049)},
+        {"start": 5.2, "end": 5.6, "text": "Ближе.", **_seg(-20.0)},
+    ]
+    classify_speech(data, walk_ref=-19.0)
+    assert [s["side"] for s in data["speech_segments"]] == ["far", "near"]
+    # 1.9-2.96 padded 0.3 s -> 1.6-3.26: seconds 1, 2, 3
+    assert data["per_second"]["speech_on_camera"] == [False, True, True, True, False, False]
+    out = finalize(data)
+    assert out["summary"]["speech_on_camera_s"] == 3 and out["summary"]["speech_s"] == 4

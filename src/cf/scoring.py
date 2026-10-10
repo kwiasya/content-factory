@@ -1,7 +1,9 @@
 """Score 1 s bins and choose candidate segments for a Shot log.
 
 Pure functions over per-second arrays (tested in tests/test_shotlog.py):
-  bin_flags        why a bin is unusable (empty list = usable); speech always is
+  bin_flags        why a bin is unusable (empty list = usable); on-camera speech is,
+                   off-camera speech (per_second.speech) is only a soft flag
+  apply_overrides  the author's per-clip reject / allow ranges, applied last
   components       aes / sharp / stability / exposure in 0..1 per bin
   quality          0.35*aes + 0.25*sharp + 0.2*stability + 0.2*exposure,
                    aes weight redistributed when aes is None
@@ -80,7 +82,7 @@ def blur_bad_mask(blur: Sequence[float | None], p: Params = DEFAULT) -> list[boo
 def bin_flags(ps: dict, p: Params = DEFAULT) -> list[list[str]]:
     n = len(ps["luma_mean"])
     blur_bad = blur_bad_mask(ps["blur"], p)
-    talk = ps.get("speech") or [False] * n  # absent in reel-shotlog/1.0
+    on_cam = ps.get("speech_on_camera") or [False] * n  # absent before reel-shotlog/1.2
     out = []
     for i in range(n):
         why = []
@@ -93,9 +95,41 @@ def bin_flags(ps: dict, p: Params = DEFAULT) -> list[list[str]]:
             why.append(f"clip_hi>{p.clip_hi_pct:g}%")
         if _num(ps["scd_score"][i]) > p.scd_spike:
             why.append("scd_spike")
-        if i < len(talk) and talk[i]:
-            why.append("speech")  # no speech in a Reel until a voiceover phase
+        if i < len(on_cam) and on_cam[i]:
+            why.append("speech_on_camera")  # the subject talking on screen, until a voiceover phase
         out.append(why)
+    return out
+
+
+def _bins_touched(in_s: float, out_s: float, n: int) -> range:
+    """Bins whose second overlaps (in_s, out_s); the last bin is open-ended (a dropped
+    partial second folds into it, as in speech.speech_bins)."""
+    if n == 0 or out_s <= in_s:
+        return range(0)
+    lo = min(max(0, int(math.floor(in_s))), n - 1)
+    hi = n if out_s >= n else int(math.ceil(out_s))
+    return range(lo, max(lo, hi))
+
+
+def apply_overrides(flags: list[list[str]], override: dict | None) -> list[list[str]]:
+    """The author's overrides for one clip, applied after every automatic rule.
+
+    override = {"allow": [[in_s, out_s], ...], "reject": [[in_s, out_s, "reason"], ...]}.
+    `allow` clears every automatic flag in the seconds it touches; `reject` then adds
+    its reason (default "override"), so a reject wins over an allow on the same second.
+    """
+    out = [list(f) for f in flags]
+    if not override:
+        return out
+    n = len(out)
+    for rng in override.get("allow") or []:
+        for i in _bins_touched(float(rng[0]), float(rng[1]), n):
+            out[i] = []
+    for rng in override.get("reject") or []:
+        reason = str(rng[2]) if len(rng) > 2 and rng[2] else "override"
+        for i in _bins_touched(float(rng[0]), float(rng[1]), n):
+            if reason not in out[i]:
+                out[i].append(reason)
     return out
 
 

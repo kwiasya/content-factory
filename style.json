@@ -35,7 +35,8 @@
       "file": null
     },
     "max_words_per_line": 5,
-    "max_lines": 2
+    "max_lines": 2,
+    "status": "rejected by the author on 2026-10-10: font and overall overlay design; redesign in progress"
   },
   "colors": {
     "text": "#FFFFFF",
@@ -97,8 +98,8 @@
   },
   "look": {
     "drx": null,
-    "lut": "looks/cinema-warm.cube",
-    "status": "cf.look LUT on the cf-look color group post-clip node 1 (cf.build); cinema-warm recommended, alternatives looks/cinema-clean.cube and looks/cinema-moody.cube; awaiting the author's pick (docs/research/look-experiment.md)",
+    "lut": "looks/cinema-clean.cube",
+    "status": "author chose cinema-clean (2026-10-10)",
     "brief": "rich, saturated, expensive cinematic travel-film image: deep but not crushed shadows, glowing highlights, warm/teal split, skin protected"
   },
   "audio": {

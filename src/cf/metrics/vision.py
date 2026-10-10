@@ -76,6 +76,24 @@ def analyze(info: ProxyInfo, fps: float = 1.0) -> dict:
     return out
 
 
+def landmark_frames(proxy: Path, fps: float = 5.0) -> tuple[list[dict] | None, str | None]:
+    """Per-frame faces and mouth_open (`--landmarks --faces-only`). Returns (frames, error)."""
+    exe = binary()
+    if not exe.exists():
+        return None, "vision-score binary missing"
+    proc = subprocess.run([str(exe), str(proxy), "--fps", str(fps), "--landmarks", "--faces-only"],
+                          capture_output=True, text=True, timeout=600)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None, proc.stderr.strip()[-300:] or f"exit {proc.returncode}"
+    try:
+        frames = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None, "bad json"
+    if frames and "mouth_open" not in frames[0]:
+        return None, "vision-score has no --landmarks (rebuild tools/vision-score)"
+    return frames, None
+
+
 if __name__ == "__main__":
     import sys
 

@@ -1,7 +1,8 @@
 """Speech in a Clip's own audio, with stable-ts (Whisper + Silero VAD, word timestamps).
 
-Until a voiceover phase, a Reel carries no speech, so every second where someone
-talks becomes a reject in the Shot log.
+Speech is a soft flag: the author talks from behind the camera and music covers it.
+Only on-camera speech is a reject; cf.metrics.speech_side decides the side per
+segment from the levels measured here and from face landmarks on the proxy.
 
 Reads the RAW source, not the proxy (proxies have no audio): the first audio
 stream is decoded to a temp 16 kHz mono WAV and transcribed with Whisper `small`
@@ -11,7 +12,8 @@ hallucinating text on silent clips ("Субтитры ..."); `base` was too unre
 on short phrases. MPS fails in Whisper's word alignment (float64), hence CPU.
 
 Per 1 s bin: speech = any word, padded by PAD_S on each side, overlaps the bin.
-Also speech_segments [{start, end, text, prob}] and the full transcript text.
+Also speech_segments [{start, end, text, prob, rms_dbfs, level_dbfs}], the full
+transcript text, and the clip's noise floor (`_noise_floor_dbfs`) from the same WAV.
 
 The model is loaded once by `Transcriber` and reused across clips. Weights live
 in $CF_MODELS_DIR (default ~/Movies/content-factory/_models): `whisper/` for
@@ -29,9 +31,13 @@ import subprocess
 import tempfile
 import time
 import warnings
+import wave
 from pathlib import Path
 from typing import Iterable, Sequence
 
+import numpy as np
+
+from cf.metrics import speech_side
 from cf.metrics.common import ffmpeg_bin, ffprobe_bin, n_bins
 from cf.metrics.people import models_dir
 
@@ -117,6 +123,12 @@ def extract_wav(src: Path, wav: Path) -> None:
          "-ac", "1", "-ar", str(SAMPLE_RATE), "-c:a", "pcm_s16le", str(wav)],
         check=True, capture_output=True,
     )
+
+
+def read_wav(wav: Path) -> np.ndarray:
+    """16-bit mono WAV -> float samples in -1..1."""
+    with wave.open(str(wav)) as w:
+        return np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float64) / 32768.0
 
 
 # ----------------------------------------------------------------------------
@@ -219,7 +231,8 @@ def analyze(raw: Path | None, duration_s: float, transcriber: Transcriber | None
     No raw file or no audio stream -> all False and `_audio` False; never raises for those.
     """
     nb = n_bins(duration_s)
-    empty = {"speech": [False] * nb, "speech_segments": [], "speech_text": "", "_language": None}
+    empty = {"speech": [False] * nb, "speech_segments": [], "speech_text": "", "_language": None,
+             "_noise_floor_dbfs": None}
     if raw is None or not raw.exists():
         return empty | {"_audio": False, "_error": "raw source not found"}
     if not has_audio(raw):
@@ -231,7 +244,8 @@ def analyze(raw: Path | None, duration_s: float, transcriber: Transcriber | None
             wav = Path(tmp) / "audio.wav"
             extract_wav(raw, wav)
             res = tr.transcribe(wav)
-        out = from_result(res, nb)
+            out = from_result(res, nb)
+            out["_noise_floor_dbfs"] = speech_side.add_levels(out["speech_segments"], read_wav(wav), SAMPLE_RATE)
     finally:
         if own:
             tr.close()

@@ -1,4 +1,4 @@
-"""Build a Shot log (`reel-shotlog/1.1`) for one proxy, or for every proxy of a Walk.
+"""Build a Shot log (`reel-shotlog/1.2`) for one proxy, or for every proxy of a Walk.
 
 Usage:
   python -m cf.shotlog <proxy.mp4> [--manifest clip_manifest.json] [-o shotlog/<clip>.json]
@@ -9,12 +9,20 @@ Chain per clip (one clip at a time, models released between clips):
   cf.metrics.people   YOLO nano person tracks, 3 fps
   cf.metrics.motion   OpenCV global motion, 10 fps    (person boxes masked out)
   cf.metrics.vision   Apple Vision aesthetics, faces  (tools/vision-score, optional)
-  cf.metrics.speech   Whisper words in the RAW clip's audio (model loaded once per --all run)
-then cf.scoring: usable / quality per 1 s bin, 2-5 s candidate segments, rejects.
-A second with speech is unusable (no speech in a Reel until a voiceover phase).
+  cf.metrics.speech   Whisper words in the RAW clip's audio (model loaded once per --all run),
+                      segment levels; face landmarks on the proxy at 5 fps for clips with speech
+  cf.metrics.speech_side  near (behind the camera) / far (on camera) per segment,
+                      normalised per Walk (the operator's voice is the loudest)
+then cf.scoring: usable / quality per 1 s bin, 2-5 s candidate segments, rejects,
+and last the author's <walk>/shotlog/overrides.json.
+Speech is a soft flag (the author talking behind the camera; music covers it); only a
+second of on-camera speech is unusable (`speech_on_camera`, until a voiceover phase).
 Schema: docs/research/04-video-understanding-shot-quality/result-a.md section C,
-plus 1.1: per_second.speech, top-level speech_segments and speech_text.
-1.0 logs (no speech) stay readable; `--all` adds only the speech part to them.
+plus 1.1: per_second.speech, top-level speech_segments and speech_text;
+plus 1.2: per_second.speech_on_camera, per segment side / side_confidence / rms_dbfs /
+mouth_open_var, summary.speech_on_camera_s, top-level overrides.
+1.0 and 1.1 logs stay readable (no speech_on_camera means nothing is rejected for
+speech); `--all` adds only the speech part to them.
 """
 
 from __future__ import annotations
@@ -33,11 +41,12 @@ from pathlib import Path
 import numpy as np
 
 from cf import scoring
-from cf.metrics import ffstats, motion, people, speech, vision
+from cf.metrics import ffstats, motion, people, speech, speech_side, vision
 from cf.metrics.common import ProxyInfo, ffmpeg_bin, n_bins, probe_proxy, tool_version
 
-SCHEMA = "reel-shotlog/1.1"
-GENERATOR = "cf.shotlog 0.2"
+SCHEMA = "reel-shotlog/1.2"
+GENERATOR = "cf.shotlog 0.3"
+OVERRIDES = "overrides.json"
 APPROX_SUFFIX = "_approx"
 
 log = logging.getLogger("cf.shotlog")
@@ -188,6 +197,8 @@ def build_segments(ps: dict, comps: list[dict], q: list[float], usable: list[boo
             flags.append("highlights_near_clip")
         if any(ps.get("is_utility", [None] * len(q))[s:e]):
             flags.append("utility_frame")
+        if any((ps.get("speech") or [False] * len(q))[s:e]):
+            flags.append("speech")  # off-camera talk: allowed, music covers it
         segs.append(
             {
                 "id": f"s{k}",
@@ -240,10 +251,19 @@ def _versions(vision_available: bool, yolo_model: str) -> dict:
 
 
 def speech_part(data: dict, proxy: Path, transcriber: speech.Transcriber) -> tuple[dict, float]:
-    """Run cf.metrics.speech for a clip whose header is already in `data`; returns (result, seconds)."""
+    """Run cf.metrics.speech for a clip whose header is already in `data`, then face stats
+    per speech segment from the proxy's landmarks; returns (result, seconds)."""
     raw = speech.find_raw(proxy.resolve().parent.parent, data["clip"]["id"], data["clip"].get("path"))
     t0 = time.perf_counter()
     sp = speech.analyze(raw, data["clip"]["duration_s"], transcriber)
+    sp["_face_error"] = None
+    if sp["speech_segments"]:
+        frames, err = vision.landmark_frames(proxy, speech_side.FACE_FPS)
+        sp["_face_error"] = err
+        for seg in sp["speech_segments"]:
+            stats = speech_side.face_stats(frames, seg["start"], seg["end"]) if frames is not None else {
+                "face_frames": None, "max_face_h": None, "median_face_h": None, "mouth_open_var": None, "mouth_open_std": None}
+            seg.update(stats)
     return sp, time.perf_counter() - t0
 
 
@@ -254,6 +274,7 @@ def apply_speech(data: dict, sp: dict, seconds: float, transcriber: speech.Trans
     ps["speech"] = (sp["speech"] + [False] * nb)[:nb]
     data["speech_segments"] = sp["speech_segments"]
     data["speech_text"] = sp["speech_text"]
+    data["speech_noise_floor_dbfs"] = sp.get("_noise_floor_dbfs")
     data["schema"] = SCHEMA
     prov = data.setdefault("provenance", {})
     rt = prov.setdefault("runtime_s", {})
@@ -269,23 +290,82 @@ def apply_speech(data: dict, sp: dict, seconds: float, transcriber: speech.Trans
         "language": sp.get("_language"),
         "audio": sp.get("_audio"),
         "error": sp.get("_error"),
+        "faces": f"tools/vision-score --landmarks --faces-only at {speech_side.FACE_FPS:g} fps on the proxy",
+        "face_error": sp.get("_face_error"),
     }
 
 
-def finalize(data: dict, params: scoring.Params = scoring.DEFAULT) -> dict:
+def segment_levels(data: dict) -> list[float]:
+    return [s["level_dbfs"] for s in data.get("speech_segments") or [] if s.get("level_dbfs") is not None]
+
+
+def classify_speech(data: dict, walk_ref: float | None, min_conf: float = speech_side.MIN_CONF) -> None:
+    """Side per speech segment and per_second.speech_on_camera (in place).
+
+    `walk_ref` is speech_side.walk_reference over every segment of the Walk.
+    A second is on-camera speech if a far segment with side_confidence >= min_conf,
+    padded speech.PAD_S each side, overlaps it.
+    """
+    ps = data["per_second"]
+    nb = len(ps["t"])
+    floor = data.get("speech_noise_floor_dbfs")
+    spans = []
+    for seg in data.get("speech_segments") or []:
+        if "level_dbfs" not in seg:  # a 1.1 log: no levels yet
+            continue
+        seg.update(speech_side.classify(seg, floor, walk_ref))
+        if speech_side.is_on_camera(seg, min_conf):
+            spans.append((seg["start"], seg["end"]))
+    ps["speech_on_camera"] = speech.speech_bins(spans, nb)
+    data.setdefault("provenance", {}).setdefault("notes", {})["speech_side"] = {
+        "rule": (f"a second is speech_on_camera if a far segment with side_confidence >= {min_conf:g}, "
+                 f"padded {speech.PAD_S:g} s each side, overlaps it; other speech is a soft flag"),
+        "walk_ref_dbfs": walk_ref,
+        "noise_floor_dbfs": floor,
+        "cues": "level vs Walk reference and clip noise floor (raw audio); face size and mouth_open spread (proxy)",
+    }
+
+
+def load_overrides(walk: Path | None) -> dict:
+    """<walk>/shotlog/overrides.json: {"<clip>": {"reject": [[in, out, "reason"]], "allow": [[in, out]]}}."""
+    if walk is None:
+        return {}
+    path = walk / "shotlog" / OVERRIDES
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: expected an object keyed by clip id")
+    for cid, ov in data.items():
+        for key in ov:
+            if key not in ("reject", "allow"):
+                raise ValueError(f"{path}: {cid}: unknown key {key!r} (use reject / allow)")
+        for rng in (ov.get("reject") or []) + (ov.get("allow") or []):
+            if len(rng) < 2 or float(rng[1]) <= float(rng[0]):
+                raise ValueError(f"{path}: {cid}: bad range {rng!r} (need [in_s, out_s] with out_s > in_s)")
+    return data
+
+
+def finalize(data: dict, params: scoring.Params = scoring.DEFAULT, override: dict | None = None) -> dict:
     """(Re)compute quality, usable, segments, rejects and summary from per_second (in place).
 
     Shared by a full analysis and by the speech-only pass over an existing log.
+    `override` is this clip's entry from overrides.json, applied after every automatic rule.
     """
     ps = data["per_second"]
     header = data["clip"]
     notes = (data.get("provenance") or {}).get("notes") or {}
     subject = notes.get("subject") or {"dominated": False}
-    base_flags = [f for f in (data.get("summary") or {}).get("flags", []) if f != "speech"]
+    base_flags = [f for f in (data.get("summary") or {}).get("flags", [])
+                  if f not in ("speech", "speech_on_camera", "overrides")]
     aes_available = "aes_missing" not in base_flags
     nb = len(ps["t"])
 
-    flags = scoring.bin_flags(ps, params)
+    flags = scoring.apply_overrides(scoring.bin_flags(ps, params), override)
+    if override:
+        data["overrides"] = override
+    else:
+        data.pop("overrides", None)
     comps = scoring.components(ps, params)
     q = [round(scoring.quality(c), 3) for c in comps]
     usable = [not f for f in flags]
@@ -296,11 +376,14 @@ def finalize(data: dict, params: scoring.Params = scoring.DEFAULT) -> dict:
     rejects = scoring.reject_runs(flags, header["duration_s"])
 
     speech_s = speech.speech_seconds(ps.get("speech") or [])
-    clip_flags = base_flags + (["speech"] if speech_s else [])
+    on_cam_s = sum(1 for f in flags if "speech_on_camera" in f)
+    clip_flags = (base_flags + (["speech"] if speech_s else []) + (["speech_on_camera"] if on_cam_s else [])
+                  + (["overrides"] if override else []))
     summary = {
         "usable_s": int(sum(usable)),
         "bins": nb,
         "speech_s": speech_s if "speech" in ps else None,
+        "speech_on_camera_s": on_cam_s if "speech_on_camera" in ps or override else None,
         "best": segments[0]["id"] if segments else None,
         "reject_clip": not segments,
         "reject_why": None,
@@ -320,7 +403,10 @@ def finalize(data: dict, params: scoring.Params = scoring.DEFAULT) -> dict:
 
 
 def analyze_proxy(proxy: Path, manifest: dict | None = None, params: scoring.Params = scoring.DEFAULT,
-                  transcriber: speech.Transcriber | None = None) -> dict:
+                  transcriber: speech.Transcriber | None = None, other_levels: list[float] | None = None,
+                  override: dict | None = None) -> dict:
+    """Full analysis of one proxy. `other_levels`: speech levels of the Walk's other clips
+    (for the Walk loudness reference); `override`: this clip's overrides.json entry."""
     proxy = proxy.resolve()
     info = probe_proxy(proxy)
     entry = find_manifest_entry(manifest, clip_id(proxy))
@@ -408,12 +494,15 @@ def analyze_proxy(proxy: Path, manifest: dict | None = None, params: scoring.Par
         if own:
             tr.close()
     apply_speech(data, sp, sp_s, tr)
-    return finalize(data, params)
+    classify_speech(data, speech_side.walk_reference((other_levels or []) + segment_levels(data)))
+    return finalize(data, params, override)
 
 
 def add_speech(data: dict, proxy: Path, transcriber: speech.Transcriber | None = None,
                params: scoring.Params = scoring.DEFAULT) -> dict:
-    """Speech-only pass over an existing (e.g. 1.0) Shot log: other metrics are not recomputed."""
+    """Speech-only pass over an existing (e.g. 1.0) Shot log: other metrics are not recomputed.
+
+    Sides are classified against this clip alone; `run_all` reclassifies against the Walk."""
     own = transcriber is None
     tr = transcriber or speech.Transcriber()
     try:
@@ -422,11 +511,18 @@ def add_speech(data: dict, proxy: Path, transcriber: speech.Transcriber | None =
         if own:
             tr.close()
     apply_speech(data, sp, sp_s, tr)
+    classify_speech(data, speech_side.walk_reference(segment_levels(data)))
     return finalize(data, params)
 
 
 def has_speech(data: dict) -> bool:
     return "speech" in (data.get("per_second") or {}) and "speech_segments" in data
+
+
+def has_speech_side(data: dict) -> bool:
+    """1.2 speech: levels per segment (sides can be reclassified without audio)."""
+    return (has_speech(data) and "speech_noise_floor_dbfs" in data
+            and all("level_dbfs" in s for s in data["speech_segments"]))
 
 
 def write_json(data: dict, out: Path) -> None:
@@ -456,15 +552,27 @@ def summary_line(data: dict, runtime: float | None = None, skipped: bool = False
         flags = ",".join(summ.get("reject_why") or [])
         more = ""
     rt = "skipped (up to date)" if skipped else (f"{runtime:5.1f}s" if runtime is not None else "")
-    sp = summ.get("speech_s")
-    sp_txt = "  speech  -" if sp is None else f"  speech {sp:>2}"
+    sp, oc = summ.get("speech_s"), summ.get("speech_on_camera_s")
+    sp_txt = f"  speech {'-' if sp is None else sp:>2}/{'-' if oc is None else oc:<2}"
     return (f"{c['id']:<12} {c['duration_s']:5.1f}s  usable {summ.get('usable_s', '?'):>2}/{summ.get('bins', '?'):<2}{sp_txt}  "
             f"{best} {more:<3} [{tags}]  {flags or '-'}  {rt}")
 
 
 def speech_lines(data: dict) -> list[str]:
-    """Indented lines with each speech segment, for the --all table."""
-    return [f"{'':<14}speech {s['start']:5.1f}-{s['end']:5.1f}  {s['text']}" for s in data.get("speech_segments", [])]
+    """Indented lines with each speech segment and its side, for the --all table."""
+    out = []
+    for s in data.get("speech_segments", []):
+        side = s.get("side")
+        side_txt = "?" if side is None else f"{side:<4} {s.get('side_confidence', 0):.2f}"
+        if speech_side.is_on_camera(s):
+            side_txt += " REJECT"
+        lv = s.get("level_dbfs")
+        face = s.get("max_face_h")
+        mv = s.get("mouth_open_std")
+        cues = (f"lvl {'-' if lv is None else f'{lv:.0f}'} dB, face {'-' if face is None else f'{face:.2f}'}, "
+                f"mouth sd {'-' if mv is None else f'{mv:.3f}'}")
+        out.append(f"{'':<14}speech {s['start']:5.1f}-{s['end']:5.1f}  {side_txt:<16} {cues:<38} {s['text']}")
+    return out
 
 
 def load_manifest(path: Path | None) -> dict | None:
@@ -473,69 +581,97 @@ def load_manifest(path: Path | None) -> dict | None:
     return None
 
 
+def walk_levels(walk: Path, exclude: str | None = None) -> list[float]:
+    """Speech levels from the Walk's existing Shot logs (for a single-clip run)."""
+    out = []
+    for f in sorted((walk / "shotlog").glob("*.json")):
+        if f.name == OVERRIDES or f.stem == exclude:
+            continue
+        try:
+            out += segment_levels(json.loads(f.read_text()))
+        except (json.JSONDecodeError, OSError):
+            continue
+    return out
+
+
 def run_all(walk: Path, force: bool = False, params: scoring.Params = scoring.DEFAULT, speech_only: bool = False) -> int:
     """Analyse every proxy of a Walk; the Whisper model is loaded once for the whole run.
 
-    An up-to-date log without speech (schema 1.0) gets only the speech pass;
+    Pass 1, per clip: an up-to-date log without 1.2 speech gets only the speech pass;
     `speech_only` redoes the speech pass on every existing log (others are analysed in full).
+    Pass 2, the Walk: the loudness reference over every clip's speech, sides per segment,
+    overrides.json, scoring, and every log is rewritten. A run where every log is up to
+    date is therefore a cheap re-score after editing overrides.json.
     """
     proxy_dir, out_dir = walk / "proxy", walk / "shotlog"
     proxies = sorted(p for p in proxy_dir.glob("*.mp4") if not p.name.startswith("."))
     if not proxies:
         print(f"no proxies in {proxy_dir}", file=sys.stderr)
         return 1
+    try:
+        overrides = load_overrides(walk)
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"bad {OVERRIDES}: {exc}", file=sys.stderr)
+        return 1
+    unknown = sorted(set(overrides) - {clip_id(p) for p in proxies})
+    if unknown:
+        log.warning("%s names clips with no proxy: %s", OVERRIDES, ", ".join(unknown))
     manifest = load_manifest(walk / "clip_manifest.json")
     if manifest is None:
         log.warning("no clip_manifest.json in %s; clip headers come from ffprobe", walk)
     t_all = time.perf_counter()
-    print(f"{'clip':<12} {'dur':>6}  usable  speech  best in-out   quality      [tags]  flags  runtime")
     done = speech_done = 0
+    logs: list[tuple[dict, Path]] = []
     transcriber = speech.Transcriber()
     try:
         for proxy in proxies:
-            out = out_dir / f"{clip_id(proxy)}.json"
+            cid = clip_id(proxy)
+            out = out_dir / f"{cid}.json"
             existing = None
             if not force and out.exists():
                 try:
                     existing = json.loads(out.read_text())
                 except json.JSONDecodeError:
                     existing = None
-            fresh = existing is not None and out.stat().st_mtime >= proxy.stat().st_mtime
-            if existing is not None and (speech_only or (fresh and not has_speech(existing))):
-                t0 = time.perf_counter()
-                try:
-                    data = add_speech(existing, proxy, transcriber, params)
-                except Exception as exc:
-                    log.error("%s speech failed: %s", proxy.name, exc)
-                    print(f"{clip_id(proxy):<12} SPEECH FAILED: {exc}", flush=True)
-                    continue
-                write_json(data, out)
-                speech_done += 1
-                print(summary_line(data, time.perf_counter() - t0) + "  (speech only)", flush=True)
-                for line in speech_lines(data):
-                    print(line, flush=True)
-                continue
-            if fresh:
-                try:
-                    print(summary_line(existing, skipped=True), flush=True)
-                    continue
-                except KeyError:
-                    pass
+            fresh = (existing is not None and out.stat().st_mtime >= proxy.stat().st_mtime
+                     and all(k in existing for k in ("clip", "per_second", "segments", "summary")))
             t0 = time.perf_counter()
             try:
-                data = analyze_proxy(proxy, manifest, params, transcriber)
+                if existing is not None and (speech_only or (fresh and not has_speech_side(existing))):
+                    data = add_speech(existing, proxy, transcriber, params)
+                    speech_done += 1
+                    status = "speech only"
+                elif fresh:
+                    data = existing
+                    status = "up to date"
+                else:
+                    data = analyze_proxy(proxy, manifest, params, transcriber)
+                    done += 1
+                    status = "analysed"
             except Exception as exc:  # keep going; one bad clip must not stop the Walk
                 log.error("%s failed: %s", proxy.name, exc)
-                print(f"{clip_id(proxy):<12} FAILED: {exc}", flush=True)
+                print(f"{cid:<12} FAILED: {exc}", flush=True)
                 continue
-            write_json(data, out)
-            done += 1
-            print(summary_line(data, time.perf_counter() - t0), flush=True)
-            for line in speech_lines(data):
-                print(line, flush=True)
+            if status != "up to date":
+                write_json(data, out)  # provisional until the Walk pass below
+            logs.append((data, out))
+            print(f"{cid:<12} {status:<12} {time.perf_counter() - t0:5.1f}s", flush=True)
     finally:
         load_s = transcriber.load_s
         transcriber.close()
+
+    ref = speech_side.walk_reference(lv for data, _ in logs for lv in segment_levels(data))
+    print(f"\nWalk speech reference {ref} dBFS (median of the {speech_side.REF_TOP_N} loudest segments); "
+          f"overrides: {', '.join(sorted(overrides)) or 'none'}\n")
+    print(f"{'clip':<12} {'dur':>6}  usable  speech/oncam  best in-out   quality      [tags]  flags")
+    for data, out in logs:
+        cid = data["clip"]["id"]
+        classify_speech(data, ref)
+        finalize(data, params, overrides.get(cid))
+        write_json(data, out)
+        print(summary_line(data), flush=True)
+        for line in speech_lines(data):
+            print(line, flush=True)
     print(f"\n{len(proxies)} proxies, {done} analysed, {speech_done} speech-only, whisper load {load_s:.1f}s, "
           f"total {time.perf_counter() - t_all:.1f}s -> {out_dir}")
     return 0
@@ -549,7 +685,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-o", "--output", type=Path, help="default: <walk>/shotlog/<clip>.json")
     ap.add_argument("--force", action="store_true", help="with --all: redo up-to-date logs")
     ap.add_argument("--speech-only", action="store_true",
-                    help="with --all: redo only the speech part of existing logs (1.0 logs get it automatically)")
+                    help="with --all: redo only the speech part (Whisper, levels, faces, sides) of existing logs, "
+                         "then re-apply shotlog/overrides.json")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
@@ -563,11 +700,13 @@ def main(argv: list[str] | None = None) -> int:
     proxy = args.proxy
     if not proxy.exists():
         ap.error(f"no such file: {proxy}")
-    manifest_path = args.manifest or proxy.resolve().parent.parent / "clip_manifest.json"
+    walk = proxy.resolve().parent.parent
+    manifest_path = args.manifest or walk / "clip_manifest.json"
     manifest = load_manifest(manifest_path)
-    out = args.output or proxy.resolve().parent.parent / "shotlog" / f"{clip_id(proxy)}.json"
+    out = args.output or walk / "shotlog" / f"{clip_id(proxy)}.json"
     t0 = time.perf_counter()
-    data = analyze_proxy(proxy, manifest)
+    data = analyze_proxy(proxy, manifest, other_levels=walk_levels(walk, clip_id(proxy)),
+                         override=load_overrides(walk).get(clip_id(proxy)))
     write_json(data, out)
     print(summary_line(data, time.perf_counter() - t0))
     for line in speech_lines(data):

@@ -140,3 +140,123 @@ Clips where VAD finds no voice cost 0.3 s (ffmpeg decode plus VAD); Whisper only
 - **Short low-confidence words** at clip edges ("Давай!" at 0.0–0.1, prob 0.03) may be noise. They are kept, because missing speech costs more than losing one second. `speech_segments[].prob` lets the Editor judge.
 - **Text is approximate** for short, noisy phrases (IMG_0412 «Леток?», IMG_0386). The timing is what the reject uses.
 - **Audio/video offset.** Bins assume the raw audio and the proxy both start at 0; the 0.3 s padding absorbs small offsets.
+
+## Speech side run (2026-10-10)
+
+The author corrected the speech rule: almost all speech on the Walk is the person filming, talking from behind the camera ("closer", "you're out of frame"). That is fine, because music covers it. Only the person **on camera** talking is a reject, and the author says that happened in one moment. So `per_second.speech` is now a soft flag (candidates over it carry flag `speech`). Only `per_second.speech_on_camera` makes a second unusable (`why: speech_on_camera`). Schema `reel-shotlog/1.2`; 1.0 and 1.1 logs stay readable, and a log without `speech_on_camera` rejects nothing for speech.
+
+**Side per segment** (`cf.metrics.speech_side`). Each Whisper segment gets `side` = `near` (behind the camera) or `far` (on camera), `side_confidence` 0–1, `rms_dbfs` and `mouth_open_var`. It also gets `level_dbfs`, `rel_db`, `snr_db`, `max_face_h`, `median_face_h`, `face_frames`, `mouth_open_std` and `p_far`. Two cues:
+
+- **Loudness**, from the raw clip's 16 kHz WAV (the same file Whisper reads).
+  - `level_dbfs` is the 90th percentile of 50 ms frame levels inside the segment. It is robust to pauses between words.
+  - The level is compared with the **Walk** reference: the median of the three loudest segment levels, −19.0 dBFS here, because the operator's voice is the loudest. The result is `rel_db`.
+  - It is also compared with the clip's noise floor, the 10th percentile of frame levels. The result is `snr_db`.
+  - Evidence for far ramps from −1 to +1 around `rel_db` −16 ± 9 dB and `snr_db` 14 ± 8 dB.
+- **Face and mouth**, from the proxy: `tools/vision-score <proxy> --fps 5 --landmarks --faces-only`.
+  - The Swift change adds `VNDetectFaceLandmarksRequest` through the Swift `DetectFaceLandmarksRequest`. Per frame, `mouth_open` is the inner-lip vertical extent of the largest face divided by its face-box height. `--faces-only` skips aesthetics and humans, which costs about 13 ms per frame.
+  - Face size ramps from 0 at 0.03 to +1 at 0.12 of the frame height. No face at all counts −1.
+  - The spread of `mouth_open` over the segment is the strongest cue (±1 around sd 0.012 ± 0.008). It is only trusted once the face is big enough for stable landmarks: the weight ramps from a median face height of 0.05 to 0.12.
+- **Combination.** The weighted sum (0.5 rel, 0.5 snr, 0.4 face, 1.2 mouth) goes through a logistic to give `p_far`. Then:
+  - `side_confidence` = |2·p_far − 1|. It is scaled by Whisper's word probability: 0.5× at prob 0, full from prob 0.5, because low-probability words are often noise.
+  - It is capped at 0.4 when no face of at least 0.04 is visible. A far voice that nobody can see talking is covered by music like the operator's.
+  - A second is `speech_on_camera` when a `far` segment with confidence ≥ 0.5, padded 0.3 s, overlaps it.
+- **Not used.** Reverb or dryness (a direct-to-reverberant estimate is not cheap or reliable from one mono WAV), and speaker identity.
+
+The weights were set by hand on this Walk. Three anchors were checked against frames: IMG_0418 has nobody in frame and is the operator's monologue; IMG_1621 26.8–28.0 has her smiling with closed lips, so the operator is talking; IMG_0412 0.8–1.0 has her looking back at the camera with parted lips. **They are not validated beyond one Walk.**
+
+**Overrides.** `<walk>/shotlog/overrides.json`, `{"<clip>": {"reject": [[in_s, out_s, "reason"]], "allow": [[in_s, out_s]]}}`, is applied after every automatic rule. `allow` clears all flags in the seconds it touches, then `reject` adds its reason, so a reject wins over an allow. The entry is copied into the log as `overrides`.
+
+- `--all` without flags re-scores up-to-date logs in about 0.6 s. Sides are reclassified from the stored levels and face stats, with no audio or video.
+- `--speech-only` redoes Whisper, levels and faces, then re-applies the overrides.
+- Both were checked on a scratch copy of the Walk. The real Walk has no overrides file yet.
+
+```sh
+.venv/bin/python -m cf.shotlog --all ~/Movies/content-factory/potsdam-2026-10-04 --speech-only
+```
+
+The run took 45 s wall time: Whisper load 5.7 s, and the landmark pass is about 1–2 s per clip with speech. Peak RSS was 1.8 GB. The Walk reference was −19.0 dBFS.
+
+| clip | start–end | text | rms dBFS | level (vs Walk / over floor) | face max h (frames with face) | mouth var (sd) | side | conf |
+|---|---|---|---|---|---|---|---|---|
+| IMG_0378 | 0.00–0.10 | «Давай!» | -41.1 | -40.0 (-21.0 / +4.8) | 0.026 (1/2) | — | far | 0.35 |
+| IMG_0386 | 9.70–10.10 | «Хорошо в prefix» | -38.5 | -30.7 (-11.7 / +19.4) | 0.201 (4/4) | 0.00051 (0.022) | far | 0.40 |
+| IMG_0412 | 0.94–1.12 | «Леток?» | -36.8 | -34.6 (-15.6 / +9.2) | 0.045 (2/2) | 0.00011 (0.011) | far | 0.21 |
+| IMG_0412 | 1.90–2.96 | «Леток?» | -41.1 | -39.1 (-20.1 / +4.7) | 0.052 (5/7) | 0.00001 (0.003) | **far** | **0.68** |
+| IMG_0418 | 0.19–0.67 | «Какая-то гоня» | -38.3 | -36.5 (-17.5 / +15.2) | 0.000 (0/3) | — | near | 0.37 |
+| IMG_0418 | 2.86–5.72 | «100% какая-то бибильная история с этими собаками» | -27.2 | -23.4 (-4.4 / +28.3) | 0.000 (0/16) | — | near | 0.89 |
+| IMG_0418 | 5.72–6.10 | «Ну ничего,» | -24.3 | -21.3 (-2.3 / +30.4) | 0.000 (0/2) | — | near | 0.85 |
+| IMG_0418 | 6.18–6.68 | «это все в код,» | -25.3 | -22.1 (-3.1 / +29.6) | 0.000 (0/3) | — | near | 0.89 |
+| IMG_0418 | 6.82–7.20 | «скормлю,» | -23.8 | -21.0 (-2.0 / +30.7) | 0.000 (0/3) | — | near | 0.89 |
+| IMG_0418 | 7.70–8.74 | «там меня смонтируют видео» | -25.0 | -21.0 (-2.0 / +30.7) | 0.000 (0/6) | — | near | 0.89 |
+| IMG_0471 | 0.28–0.62 | «Кашка, да?» | -42.7 | -41.3 (-22.3 / +11.9) | 0.000 (0/3) | — | far | 0.08 |
+| IMG_0471 | 0.88–1.12 | «Иди» | -31.9 | -30.5 (-11.5 / +22.7) | 0.000 (0/3) | — | near | 0.82 |
+| IMG_0471 | 5.54–7.64 | «Все, стой, не так далеко» | -29.9 | -26.4 (-7.4 / +26.8) | 0.000 (0/11) | — | near | 0.88 |
+| IMG_0471 | 12.61–15.08 | «Сильно далеко, конечно» | -50.1 | -47.9 (-28.9 / +5.3) | 0.033 (1/13) | — | far | 0.40 |
+| IMG_0484 | 0.74–1.50 | «Го!» | -21.8 | -15.8 (+3.2 / +34.1) | 0.000 (0/5) | — | near | 0.58 |
+| IMG_0493 | 5.44–7.48 | «Нет, очень далеко.» | -27.7 | -22.3 (-3.3 / +42.2) | 0.000 (0/11) | — | near | 0.89 |
+| IMG_0493 | 8.18–8.54 | «Ближе?» | -52.3 | -48.4 (-29.4 / +16.1) | 0.000 (0/3) | — | near | 0.03 |
+| IMG_0493 | 8.94–9.70 | «Раз в два.» | -22.2 | -19.0 (+0.0 / +45.5) | 0.000 (0/5) | — | near | 0.89 |
+| IMG_0493 | 12.78–13.08 | «А тут?» | -55.4 | -50.5 (-31.5 / +14.0) | 0.000 (0/3) | — | far | 0.10 |
+| IMG_0493 | 13.73–14.42 | «Еще ближе.» | -26.5 | -22.8 (-3.8 / +41.7) | 0.000 (0/4) | — | near | 0.89 |
+| IMG_0493 | 14.94–15.16 | «Тут?» | -56.3 | -53.5 (-34.5 / +11.0) | 0.000 (0/2) | — | far | 0.28 |
+| IMG_0493 | 16.02–17.54 | «Нет, ты уже вышла с камеры.» | -25.1 | -20.9 (-1.9 / +43.6) | 0.033 (3/9) | 0.00010 (0.010) | near | 0.76 |
+| IMG_0493 | 19.28–19.46 | «Тут?» | -52.8 | -50.7 (-31.7 / +13.8) | 0.000 (0/1) | — | far | 0.11 |
+| IMG_0493 | 20.02–22.28 | «Ну, я бы еще раз в два ближе подошел.» | -24.3 | -20.1 (-1.1 / +44.4) | 0.030 (7/13) | 0.00006 (0.008) | near | 0.76 |
+| IMG_0493 | 23.22–24.30 | «Ну, вот хотя бы тут.» | -26.5 | -23.2 (-4.2 / +41.3) | 0.030 (5/7) | 0.00002 (0.005) | near | 0.76 |
+| IMG_0493 | 25.72–26.36 | «Но размыто.» | -22.3 | -19.7 (-0.7 / +44.8) | 0.030 (1/4) | — | near | 0.76 |
+| IMG_0493 | 27.30–27.44 | «Ну,» | -59.6 | -59.2 (-40.2 / +5.3) | 0.031 (1/1) | — | far | 0.40 |
+| IMG_0493 | 27.72–28.14 | «переключи на киски,» | -47.7 | -44.3 (-25.3 / +20.2) | 0.032 (3/3) | 0.00004 (0.006) | far | 0.12 |
+| IMG_0493 | 28.14–28.98 | «на эффект она нормальная.» | -43.0 | -40.4 (-21.4 / +24.1) | 0.032 (5/5) | 0.00004 (0.006) | near | 0.19 |
+| IMG_1621 | 1.76–2.48 | «Можешь начинать.» | -35.5 | -31.8 (-12.8 / +28.3) | 0.000 (0/4) | — | near | 0.79 |
+| IMG_1621 | 4.32–5.60 | «Да.» | -42.0 | -36.3 (-17.3 / +23.8) | 0.000 (0/7) | — | near | 0.43 |
+| IMG_1621 | 8.38–9.78 | «О, всё, заебись.» | -37.6 | -34.7 (-15.7 / +25.4) | 0.064 (8/8) | 0.00031 (0.018) | near | 0.23 |
+| IMG_1621 | 15.57–17.43 | «О, да, как будто хрен.» | -33.4 | -29.7 (-10.7 / +30.4) | 0.000 (0/10) | — | near | 0.83 |
+| IMG_1621 | 22.98–23.80 | «И можешь назад идти.» | -34.4 | -30.1 (-11.1 / +30.0) | 0.056 (5/5) | 0.00004 (0.007) | near | 0.61 |
+| IMG_1621 | 26.00–26.10 | «Всё,» | -52.7 | -51.3 (-32.3 / +8.8) | 0.085 (2/2) | 0.00009 (0.009) | far | 0.37 |
+| IMG_1621 | 26.78–28.00 | «всё хватит.» | -42.0 | -38.3 (-19.3 / +21.8) | 0.140 (5/7) | 0.00011 (0.010) | near | 0.14 |
+| IMG_1621 | 29.48–29.86 | «Ага.» | -34.7 | -32.9 (-13.9 / +27.2) | 0.000 (0/3) | — | near | 0.77 |
+
+**Rejected now:** IMG_0412 seconds 1–3 (1.0–4.0). The far segment 1.90–2.96, padded, covers 1.6–3.26. Nothing else on the Walk is rejected for speech.
+
+| clip | usable before speech | 1.1 (all speech rejected) | 1.2 (on-camera only) | speech s | on-camera s | best now |
+|---|---|---|---|---|---|---|
+| IMG_0332 | 13 | 13 | 13 | 0 | 0 | 3–8 (q 0.86) |
+| IMG_0378 | 20 | 19 | 20 | 1 | 0 | 7–12 (q 0.87) |
+| IMG_0386 | 0 | 0 | 0 | 2 | 0 | REJECT (shake, blur) |
+| IMG_0405 | 13 | 13 | 13 | 0 | 0 | 3–8 (q 0.91) |
+| IMG_0412 | 26 | 22 | **23** | 4 | 3 | 16–21 (q 0.86) |
+| IMG_0413 | 29 | 29 | 29 | 0 | 0 | 2–7 (q 0.89) |
+| IMG_0415 | 2 | 2 | 2 | 0 | 0 | 2–4 (q 0.69) |
+| IMG_0418 | 26 | 17 | **26** | 9 | 0 | 21–25.9 (q 0.88) |
+| IMG_0420 | 15 | 15 | 15 | 0 | 0 | 2–7 (q 0.89) |
+| IMG_0457 | 12 | 12 | 12 | 0 | 0 | 14–16.8 (q 0.90) |
+| IMG_0471 | 15 | 8 | **15** | 9 | 0 | 5–10 (q 0.92) |
+| IMG_0484 | 12 | 10 | **12** | 2 | 0 | 5–10 (q 0.87) |
+| IMG_0493 | 28 | 6 | **28** | 22 | 0 | 7–12 (q 0.93) |
+| IMG_1621 | 18 | 9 | **18** | 19 | 0 | 14–19 (q 0.80) |
+| **Walk** | 229 | 175 | **226** | 68 | 3 | |
+
+Usable footage is back from 175 s to 226 s (+51 s). Only IMG_0412's three seconds remain lost. The best segments of IMG_0471, IMG_0493 and IMG_1621 are back to their pre-speech picks.
+
+### Best guess: the on-camera moment
+
+**IMG_0412, 0.9–3.0 s: the two «Леток?» segments.** «Леток?» is very likely Whisper mishearing «Снимаешь?» ("are you filming?"). That is the phrase the author quoted in the reel-01 review ("ты снимаешь?"). Evidence:
+
+- The voice is 15–20 dB under the operator's and only 5–9 dB over the clip's noise floor: a far voice.
+- A face is visible in 7 of 9 sampled frames. In the raw frames at 0.8–1.0 s she looks back over her shoulder at the camera with her lips parted, then turns away.
+- No other segment with a visible face is quiet. The candidates where faces are big (IMG_1621 26.8–28.0, IMG_0386) either show closed, smiling lips or come from a selfie clip that is already a reject.
+
+The model rejects only the second «Леток?» (1.90–2.96, conf 0.68). The first (0.94–1.12) has Whisper prob 0.13 and a 0.045 face, so its conf is 0.21; its padding into second 0 is not rejected. reel-01's shot IMG_0412 1.0–4.0 overlaps the rejected seconds.
+
+**To confirm (author):**
+
+1. Is IMG_0412 0.9–3.0 the moment? If yes, pin it with `{"IMG_0412": {"reject": [[0.6, 3.3, "speech_on_camera"]]}}` in `shotlog/overrides.json`, which covers seconds 0–3. If not, use `allow` on 1–4 and name the real moment.
+2. The quiet questions in IMG_0493 («Ближе?», «А тут?», «Тут?» ×2, at −48 to −54 dBFS) sound like the person on camera answering the operator from far away. She is too small for a face to be detected, so they stay soft (conf ≤ 0.4). Reject them only if the author counts them.
+3. The IMG_0386 selfie (9.7–10.1, face 0.20, mouth moving, conf 0.40 after the low Whisper probability) is on-camera talk in a selfie. The clip is already rejected for shake.
+
+### Open problems
+
+- **One Walk, hand-set weights.** The thresholds come from 37 segments and three visual checks. Expect overrides on the next Walk until there are more labels.
+- **Small faces.** Most subjects are 0.03–0.06 of the frame height on the 540p proxy, so landmarks there are too noisy to trust. Face presence and loudness carry the decision. Running landmarks on the raw 4K would make mouth movement usable for far subjects, at a higher decode cost.
+- **Per-clip operator level varies.** In IMG_1621 the operator sits at −30 to −38 dBFS, 11–19 dB under the Walk reference, so the loudness cue alone would lean far. The noise-floor margin and mouth cue keep those segments near.
+- **Whisper probability as reliability** also discounts real short words (IMG_0412 «Леток?» first instance, prob 0.13).
