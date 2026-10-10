@@ -1,0 +1,45 @@
+{
+  "name": "cinema-clean",
+  "description": "Rich and clean: deep blacks, punchy contrast, saturated true-to-life color, only a hint of toning.",
+  "exposure": -0.15,
+  "contrast": {
+    "amount": 1.35,
+    "pivot": 0.18,
+    "toe_stops": 2.0,
+    "shoulder_stops": 1.2,
+    "per_channel": 0.2
+  },
+  "saturation": {
+    "amount": 1.28,
+    "vibrance": 0.2,
+    "highlight_start": 1.0,
+    "highlight_end": 4.0,
+    "highlight_floor": 0.85,
+    "skin": {
+      "hue": 22,
+      "width": 14,
+      "protect": 0.55
+    },
+    "bands": [
+      {
+        "hue": 80,
+        "width": 12,
+        "gain": 0.88
+      }
+    ]
+  },
+  "split_tone": {
+    "highlights": {
+      "hue": 34,
+      "strength": 0.03
+    },
+    "shadows": {
+      "hue": 200,
+      "strength": 0.05
+    },
+    "balance": 0.0,
+    "highlight_range": 3.0,
+    "shadow_range": 4.0
+  },
+  "black_lift": 0.0
+}

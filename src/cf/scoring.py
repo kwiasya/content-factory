@@ -1,7 +1,7 @@
 """Score 1 s bins and choose candidate segments for a Shot log.
 
 Pure functions over per-second arrays (tested in tests/test_shotlog.py):
-  bin_flags        why a bin is unusable (empty list = usable)
+  bin_flags        why a bin is unusable (empty list = usable); speech always is
   components       aes / sharp / stability / exposure in 0..1 per bin
   quality          0.35*aes + 0.25*sharp + 0.2*stability + 0.2*exposure,
                    aes weight redistributed when aes is None
@@ -80,6 +80,7 @@ def blur_bad_mask(blur: Sequence[float | None], p: Params = DEFAULT) -> list[boo
 def bin_flags(ps: dict, p: Params = DEFAULT) -> list[list[str]]:
     n = len(ps["luma_mean"])
     blur_bad = blur_bad_mask(ps["blur"], p)
+    talk = ps.get("speech") or [False] * n  # absent in reel-shotlog/1.0
     out = []
     for i in range(n):
         why = []
@@ -92,6 +93,8 @@ def bin_flags(ps: dict, p: Params = DEFAULT) -> list[list[str]]:
             why.append(f"clip_hi>{p.clip_hi_pct:g}%")
         if _num(ps["scd_score"][i]) > p.scd_spike:
             why.append("scd_spike")
+        if i < len(talk) and talk[i]:
+            why.append("speech")  # no speech in a Reel until a voiceover phase
         out.append(why)
     return out
 

@@ -1,16 +1,20 @@
-"""Build a Shot log (`reel-shotlog/1.0`) for one proxy, or for every proxy of a Walk.
+"""Build a Shot log (`reel-shotlog/1.1`) for one proxy, or for every proxy of a Walk.
 
 Usage:
   python -m cf.shotlog <proxy.mp4> [--manifest clip_manifest.json] [-o shotlog/<clip>.json]
-  python -m cf.shotlog --all <walk_dir> [--force]
+  python -m cf.shotlog --all <walk_dir> [--force | --speech-only]
 
 Chain per clip (one clip at a time, models released between clips):
   cf.metrics.ffstats  exposure, blur, hard cuts       (one ffmpeg pass)
   cf.metrics.people   YOLO nano person tracks, 3 fps
   cf.metrics.motion   OpenCV global motion, 10 fps    (person boxes masked out)
   cf.metrics.vision   Apple Vision aesthetics, faces  (tools/vision-score, optional)
+  cf.metrics.speech   Whisper words in the RAW clip's audio (model loaded once per --all run)
 then cf.scoring: usable / quality per 1 s bin, 2-5 s candidate segments, rejects.
-Schema: docs/research/04-video-understanding-shot-quality/result-a.md section C.
+A second with speech is unusable (no speech in a Reel until a voiceover phase).
+Schema: docs/research/04-video-understanding-shot-quality/result-a.md section C,
+plus 1.1: per_second.speech, top-level speech_segments and speech_text.
+1.0 logs (no speech) stay readable; `--all` adds only the speech part to them.
 """
 
 from __future__ import annotations
@@ -29,11 +33,11 @@ from pathlib import Path
 import numpy as np
 
 from cf import scoring
-from cf.metrics import ffstats, motion, people, vision
+from cf.metrics import ffstats, motion, people, speech, vision
 from cf.metrics.common import ProxyInfo, ffmpeg_bin, n_bins, probe_proxy, tool_version
 
-SCHEMA = "reel-shotlog/1.0"
-GENERATOR = "cf.shotlog 0.1"
+SCHEMA = "reel-shotlog/1.1"
+GENERATOR = "cf.shotlog 0.2"
 APPROX_SUFFIX = "_approx"
 
 log = logging.getLogger("cf.shotlog")
@@ -235,7 +239,88 @@ def _versions(vision_available: bool, yolo_model: str) -> dict:
     }
 
 
-def analyze_proxy(proxy: Path, manifest: dict | None = None, params: scoring.Params = scoring.DEFAULT) -> dict:
+def speech_part(data: dict, proxy: Path, transcriber: speech.Transcriber) -> tuple[dict, float]:
+    """Run cf.metrics.speech for a clip whose header is already in `data`; returns (result, seconds)."""
+    raw = speech.find_raw(proxy.resolve().parent.parent, data["clip"]["id"], data["clip"].get("path"))
+    t0 = time.perf_counter()
+    sp = speech.analyze(raw, data["clip"]["duration_s"], transcriber)
+    return sp, time.perf_counter() - t0
+
+
+def apply_speech(data: dict, sp: dict, seconds: float, transcriber: speech.Transcriber) -> None:
+    """Write a cf.metrics.speech result into a Shot log dict (in place) and bump the schema."""
+    ps = data["per_second"]
+    nb = len(ps["t"])
+    ps["speech"] = (sp["speech"] + [False] * nb)[:nb]
+    data["speech_segments"] = sp["speech_segments"]
+    data["speech_text"] = sp["speech_text"]
+    data["schema"] = SCHEMA
+    prov = data.setdefault("provenance", {})
+    rt = prov.setdefault("runtime_s", {})
+    rt["speech"] = round(seconds, 2)
+    rt["total"] = round(sum(v for k, v in rt.items() if k != "total"), 2)
+    prov.setdefault("tool_versions", {}).update(transcriber.versions())
+    prov.setdefault("notes", {})["speech"] = {
+        "rule": f"a second is speech if any Whisper word, padded {speech.PAD_S:g} s each side, overlaps it",
+        "source": "first audio stream of the raw clip, 16 kHz mono",
+        "model": sp.get("_model"),
+        "device": sp.get("_device"),
+        "language_hint": sp.get("_lang_hint"),
+        "language": sp.get("_language"),
+        "audio": sp.get("_audio"),
+        "error": sp.get("_error"),
+    }
+
+
+def finalize(data: dict, params: scoring.Params = scoring.DEFAULT) -> dict:
+    """(Re)compute quality, usable, segments, rejects and summary from per_second (in place).
+
+    Shared by a full analysis and by the speech-only pass over an existing log.
+    """
+    ps = data["per_second"]
+    header = data["clip"]
+    notes = (data.get("provenance") or {}).get("notes") or {}
+    subject = notes.get("subject") or {"dominated": False}
+    base_flags = [f for f in (data.get("summary") or {}).get("flags", []) if f != "speech"]
+    aes_available = "aes_missing" not in base_flags
+    nb = len(ps["t"])
+
+    flags = scoring.bin_flags(ps, params)
+    comps = scoring.components(ps, params)
+    q = [round(scoring.quality(c), 3) for c in comps]
+    usable = [not f for f in flags]
+    ps["quality"] = q
+    ps["usable"] = usable
+
+    segments = build_segments(ps, comps, q, usable, data.get("events", []), header, subject, aes_available, params)
+    rejects = scoring.reject_runs(flags, header["duration_s"])
+
+    speech_s = speech.speech_seconds(ps.get("speech") or [])
+    clip_flags = base_flags + (["speech"] if speech_s else [])
+    summary = {
+        "usable_s": int(sum(usable)),
+        "bins": nb,
+        "speech_s": speech_s if "speech" in ps else None,
+        "best": segments[0]["id"] if segments else None,
+        "reject_clip": not segments,
+        "reject_why": None,
+        "flags": clip_flags,
+        "light": segments[0]["light"] if segments else scoring.light_tag(
+            _mean(ps["luma_mean"]), _mean(ps["sat"]), _mean(ps["warmth"]), _mean(ps["contrast"]),
+            header.get("created"), header.get("gps")),
+    }
+    if not segments:
+        counts = Counter(w for f in flags for w in f)
+        summary["reject_why"] = [w for w, _ in counts.most_common()] or ["shorter than a 2 s window"]
+    data["segments"] = segments
+    data["rejects"] = rejects
+    data["summary"] = summary
+    data.setdefault("provenance", {})["params"] = params.as_dict() | {"weights": scoring.WEIGHTS}
+    return data
+
+
+def analyze_proxy(proxy: Path, manifest: dict | None = None, params: scoring.Params = scoring.DEFAULT,
+                  transcriber: speech.Transcriber | None = None) -> dict:
     proxy = proxy.resolve()
     info = probe_proxy(proxy)
     entry = find_manifest_entry(manifest, clip_id(proxy))
@@ -280,16 +365,6 @@ def analyze_proxy(proxy: Path, manifest: dict | None = None, params: scoring.Par
         "max_face_h": vi["max_face_h"],
         "is_utility": vi["is_utility"],
     }
-    flags = scoring.bin_flags(ps, params)
-    comps = scoring.components(ps, params)
-    q = [round(scoring.quality(c), 3) for c in comps]
-    usable = [not f for f in flags]
-    ps["quality"] = q
-    ps["usable"] = usable
-
-    segments = build_segments(ps, comps, q, usable, pe["events"], header, pe["subject"], vi.get("_available", False), params)
-    rejects = scoring.reject_runs(flags, header["duration_s"])
-
     clip_flags = []
     if pe["subject"]["dominated"]:
         clip_flags.append("author_on_camera")
@@ -297,29 +372,16 @@ def analyze_proxy(proxy: Path, manifest: dict | None = None, params: scoring.Par
         clip_flags.append("aes_missing")
     if mo.get("_failed"):
         clip_flags.append(f"motion_tracking_failed_pairs={mo['_failed']}")
-    summary = {
-        "usable_s": int(sum(usable)),
-        "bins": nb,
-        "best": segments[0]["id"] if segments else None,
-        "reject_clip": not segments,
-        "reject_why": None,
-        "flags": clip_flags,
-        "light": segments[0]["light"] if segments else scoring.light_tag(
-            _mean(ps["luma_mean"]), _mean(ps["sat"]), _mean(ps["warmth"]), _mean(ps["contrast"]),
-            header.get("created"), header.get("gps")),
-    }
-    if not segments:
-        counts = Counter(w for f in flags for w in f)
-        summary["reject_why"] = [w for w, _ in counts.most_common()] or ["shorter than a 2 s window"]
-
-    return {
+    data = {
         "schema": SCHEMA,
         "clip": header,
         "per_second": ps,
         "events": pe["events"],
-        "segments": segments,
-        "rejects": rejects,
-        "summary": summary,
+        "speech_segments": [],
+        "speech_text": "",
+        "segments": [],
+        "rejects": [],
+        "summary": {"flags": clip_flags},
         "llm": None,
         "provenance": {
             "tool_versions": _versions(vi.get("_available", False), pe.get("_model", "")),
@@ -338,6 +400,33 @@ def analyze_proxy(proxy: Path, manifest: dict | None = None, params: scoring.Par
             },
         },
     }
+    own = transcriber is None
+    tr = transcriber or speech.Transcriber()
+    try:
+        sp, sp_s = speech_part(data, proxy, tr)
+    finally:
+        if own:
+            tr.close()
+    apply_speech(data, sp, sp_s, tr)
+    return finalize(data, params)
+
+
+def add_speech(data: dict, proxy: Path, transcriber: speech.Transcriber | None = None,
+               params: scoring.Params = scoring.DEFAULT) -> dict:
+    """Speech-only pass over an existing (e.g. 1.0) Shot log: other metrics are not recomputed."""
+    own = transcriber is None
+    tr = transcriber or speech.Transcriber()
+    try:
+        sp, sp_s = speech_part(data, proxy, tr)
+    finally:
+        if own:
+            tr.close()
+    apply_speech(data, sp, sp_s, tr)
+    return finalize(data, params)
+
+
+def has_speech(data: dict) -> bool:
+    return "speech" in (data.get("per_second") or {}) and "speech_segments" in data
 
 
 def write_json(data: dict, out: Path) -> None:
@@ -367,8 +456,15 @@ def summary_line(data: dict, runtime: float | None = None, skipped: bool = False
         flags = ",".join(summ.get("reject_why") or [])
         more = ""
     rt = "skipped (up to date)" if skipped else (f"{runtime:5.1f}s" if runtime is not None else "")
-    return (f"{c['id']:<12} {c['duration_s']:5.1f}s  usable {summ.get('usable_s', '?'):>2}/{summ.get('bins', '?'):<2}  "
+    sp = summ.get("speech_s")
+    sp_txt = "  speech  -" if sp is None else f"  speech {sp:>2}"
+    return (f"{c['id']:<12} {c['duration_s']:5.1f}s  usable {summ.get('usable_s', '?'):>2}/{summ.get('bins', '?'):<2}{sp_txt}  "
             f"{best} {more:<3} [{tags}]  {flags or '-'}  {rt}")
+
+
+def speech_lines(data: dict) -> list[str]:
+    """Indented lines with each speech segment, for the --all table."""
+    return [f"{'':<14}speech {s['start']:5.1f}-{s['end']:5.1f}  {s['text']}" for s in data.get("speech_segments", [])]
 
 
 def load_manifest(path: Path | None) -> dict | None:
@@ -377,7 +473,12 @@ def load_manifest(path: Path | None) -> dict | None:
     return None
 
 
-def run_all(walk: Path, force: bool = False, params: scoring.Params = scoring.DEFAULT) -> int:
+def run_all(walk: Path, force: bool = False, params: scoring.Params = scoring.DEFAULT, speech_only: bool = False) -> int:
+    """Analyse every proxy of a Walk; the Whisper model is loaded once for the whole run.
+
+    An up-to-date log without speech (schema 1.0) gets only the speech pass;
+    `speech_only` redoes the speech pass on every existing log (others are analysed in full).
+    """
     proxy_dir, out_dir = walk / "proxy", walk / "shotlog"
     proxies = sorted(p for p in proxy_dir.glob("*.mp4") if not p.name.startswith("."))
     if not proxies:
@@ -387,27 +488,56 @@ def run_all(walk: Path, force: bool = False, params: scoring.Params = scoring.DE
     if manifest is None:
         log.warning("no clip_manifest.json in %s; clip headers come from ffprobe", walk)
     t_all = time.perf_counter()
-    print(f"{'clip':<12} {'dur':>6}  usable  best in-out   quality      [tags]  flags  runtime")
-    done = 0
-    for proxy in proxies:
-        out = out_dir / f"{clip_id(proxy)}.json"
-        if not force and out.exists() and out.stat().st_mtime >= proxy.stat().st_mtime:
-            try:
-                print(summary_line(json.loads(out.read_text()), skipped=True), flush=True)
+    print(f"{'clip':<12} {'dur':>6}  usable  speech  best in-out   quality      [tags]  flags  runtime")
+    done = speech_done = 0
+    transcriber = speech.Transcriber()
+    try:
+        for proxy in proxies:
+            out = out_dir / f"{clip_id(proxy)}.json"
+            existing = None
+            if not force and out.exists():
+                try:
+                    existing = json.loads(out.read_text())
+                except json.JSONDecodeError:
+                    existing = None
+            fresh = existing is not None and out.stat().st_mtime >= proxy.stat().st_mtime
+            if existing is not None and (speech_only or (fresh and not has_speech(existing))):
+                t0 = time.perf_counter()
+                try:
+                    data = add_speech(existing, proxy, transcriber, params)
+                except Exception as exc:
+                    log.error("%s speech failed: %s", proxy.name, exc)
+                    print(f"{clip_id(proxy):<12} SPEECH FAILED: {exc}", flush=True)
+                    continue
+                write_json(data, out)
+                speech_done += 1
+                print(summary_line(data, time.perf_counter() - t0) + "  (speech only)", flush=True)
+                for line in speech_lines(data):
+                    print(line, flush=True)
                 continue
-            except (json.JSONDecodeError, KeyError):
-                pass
-        t0 = time.perf_counter()
-        try:
-            data = analyze_proxy(proxy, manifest, params)
-        except Exception as exc:  # keep going; one bad clip must not stop the Walk
-            log.error("%s failed: %s", proxy.name, exc)
-            print(f"{clip_id(proxy):<12} FAILED: {exc}", flush=True)
-            continue
-        write_json(data, out)
-        done += 1
-        print(summary_line(data, time.perf_counter() - t0), flush=True)
-    print(f"\n{len(proxies)} proxies, {done} analysed, total {time.perf_counter() - t_all:.1f}s -> {out_dir}")
+            if fresh:
+                try:
+                    print(summary_line(existing, skipped=True), flush=True)
+                    continue
+                except KeyError:
+                    pass
+            t0 = time.perf_counter()
+            try:
+                data = analyze_proxy(proxy, manifest, params, transcriber)
+            except Exception as exc:  # keep going; one bad clip must not stop the Walk
+                log.error("%s failed: %s", proxy.name, exc)
+                print(f"{clip_id(proxy):<12} FAILED: {exc}", flush=True)
+                continue
+            write_json(data, out)
+            done += 1
+            print(summary_line(data, time.perf_counter() - t0), flush=True)
+            for line in speech_lines(data):
+                print(line, flush=True)
+    finally:
+        load_s = transcriber.load_s
+        transcriber.close()
+    print(f"\n{len(proxies)} proxies, {done} analysed, {speech_done} speech-only, whisper load {load_s:.1f}s, "
+          f"total {time.perf_counter() - t_all:.1f}s -> {out_dir}")
     return 0
 
 
@@ -418,12 +548,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--manifest", type=Path, help="clip_manifest.json (default: ../clip_manifest.json next to proxy/)")
     ap.add_argument("-o", "--output", type=Path, help="default: <walk>/shotlog/<clip>.json")
     ap.add_argument("--force", action="store_true", help="with --all: redo up-to-date logs")
+    ap.add_argument("--speech-only", action="store_true",
+                    help="with --all: redo only the speech part of existing logs (1.0 logs get it automatically)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 
     if args.all:
-        return run_all(args.all, args.force)
+        if args.force and args.speech_only:
+            ap.error("--force and --speech-only exclude each other")
+        return run_all(args.all, args.force, speech_only=args.speech_only)
     if not args.proxy:
         ap.error("give a proxy or --all <walk_dir>")
     proxy = args.proxy
@@ -436,6 +570,8 @@ def main(argv: list[str] | None = None) -> int:
     data = analyze_proxy(proxy, manifest)
     write_json(data, out)
     print(summary_line(data, time.perf_counter() - t0))
+    for line in speech_lines(data):
+        print(line)
     print(f"-> {out}")
     return 0
 

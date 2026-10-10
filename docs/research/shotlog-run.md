@@ -71,3 +71,72 @@ Values set from these numbers:
   - `interior` and `overcast` are weak guesses from saturation and contrast.
 - **Motion types** are mostly `drift` for slow gimbal follow shots. The thresholds are 25 px/s for locked, 90 px/s for pan and 0.04/s for forward/back divergence. They are a first guess and have not been checked against hand labels.
 - **`tools/vision-score --json -`** writes a file literally named `-`. `cf.metrics.vision` therefore reads stdout, by omitting `--json`.
+
+## Speech run (2026-10-10)
+
+The author's review of reel-01 asked to cut every moment where someone talks to the camera ("ты снимаешь?"). Until a voiceover phase a Reel carries no speech, so speech is now a reject reason. Schema `reel-shotlog/1.1` adds `per_second.speech`, top-level `speech_segments` (`start`, `end`, `text`, `prob` = mean word probability) and `speech_text`, plus `summary.speech_s`; 1.0 logs stay readable (no speech array means nothing is flagged).
+
+`cf.metrics.speech` decodes the first audio stream of the **raw** clip (proxies have no audio) to a temp 16 kHz mono WAV and runs stable-ts 2.19.1 with Whisper `small` on the CPU, language hint `ru`, Silero VAD (pinned `v5.1.2`) and word timestamps. A second is `speech` when any word, padded 0.3 s on each side, overlaps it. The model is loaded once per `--all` run (lazily, so the first clip's `runtime_s.speech` includes the load); weights are cached in `~/Movies/content-factory/_models/{whisper,torch_hub}`.
+
+```sh
+.venv/bin/python -m cf.shotlog --all ~/Movies/content-factory/potsdam-2026-10-04          # 1.0 logs get only the speech pass
+.venv/bin/python -m cf.shotlog --all ~/Movies/content-factory/potsdam-2026-10-04 --speech-only
+```
+
+Model choice, from runs over all 14 clips:
+
+- `base` garbled the clear dialogue ("Сын дареко" for "Сильно далеко") and produced nonsense on IMG_1621's tail; `small` transcribed the same speech cleanly.
+- Language auto-detection labelled short phrases in street noise as Nynorsk or Faroese and was 10x slower (temperature fallbacks); the `ru` hint fixes both.
+- Without VAD, Whisper hallucinated on silent clips ("Субтитры субтитров Н.Новикова" on IMG_0332 and IMG_0420); with VAD those clips come out empty.
+- Beam search (5) changed some wording but not which seconds are speech, at 2-3x the time; greedy decoding is kept.
+- MPS fails in Whisper's word alignment (float64 DTW), so it runs on the CPU.
+- Hard clips fall back to sampling; a fixed torch seed makes the log identical from run to run (checked with two runs).
+
+| clip | speech s | speech segments (start–end, text) | best before | best after | usable s |
+|---|---|---|---|---|---|
+| IMG_0332 | 0 | — | 3–8 (q 0.86) | 3–8 (q 0.86) | 13 → 13 |
+| IMG_0378 | 1 | 0–0.1 «Давай!» | 7–12 (q 0.87) | 7–12 (q 0.87) | 20 → 19 |
+| IMG_0386 | 2 | 9.7–10.1 «Хорошо в prefix» (garbled) | REJECT | REJECT | 0 → 0 |
+| IMG_0405 | 0 | — | 3–8 (q 0.91) | 3–8 (q 0.91) | 13 → 13 |
+| IMG_0412 | 4 | 0.9–1.1 «Леток?»; 1.9–3.0 «Леток?» (a short question, likely the "are you filming?" moment, misheard) | 16–21 (q 0.86) | 16–21 (q 0.86) | 26 → 22 |
+| IMG_0413 | 0 | — | 2–7 (q 0.89) | 2–7 (q 0.89) | 29 → 29 |
+| IMG_0415 | 0 | — | 2–4 (q 0.69) | 2–4 (q 0.69) | 2 → 2 |
+| IMG_0418 | 9 | 0.2–0.7 «Какая-то гоня»; 2.9–5.7 «100% какая-то бибильная история с этими собаками»; 5.7–6.1 «Ну ничего,»; 6.2–6.7 «это все в код,»; 6.8–7.2 «скормлю,»; 7.7–8.7 «там меня смонтируют видео» | 21–25.9 (q 0.88) | 21–25.9 (q 0.88) | 26 → 17 |
+| IMG_0420 | 0 | — | 2–7 (q 0.89) | 2–7 (q 0.89) | 15 → 15 |
+| IMG_0457 | 0 | — | 14–16.8 (q 0.90) | 14–16.8 (q 0.90) | 12 → 12 |
+| IMG_0471 | 9 | 0.3–0.6 «Кашка, да?»; 0.9–1.1 «Иди»; 5.5–7.6 «Все, стой, не так далеко»; 12.6–15.1 «Сильно далеко, конечно» | 5–10 (q 0.92) | **8–12 (q 0.91)** | 15 → 8 |
+| IMG_0484 | 2 | 0.7–1.5 «Го!» | 5–10 (q 0.87) | 5–10 (q 0.87) | 12 → 10 |
+| IMG_0493 | 22 | 5.4–7.5 «Нет, очень далеко.»; 8.2–8.5 «Ближе?»; 8.9–9.7 «Раз в два.»; 12.8–13.1 «А тут?»; 13.7–14.4 «Еще ближе.»; 14.9–15.2 «Тут?»; 16.0–17.5 «Нет, ты уже вышла с камеры.»; 19.3–19.5 «Тут?»; 20.0–22.3 «Ну, я бы еще раз в два ближе подошел.»; 23.2–24.3 «Ну, вот хотя бы тут.»; 25.7–26.4 «Но размыто.»; 27.3–29.0 «Ну, переключи на киски, на эффект она нормальная.» | 7–12 (q 0.93) | **10–12 (q 0.93)** | 28 → 6 |
+| IMG_1621 | 19 | 1.8–2.5 «Можешь начинать.»; 4.3–5.6 «Да.»; 8.4–9.8 «О, всё, заебись.»; 15.6–17.4 «О, да, как будто хрен.»; 23.0–23.8 «И можешь назад идти.»; 26.0–28.0 «Всё, всё хватит.»; 29.5–29.9 «Ага.» | 14–19 (q 0.80) | **20–22 (q 0.82)** | 18 → 9 |
+
+Usable footage on the Walk went from 229 s to 175 s (−54 s, −24 %); 68 s carry speech in total, some of which was already unusable. Eight clips have speech; three best segments moved (IMG_0471, IMG_0493, IMG_1621). Seven of reel-01's 17 shots overlap speech: IMG_0418 7.0–9.5, IMG_0412 1.0–4.0, IMG_0471 14.0–17.8, IMG_0493 1.5–6.0 and 23.0–26.0, IMG_1621 20.5–23.5 and 14.0–17.6.
+
+### Timing
+
+The speech-only pass over the 14 existing logs took **28–32 s** of wall time for 280.8 s of audio (about 0.11x realtime), including 4.2–4.7 s to load the cached `small` model and Silero VAD. The very first load, which downloads `small` (461 MB), took about 30 s. Peak RSS was 1.7 GB.
+
+| clip | speech s (runtime) |
+|---|---|
+| IMG_0332 | 4.6 (includes the 4.2 s model load; about 0.4 s of work) |
+| IMG_0378 | 2.9 |
+| IMG_0386 | 2.6 |
+| IMG_0405 | 0.3 |
+| IMG_0412 | 2.1 |
+| IMG_0413 | 0.4 |
+| IMG_0415 | 0.3 |
+| IMG_0418 | 2.4 |
+| IMG_0420 | 0.3 |
+| IMG_0457 | 0.3 |
+| IMG_0471 | 2.0 |
+| IMG_0484 | 1.5 |
+| IMG_0493 | 5.7 |
+| IMG_1621 | 5.6 |
+
+Clips where VAD finds no voice cost 0.3 s (ffmpeg decode plus VAD); Whisper only runs on clips with voice.
+
+### Open problems
+
+- **Every voice counts.** A passer-by talking in the background rejects the second just like the author does. That matches "no speech until voiceover", but it costs footage on busy streets.
+- **Short low-confidence words** at clip edges ("Давай!" at 0.0–0.1, prob 0.03) may be noise. They are kept, because missing speech costs more than losing one second. `speech_segments[].prob` lets the Editor judge.
+- **Text is approximate** for short, noisy phrases (IMG_0412 «Леток?», IMG_0386). The timing is what the reject uses.
+- **Audio/video offset.** Bins assume the raw audio and the proxy both start at 0; the 0.3 s padding absorbs small offsets.

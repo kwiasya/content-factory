@@ -1,11 +1,17 @@
 """Build a Reel's timeline in DaVinci Resolve Studio from its script.json.
 
     python -m cf.build <reel_dir> [--walk <walk_dir>] [--project-name NAME] [--no-stills]
+                       [--look <file.cube>|none] [--stills-only [--stills-dir DIR]] [--script FILE]
 
 Rules: ``docs/resolve-rules.md``; contract: ``.claude/skills/build-reel/SKILL.md``;
 decision to rebuild rather than patch: ``docs/adr/0001-timeline-rebuilt-from-plan.md``.
 Every write is read back; the read-back report goes to ``<reel_dir>/build-report.json``
 and the exit code is non-zero on any mismatch.
+
+The Look LUT (``style.json`` ``look.lut`` or ``--look``) goes on node 1 of the post-clip
+graph of the project's ``cf-look`` color group, and every V1 item joins that group: the
+API cannot add a node 2 to a clip (docs/research/look-experiment.md). ``--stills-only``
+keeps the existing timeline, (re)applies the Look and exports the stills, without a rebuild.
 
 The planning part (``plan_shots``, ``append_infos``, ``source_end``) is pure and has no
 Resolve dependency, so it is unit-tested in ``tests/test_build_plan.py``.
@@ -55,6 +61,10 @@ COLOR_SETTINGS = {
 # SDR render comes out a stop too bright and flat. Offset -0.0749 in DaVinci
 # Intermediate is -1.02 stops (log2(203/100) x 0.07329); Saturation 1.25 makes up for the
 # DRT's highlight desaturation. The Look DRX must leave node 1 free for this.
+# Look LUT: Resolve only loads LUTs from its LUT folder tree; ours live in a sub-folder.
+RESOLVE_LUT_DIR = Path("/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT")
+LUT_SUBDIR = "content-factory"
+LOOK_GROUP = "cf-look"
 HLG_NORMALIZE_CDL = {"NodeIndex": "1", "Slope": "1 1 1", "Offset": "-0.0749 -0.0749 -0.0749",
                      "Power": "1 1 1", "Saturation": "1.25"}
 TRANSITION_TYPES = {"dissolve": "Cross Dissolve", "dip": "Dip To Color Dissolve"}
@@ -257,15 +267,21 @@ def _jsonable(x: Any) -> Any:
 
 # -- Resolve steps ---------------------------------------------------------------
 class Builder:
-    def __init__(self, reel_dir: Path, walk_dir: Path, project_name: str | None, stills: bool):
+    def __init__(self, reel_dir: Path, walk_dir: Path, project_name: str | None, stills: bool,
+                 look: str | None = None, stills_only: bool = False, stills_dir: Path | None = None,
+                 script_path: Path | None = None):
         self.reel_dir = reel_dir
         self.reel = reel_dir.name
         self.walk_dir = walk_dir
         self.want_stills = stills
+        self.look_override = look
+        self.stills_only = stills_only
+        self.stills_dir = stills_dir or reel_dir / "stills"
+        self.report_path = (self.stills_dir / "stills-report.json") if stills_only else reel_dir / "build-report.json"
         self.style = load_json(STYLE_PATH)
         self.manifest = load_json(walk_dir / "clip_manifest.json")
         self.walk = self.manifest.get("walk") or walk_dir.name
-        self.script = load(reel_dir / "script.json")
+        self.script = load(script_path or reel_dir / "script.json")
         cuts_path = reel_dir / "cuts.json"
         self.cuts = load_json(cuts_path) if cuts_path.exists() else None
         canvas = self.style.get("canvas", {})
@@ -505,6 +521,61 @@ class Builder:
             r.check(f"{s.id} ApplyGradeFromDRX (returned value only; a grade cannot be read back)", True, bool(ok))
         r.look = {"drx": str(drx), "applied": True, "items": res}
 
+    def look_lut_path(self) -> Path | None:
+        """The Look LUT to apply: ``--look`` wins over ``style.look.lut``; ``none`` means no LUT."""
+        rel = self.look_override if self.look_override is not None else (self.style.get("look") or {}).get("lut")
+        if not rel or str(rel).lower() == "none":
+            return None
+        path = Path(rel).expanduser()
+        return path if path.is_absolute() else (REPO_ROOT / path)
+
+    def look_lut(self) -> None:
+        """Look LUT on the ``cf-look`` color group's post-clip node 1; every V1 item in the group.
+
+        Runs after ``normalize_hlg`` (post-clip grades come after the clip's node 1). The
+        .cube is copied into Resolve's LUT folder, the LUT list refreshed, and ``GetLUT(1)``
+        and each item's ``GetColorGroup()`` read back. A Look of ``none`` clears the LUT.
+        """
+        import filecmp  # noqa: PLC0415
+        import shutil  # noqa: PLC0415
+
+        d, r, p = self.d, self.r, self.d.project
+        src = self.look_lut_path()
+        if src is not None and not src.exists():
+            r.look["lut"] = {"path": str(src), "applied": False, "reason": "file does not exist"}
+            r.notes.append(f"Look LUT skipped: {src} does not exist")
+            return
+        groups = d.call(p.GetColorGroupsList) or []
+        grp = next((g for g in groups if d.call(g.GetName) == LOOK_GROUP), None)
+        if grp is None:
+            if src is None:
+                r.look["lut"] = {"path": None, "applied": False, "reason": "no Look LUT set"}
+                return
+            grp = d.call(p.AddColorGroup, LOOK_GROUP)
+            if grp is None:
+                raise BuildError(f"AddColorGroup({LOOK_GROUP!r}) returned None")
+        post = d.call(grp.GetPostClipNodeGraph)
+        if src is None:
+            ok = d.call(post.SetLUT, 1, "")
+            r.check("Look LUT cleared (group post-clip node 1)", "", d.call(post.GetLUT, 1) or "")
+            r.look["lut"] = {"path": None, "applied": False, "cleared": bool(ok)}
+            return
+        dst = RESOLVE_LUT_DIR / LUT_SUBDIR / src.name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if not (dst.exists() and filecmp.cmp(src, dst, shallow=False)):
+            shutil.copyfile(src, dst)
+        d.call(p.RefreshLUTList)
+        rel = f"{LUT_SUBDIR}/{src.name}"
+        ok = d.call(post.SetLUT, 1, str(dst))
+        r.check(f"Look LUT on {LOOK_GROUP} post-clip node 1 (SetLUT returned {ok})", rel, d.call(post.GetLUT, 1))
+        for s, v in zip(self.plan, self.vids):
+            assigned = d.call(v.AssignToColorGroup, grp)
+            got = d.call(v.GetColorGroup)
+            r.check(f"{s.id} in color group {LOOK_GROUP} (returned {assigned})", LOOK_GROUP,
+                    d.call(got.GetName) if got else None)
+        r.look["lut"] = {"path": str(src), "resolve_lut": rel, "group": LOOK_GROUP, "node": "post-clip 1",
+                         "items": len(self.vids), "applied": True}
+
     def normalize_hlg(self) -> None:
         """Node-1 CDL (HLG_NORMALIZE_CDL) on every V1 item whose clip is tagged HLG.
 
@@ -566,7 +637,7 @@ class Builder:
 
     def stills(self) -> None:
         d, r, tl = self.d, self.r, self.tl
-        out_dir = self.reel_dir / "stills"
+        out_dir = self.stills_dir
         out_dir.mkdir(parents=True, exist_ok=True)
         page = d.call(d.resolve.GetCurrentPage)
         if page not in ("edit", "color"):
@@ -596,7 +667,48 @@ class Builder:
             r.check(f"{s.id} still at {tc}", True, bool(ok) and size > 0 and got_tc == tc)
 
     # ---- run
+    def attach_timeline(self) -> None:
+        """--stills-only: use the built timeline as is; plan from the script for the stills."""
+        d, r = self.d, self.r
+        tl = d.find_timeline(self.reel)
+        if tl is None:
+            raise BuildError(f"timeline {self.reel!r} not found in {self.project_name!r}: build it first")
+        if not d.call(d.project.SetCurrentTimeline, tl):
+            raise BuildError(f"SetCurrentTimeline({self.reel!r}) failed")
+        self.tl = tl
+        start = int(d.call(tl.GetStartFrame))
+        r.timeline = {"name": self.reel, "start_frame": start, "stills_only": True}
+        clip_fps: dict[str, float] = {}
+        index = d.clip_index()
+        for c, info in manifest_clips(self.manifest).items():
+            path = str(self.walk_dir / "raw" / c)
+            items = index.get(path) or index.get(str(info.get("path"))) or []
+            if items:
+                clip_fps[c] = float((d.call(items[0].GetClipProperty) or {}).get("FPS") or 0) or info["fps"]
+        self.plan, notes = plan_shots(self.script, self.manifest, start, self.fps, self.cuts, clip_fps,
+                                      raw_dir=self.walk_dir / "raw")
+        r.notes.extend(notes)
+        self.vids = [it for it in (d.call(tl.GetItemListInTrack, "video", 1) or [])
+                     if d.call(it.GetMediaPoolItem) is not None]
+        r.check("V1 items on the existing timeline", len(self.plan), len(self.vids))
+        for s, v in zip(self.plan, self.vids):
+            r.check(f"{s.id} V1 item start", [s.clip, s.record_frame], [d.call(v.GetName), int(d.call(v.GetStart))])
+
     def run(self) -> int:
+        if self.stills_only:
+            try:
+                self.validate()
+                self.connect()
+                self.attach_timeline()
+                self.look_lut()
+                self.stills()
+                self.d.save()
+            except Exception as exc:  # noqa: BLE001
+                self.r.error = f"{type(exc).__name__}: {exc}"
+                self.r.notes.append(traceback.format_exc())
+            self.write_report()
+            self.print_table()
+            return 1 if (self.r.error or self.r.mismatches) else 0
         try:
             self.validate()
             self.connect()
@@ -606,6 +718,7 @@ class Builder:
             self.overlays()
             self.look()
             self.normalize_hlg()
+            self.look_lut()
             self.read_back()
             if self.want_stills:
                 self.stills()
@@ -621,7 +734,8 @@ class Builder:
         data = _jsonable(asdict(self.r))
         data["plan"] = [asdict(s) for s in getattr(self, "plan", [])]
         data["ok"] = not (self.r.error or self.r.mismatches)
-        (self.reel_dir / "build-report.json").write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        self.report_path.parent.mkdir(parents=True, exist_ok=True)
+        self.report_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
     def print_table(self) -> None:
         r = self.r
@@ -651,7 +765,7 @@ class Builder:
             print(f"audio spill: {r.timeline['audio_spill']}")
         if r.stills:
             print(f"stills: {sum(1 for s in r.stills if s['bytes'])}/{len(r.stills)} written to "
-                  f"{self.reel_dir / 'stills'}")
+                  f"{self.stills_dir}")
             print(f"  {'shot':<5}{'clip':<14}{'mean luma':>10}{'>=235 %':>9}{'proxy luma':>12}{'proxy %':>9}")
             for st in r.stills:
                 px = st.get("proxy") or {}
@@ -666,7 +780,9 @@ class Builder:
         print(f"\n{len(r.mismatches)} mismatch(es)" + (":" if r.mismatches else ""))
         for m in r.mismatches:
             print(f"  - {m}")
-        print(f"report: {self.reel_dir / 'build-report.json'}")
+        if r.look.get("lut"):
+            print(f"look LUT: {r.look['lut']}")
+        print(f"report: {self.report_path}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -675,16 +791,27 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--walk", help="Walk folder with clip_manifest.json and raw/ (default: two levels up)")
     ap.add_argument("--project-name", help="Resolve project (default: cf-<walk>-<reel>)")
     ap.add_argument("--no-stills", action="store_true", help="skip the per-shot stills")
+    ap.add_argument("--look", help="Look LUT (.cube) overriding style.json look.lut; 'none' clears it")
+    ap.add_argument("--stills-only", action="store_true",
+                    help="no rebuild: apply the Look to the existing timeline and export the stills")
+    ap.add_argument("--stills-dir", help="where the stills go (default <reel_dir>/stills)")
+    ap.add_argument("--script", help="script file to use instead of <reel_dir>/script.json")
     args = ap.parse_args(argv)
     reel_dir = Path(args.reel_dir).expanduser().resolve()
     walk_dir = Path(args.walk).expanduser().resolve() if args.walk else reel_dir.parent.parent
-    if not (reel_dir / "script.json").exists():
-        print(f"no script.json in {reel_dir}", file=sys.stderr)
+    script_path = Path(args.script).expanduser().resolve() if args.script else reel_dir / "script.json"
+    if not script_path.exists():
+        print(f"no {script_path}", file=sys.stderr)
         return 2
     if not (walk_dir / "clip_manifest.json").exists():
         print(f"no clip_manifest.json in {walk_dir}", file=sys.stderr)
         return 2
-    return Builder(reel_dir, walk_dir, args.project_name, stills=not args.no_stills).run()
+    if args.stills_only and args.no_stills:
+        print("--stills-only and --no-stills contradict each other", file=sys.stderr)
+        return 2
+    stills_dir = Path(args.stills_dir).expanduser().resolve() if args.stills_dir else None
+    return Builder(reel_dir, walk_dir, args.project_name, stills=not args.no_stills, look=args.look,
+                   stills_only=args.stills_only, stills_dir=stills_dir, script_path=script_path).run()
 
 
 if __name__ == "__main__":

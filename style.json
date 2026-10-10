@@ -3,18 +3,37 @@
   "name": "travel-walk-v1",
   "status": "draft: defaults from research, not yet reviewed by the author",
   "audience": "one person planning a city break who wants to feel the place before going",
-  "canvas": { "width": 1080, "height": 1920, "fps": 30 },
+  "canvas": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30
+  },
   "safe_zone": {
     "top": 269,
     "bottom": 672,
     "left": 65,
     "right": 65,
-    "right_rail": { "width": 230, "from_y": 1150 },
+    "right_rail": {
+      "width": 230,
+      "from_y": 1150
+    },
     "source": "Meta Ads Guide 14% / 35% / 6% as relayed in docs/research/02-overlays-and-motion-graphics/result-a.md Section D"
   },
   "typography": {
-    "display": { "family": "Playfair Display", "weight": 500, "size": 72, "case": "sentence", "file": null },
-    "body": { "family": "Inter", "weight": 500, "size": 44, "case": "sentence", "file": null },
+    "display": {
+      "family": "Playfair Display",
+      "weight": 500,
+      "size": 72,
+      "case": "sentence",
+      "file": null
+    },
+    "body": {
+      "family": "Inter",
+      "weight": 500,
+      "size": 44,
+      "case": "sentence",
+      "file": null
+    },
     "max_words_per_line": 5,
     "max_lines": 2
   },
@@ -25,22 +44,70 @@
     "backdrop": "rgba(0,0,0,0.25)"
   },
   "overlay_positions": {
-    "hook": { "anchor": "center", "y": 760 },
-    "place": { "anchor": "top-left", "x": 90, "y": 340 },
-    "fact": { "anchor": "top-left", "x": 90, "y": 440 },
-    "line": { "anchor": "center", "y": 900 }
+    "hook": {
+      "anchor": "center",
+      "y": 760
+    },
+    "place": {
+      "anchor": "top-left",
+      "x": 90,
+      "y": 340
+    },
+    "fact": {
+      "anchor": "top-left",
+      "x": 90,
+      "y": 440
+    },
+    "line": {
+      "anchor": "center",
+      "y": 900
+    }
   },
   "animation": {
-    "in": { "type": "fade_slide_up", "frames": 12, "ease": "out-cubic", "distance_px": 24 },
-    "out": { "type": "fade", "frames": 8, "ease": "in-cubic" },
+    "in": {
+      "type": "fade_slide_up",
+      "frames": 12,
+      "ease": "out-cubic",
+      "distance_px": 24
+    },
+    "out": {
+      "type": "fade",
+      "frames": 8,
+      "ease": "in-cubic"
+    },
     "min_hold_s": 2.0
   },
   "pacing": {
-    "shot_s": { "min": 1.5, "max": 3.0, "payoff_max": 5.0 },
+    "shot_s": {
+      "min": 1.2,
+      "max": 2.5,
+      "payoff_max": 3.5
+    },
     "cut_lead_frames": 1,
-    "target_length_s": { "min": 45, "max": 60 }
+    "target_length_s": {
+      "min": 12,
+      "max": 18,
+      "default": 15
+    }
   },
-  "transitions": { "default": "cut", "scene_change": "dissolve", "dissolve_frames": 8 },
-  "look": { "drx": "looks/travel_v1.drx", "status": "not built yet; build by hand in Resolve once" },
-  "audio": { "ambience_db": -20, "target_lufs": -14, "true_peak_dbtp": -1 }
+  "transitions": {
+    "default": "cut",
+    "scene_change": "dissolve",
+    "dissolve_frames": 8
+  },
+  "look": {
+    "drx": null,
+    "lut": "looks/cinema-warm.cube",
+    "status": "cf.look LUT on the cf-look color group post-clip node 1 (cf.build); cinema-warm recommended, alternatives looks/cinema-clean.cube and looks/cinema-moody.cube; awaiting the author's pick (docs/research/look-experiment.md)",
+    "brief": "rich, saturated, expensive cinematic travel-film image: deep but not crushed shadows, glowing highlights, warm/teal split, skin protected"
+  },
+  "audio": {
+    "ambience_db": -20,
+    "target_lufs": -14,
+    "true_peak_dbtp": -1
+  },
+  "speech": {
+    "allowed": false,
+    "note": "no on-camera talking until the voiceover phase; speech seconds are rejects"
+  }
 }

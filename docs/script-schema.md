@@ -11,7 +11,7 @@ A Script is the text plan of one Reel, written before anything touches Resolve. 
 | `concept` | string | One sentence, one idea. The hook must promise what the first shot shows. |
 | `audience` | string | Who this is for, one line, from `style.json` unless overridden |
 | `format` | enum | `pov` · `listicle` · `levels` · `day_in_the_life` · `reveal` · `contrast` |
-| `target_length_s` | int | 45–60 default; never above 90 |
+| `target_length_s` | int | From `style.pacing.target_length_s` (15 s default while reels have no voice); never above 90 |
 | `hook.type` | enum | `visual_payoff` · `pov` · `list` · `contrast` · `question` · `curiosity` |
 | `hook.text` | string | ≤8 words, on screen from frame 0 |
 | `hook.clip` | clip id | The most striking Clip, not the chronologically first |
@@ -41,3 +41,4 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 - The stake comes before any name: say what the viewer gets, then name the place.
 - Text reads without sound: overlays carry the story.
 - Only the user's own footage; no watermarks.
+- No speech: a shot never overlaps a second flagged `speech` in the Shot log (until the voiceover phase).

@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 
 from cf import scoring
-from cf.metrics import common, ffstats, motion, people, vision
-from cf.shotlog import clip_id, find_manifest_entry
+from cf.metrics import common, ffstats, motion, people, speech, vision
+from cf.shotlog import clip_id, finalize, find_manifest_entry, has_speech
 
 
 # --------------------------------------------------------------------------- binning
@@ -103,6 +103,14 @@ def test_bin_flags_each_rule():
     assert flags[1] == ["shake_px>6"]
     assert flags[2] == ["clip_hi>2%"]
     assert flags[3] == ["scd_spike"]
+
+
+def test_bin_flags_speech_makes_a_second_unusable():
+    ps = _ps(4, speech=[False, True, False, True], shake_px=[0.5, 0.5, 0.5, 9.0])
+    flags = scoring.bin_flags(ps)
+    assert flags == [[], ["speech"], [], ["shake_px>6", "speech"]]
+    # reel-shotlog/1.0 logs have no speech array: nothing flagged for speech
+    assert scoring.bin_flags(_ps(2)) == [[], []]
 
 
 def test_quality_weights_and_aes_redistribution():
@@ -287,3 +295,110 @@ def test_clip_id_and_manifest_lookup():
     m = {"clips": [{"file": "IMG_1621.mov"}, {"file": "IMG_0332.MOV"}]}
     assert find_manifest_entry(m, "IMG_1621")["file"] == "IMG_1621.mov"
     assert find_manifest_entry(m, "nope") is None
+
+
+# --------------------------------------------------------------------------- speech
+
+
+def test_speech_bins_padding():
+    # 1.8-1.9 padded by 0.3 -> 1.5-2.2: seconds 1 and 2
+    assert speech.speech_bins([(1.8, 1.9)], 4) == [False, True, True, False]
+    # padding before 0 is clipped; 0.05-0.2 -> 0-0.5: second 0 only
+    assert speech.speech_bins([(0.05, 0.2)], 3) == [True, False, False]
+    # 0.4-0.7 -> 0.1-1.0 ends exactly on the boundary: second 1 stays clean
+    assert speech.speech_bins([(0.4, 0.7)], 3) == [True, False, False]
+    # 0.4-0.71 -> 0.1-1.01 reaches into second 1
+    assert speech.speech_bins([(0.4, 0.71)], 3) == [True, True, False]
+    # without padding only the seconds the word itself touches
+    assert speech.speech_bins([(1.8, 1.9)], 4, pad=0.0) == [False, True, False, False]
+    # a word past the last bin (dropped partial second) folds into the last bin
+    assert speech.speech_bins([(5.2, 5.4)], 5) == [False, False, False, False, True]
+    assert speech.speech_bins([], 3) == [False, False, False]
+    assert speech.speech_seconds([True, False, True]) == 2
+
+
+class _W:
+    def __init__(self, word, start, end, probability=0.9):
+        self.word, self.start, self.end, self.probability = word, start, end, probability
+
+
+class _Seg:
+    def __init__(self, text, words):
+        self.text, self.words = text, words
+
+
+class _Res:
+    language = "ru"
+
+    def __init__(self, segments):
+        self.segments = segments
+
+
+def test_speech_from_result_segments_text_and_bins():
+    res = _Res([
+        _Seg(" Ты снимаешь?", [_W(" Ты", 2.1, 2.3, 0.8), _W(" снимаешь?", 2.3, 2.9, 0.6)]),
+        _Seg(" ", []),  # empty segment is dropped
+    ])
+    out = speech.from_result(res, 5)
+    assert out["speech"] == [False, True, True, True, False]
+    assert out["speech_segments"] == [{"start": 2.1, "end": 2.9, "text": "Ты снимаешь?", "prob": 0.7}]
+    assert out["speech_text"] == "Ты снимаешь?"
+    assert out["_language"] == "ru"
+
+
+def test_speech_analyze_without_raw_or_audio(tmp_path):
+    out = speech.analyze(None, 3.4)
+    assert out["speech"] == [False, False, False] and out["speech_segments"] == [] and out["_audio"] is False
+    assert speech.analyze(tmp_path / "missing.MOV", 2.0)["_error"] == "raw source not found"
+
+
+def test_find_raw_prefers_manifest_path_then_walk_raw(tmp_path):
+    (tmp_path / "raw").mkdir()
+    raw = tmp_path / "raw" / "IMG_1621.mov"
+    raw.write_bytes(b"")
+    assert speech.find_raw(tmp_path, "IMG_1621") == raw
+    assert speech.find_raw(tmp_path, "IMG_1621", "/nonexistent/IMG_1621.mov") == raw
+    assert speech.find_raw(tmp_path, "IMG_0001") is None
+    assert speech.find_raw(None, "IMG_1621", str(raw)) == raw
+
+
+def _log(n=8, speech_arr=None):
+    ps = _ps(n)
+    ps.update({
+        "t": list(range(n)), "persons": [0] * n, "sat": [0.2] * n, "warmth": [0.0] * n, "contrast": [0.5] * n,
+        "is_utility": [False] * n, "quality": [0.0] * n, "usable": [True] * n,
+    })
+    if speech_arr is not None:
+        ps["speech"] = speech_arr
+    return {
+        "schema": "reel-shotlog/1.0",
+        "clip": {"id": "IMG_X", "duration_s": float(n), "created": None, "gps": None},
+        "per_second": ps,
+        "events": [],
+        "summary": {"flags": ["author_on_camera"]},
+        "provenance": {"notes": {"subject": {"dominated": True}}},
+    }
+
+
+def test_finalize_speech_rejects_and_new_best():
+    data = finalize(_log(8, [False, False, False, True, True, False, False, False]))
+    ps = data["per_second"]
+    assert ps["usable"] == [True, True, True, False, False, True, True, True]
+    assert data["rejects"] == [{"in_s": 3.0, "out_s": 5.0, "why": ["speech"]}]
+    for seg in data["segments"]:
+        assert seg["out_s"] <= 3.0 or seg["in_s"] >= 5.0
+    assert data["summary"]["speech_s"] == 2
+    assert data["summary"]["flags"] == ["author_on_camera", "speech"]
+    assert data["summary"]["usable_s"] == 6
+
+
+def test_finalize_reads_old_log_without_speech():
+    old = _log(6)
+    assert not has_speech(old)
+    data = finalize(old)
+    assert data["summary"]["speech_s"] is None
+    assert data["rejects"] == [] and data["summary"]["usable_s"] == 6
+    # a log where everything is speech becomes a reject with that reason
+    talk = finalize(_log(4, [True] * 4))
+    assert talk["segments"] == [] and talk["summary"]["reject_clip"]
+    assert talk["summary"]["reject_why"] == ["speech"]
