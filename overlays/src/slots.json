@@ -43,5 +43,12 @@
     "anchor": "top-center",
     "y": 300,
     "align": "center"
+  },
+  "lower-left-loose": {
+    "anchor": "bottom-left",
+    "x": 90,
+    "y": 1400,
+    "align": "left",
+    "_note": "below the strict ads safe zone (y 1248) but inside the organic caption zone (~y 1490); author asked for it"
   }
 }
