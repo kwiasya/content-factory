@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+music = ["beat-this", "librosa", "all-in-one-infer"]  # cf.beats (torch comes with ultralytics)
 
 [tool.setuptools.packages.find]
 where = ["src"]

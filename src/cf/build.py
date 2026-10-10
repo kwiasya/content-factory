@@ -2,6 +2,7 @@
 
     python -m cf.build <reel_dir> [--walk <walk_dir>] [--project-name NAME] [--no-stills]
                        [--look <file.cube>|none] [--stills-only [--stills-dir DIR]] [--script FILE]
+                       [--no-track] [--ambience-db DB]
 
 Rules: ``docs/resolve-rules.md``; contract: ``.claude/skills/build-reel/SKILL.md``;
 decision to rebuild rather than patch: ``docs/adr/0001-timeline-rebuilt-from-plan.md``.
@@ -13,14 +14,24 @@ graph of the project's ``cf-look`` color group, and every V1 item joins that gro
 API cannot add a node 2 to a clip (docs/research/look-experiment.md). ``--stills-only``
 keeps the existing timeline, (re)applies the Look and exports the stills, without a rebuild.
 
-The planning part (``plan_shots``, ``append_infos``, ``source_end``) is pure and has no
-Resolve dependency, so it is unit-tested in ``tests/test_build_plan.py``.
+Record frames come from ``<reel_dir>/cuts.json`` when it exists (``beat-grid`` writes it);
+otherwise shots are laid back to back, each snapped down to whole timeline frames.
+With ``script.track`` set (and no ``--no-track``), the Track WAV goes on A2 "music" from
+the timeline start for the picture's length, source in-point ``script.track_in_s`` (default
+``intro_end`` from the ``beats.json`` next to the Track), 0 dB, ``track_fade_out_s`` fade
+(default 0.6 s); the A1 ambience sits at ``style.audio.ambience_db``. ``cuts.json``
+``beat_markers`` become timeline markers (downbeats Blue, other beats Cyan).
+
+The planning part (``plan_shots``, ``plan_track``, ``beat_marker_plan``, ``append_infos``,
+``source_end``) is pure and has no Resolve dependency, so it is unit-tested in
+``tests/test_build_plan.py``.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 import traceback
@@ -68,9 +79,13 @@ LOOK_GROUP = "cf-look"
 HLG_NORMALIZE_CDL = {"NodeIndex": "1", "Slope": "1 1 1", "Offset": "-0.0749 -0.0749 -0.0749",
                      "Power": "1 1 1", "Saturation": "1.25"}
 TRANSITION_TYPES = {"dissolve": "Cross Dissolve", "dip": "Dip To Color Dissolve"}
-ROLE_MARKER_COLOR = {"hook": "Red", "build": "Blue", "payoff": "Yellow", "loop": "Purple"}
+# Shot markers by role; Blue is kept for downbeat markers, Cyan for the other beats.
+ROLE_MARKER_COLOR = {"hook": "Red", "build": "Green", "payoff": "Yellow", "loop": "Purple"}
+DOWNBEAT_MARKER_COLOR = "Blue"
+BEAT_MARKER_COLOR = "Cyan"
 VIDEO_TRACK_NAMES = {1: "shots", 2: "overlays", 3: "overlays 2"}
-AUDIO_TRACK_NAMES = {1: "ambience"}
+AUDIO_TRACK_NAMES = {1: "ambience", 2: "music"}
+DEFAULT_TRACK_FADE_OUT_S = 0.6
 
 
 class BuildError(RuntimeError):
@@ -120,44 +135,71 @@ def source_end(src_start: int, duration: int, clip_fps: float, timeline_fps: flo
     return round(src_start + float(span) + 0.001, 4)
 
 
+# Script times are written with 4 decimals, so a time within 1/100 of a frame of a frame
+# boundary counts as on it (1/3 ms at 30 fps): 6.8667 s at 60 fps is frame 412, not 413.
+FRAME_EPS = 0.01
+
+
+def snap_frames(seconds: float, fps: float) -> int:
+    """Whole timeline frames that fit in ``seconds`` (floor, within FRAME_EPS)."""
+    return max(0, math.floor(seconds * fps + FRAME_EPS))
+
+
 def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30,
                cuts: dict | None = None, clip_fps: dict[str, float] | None = None,
                raw_dir: str | Path | None = None) -> tuple[list[PlannedShot], list[str]]:
     """Turn a Script (+ optional cuts.json) into timeline positions and source ranges.
 
-    Record positions come from ``cuts.json`` when given, otherwise the shots are laid
-    back to back from ``in_s``/``out_s`` (divided by speed) at ``fps``, rounding the
-    cumulative time so durations do not drift. Source frames are at each clip's own
-    fps: ``clip_fps`` (Resolve's ``FPS`` clip property) wins over the manifest, because
-    Resolve reads 59.94 fps iPhone clips as 60.
+    Record positions come from ``cuts.json`` when given (its ``fps`` must equal the
+    timeline's). Otherwise the shots are laid back to back: each shot's timeline
+    duration is snapped DOWN to whole frames (shorten, never extend past ``out_s``),
+    and the next shot starts at the previous record frame plus that snapped duration.
+    The source in-point is the first whole source frame at or after ``in_s`` (or the
+    cut's ``src_in_s``). Source frames are at each clip's own fps: ``clip_fps``
+    (Resolve's ``FPS`` clip property) wins over the manifest, because Resolve reads
+    59.94 fps iPhone clips as 60.
     """
     clips = manifest_clips(manifest)
     notes: list[str] = []
     cut_by_id: dict[str, dict] = {}
     if cuts is not None:
+        cfps_cuts = cuts.get("fps")
+        if cfps_cuts is not None and abs(float(cfps_cuts) - float(fps)) > 1e-6:
+            raise BuildError(f"cuts.json is at {cfps_cuts} fps, the timeline at {fps:g}")
         cut_by_id = {c["id"]: c for c in cuts.get("shots", [])}
         missing = [s.id for s in script.shots if s.id not in cut_by_id]
         if missing:
             raise BuildError(f"cuts.json has no entry for shots {missing}")
+        extra = sorted(set(cut_by_id) - {s.id for s in script.shots})
+        if extra:
+            notes.append(f"cuts.json has entries for shots not in the script: {extra}")
         notes.append("record offsets and durations from cuts.json")
     else:
         notes.append("no cuts.json: shots laid back to back from in_s/out_s at "
-                     f"{fps:g} fps (cumulative rounding)")
+                     f"{fps:g} fps, each snapped down to whole frames")
     out: list[PlannedShot] = []
-    t = 0.0
+    next_off = 0
     for s in script.shots:
         c = clips.get(s.clip)
         if c is None:
             raise BuildError(f"shot {s.id}: clip {s.clip!r} not in the manifest")
         cfps = float((clip_fps or {}).get(s.clip) or c["fps"])
-        if cuts is not None:
-            off = int(cut_by_id[s.id]["record_frame_offset"])
-            dur = int(cut_by_id[s.id]["duration_frames"])
+        cut = cut_by_id.get(s.id)
+        in_s = float(cut["src_in_s"]) if cut is not None and cut.get("src_in_s") is not None else s.in_s
+        out_s = float(cut["src_out_s"]) if cut is not None and cut.get("src_out_s") is not None else s.out_s
+        if cut is not None and abs(in_s - s.in_s) > 1.0 / cfps + 1e-6:
+            notes.append(f"{s.id}: cuts.json src_in_s {in_s:g} differs from the script's in_s {s.in_s:g}")
+        src_start = math.ceil(in_s * cfps - FRAME_EPS)
+        fit = snap_frames((out_s * cfps - src_start) / cfps / s.speed, fps)
+        if cut is not None:
+            off = int(cut["record_frame_offset"])
+            dur = int(cut["duration_frames"])
+            if dur > fit:
+                notes.append(f"{s.id}: cuts.json asks {dur} frames, {dur - fit} more than "
+                             f"{in_s:g}-{out_s:g} s holds; the source runs past out_s")
         else:
-            off = round(t * fps)
-            t += (s.out_s - s.in_s) / s.speed
-            dur = round(t * fps) - off
-        src_start = round(s.in_s * cfps)
+            off, dur = next_off, fit
+        next_off = off + dur
         path = str(Path(raw_dir) / s.clip) if raw_dir else c.get("path") or s.clip
         out.append(PlannedShot(
             id=s.id, clip=s.clip, path=path, role=s.role, speed=s.speed, transition=s.transition,
@@ -183,6 +225,75 @@ def append_infos(shots: list[PlannedShot], items: dict[str, Any], media_type: in
     return [{"mediaPoolItem": items.get(s.clip, s.clip), "startFrame": s.src_start, "endFrame": s.src_end,
              "mediaType": media_type, "trackIndex": track_index, "recordFrame": s.record_frame}
             for s in shots]
+
+
+@dataclass
+class PlannedTrack:
+    path: str
+    in_s: float                 # what was asked (Script track_in_s, or beats.json intro_end)
+    in_source: str              # where in_s came from
+    src_start: int              # source frame at timeline fps (Resolve reads a WAV at the project fps)
+    src_end: int                # exclusive
+    record_frame: int           # absolute; the timeline start
+    duration: int               # timeline frames = the picture's length
+    fade_out: int               # frames
+
+
+def plan_track(script: Script, reel_dir: str | Path, start_frame: int, duration: int, fps: float = 30,
+               beats: dict | None = None, default_fade_out_s: float = 0.6) -> tuple[PlannedTrack, list[str]]:
+    """Where the Track goes: A2 from the timeline start, for the picture's duration.
+
+    The source in-point is ``script.track_in_s``, else ``beats.json`` ``intro_end``, else 0.
+    Resolve reads a WAV at the project frame rate and rounds a fractional ``startFrame``
+    (smoke, 2026-10-10: 63.6 became 64), so the in-point is snapped to a whole frame here
+    and the snap is reported.
+    """
+    notes: list[str] = []
+    if not script.track:
+        raise BuildError("the script has no track")
+    path = Path(script.track).expanduser()
+    if not path.is_absolute():
+        path = Path(reel_dir) / path
+    if script.track_in_s is not None:
+        in_s, source = float(script.track_in_s), "script track_in_s"
+    elif beats and beats.get("intro_end") is not None:
+        in_s, source = float(beats["intro_end"]), "beats.json intro_end"
+    else:
+        in_s, source = 0.0, "default 0 (no track_in_s, no beats.json intro_end)"
+        notes.append("Track starts at 0 s: no track_in_s in the script and no intro_end in beats.json")
+    src_start = round(in_s * fps)
+    if abs(src_start / fps - in_s) > 1e-6:
+        notes.append(f"Track in-point {in_s:g} s snapped to frame {src_start} ({src_start / fps:.4f} s)")
+    fade_s = script.track_fade_out_s if script.track_fade_out_s is not None else default_fade_out_s
+    fade = min(round(fade_s * fps), duration)
+    if beats and beats.get("duration_s") and (src_start + duration) / fps > float(beats["duration_s"]) + 1e-6:
+        raise BuildError(f"Track too short: needs {(src_start + duration) / fps:.2f} s, has {beats['duration_s']} s")
+    return PlannedTrack(path=str(path), in_s=in_s, in_source=source, src_start=src_start,
+                        src_end=src_start + duration, record_frame=start_frame, duration=duration,
+                        fade_out=fade), notes
+
+
+def beat_marker_plan(cuts: dict | None, duration: int) -> list[dict]:
+    """``cuts.json`` ``beat_markers`` inside [0, duration): ``{frame, downbeat, beat_index}``."""
+    out = []
+    for m in (cuts or {}).get("beat_markers", []):
+        f = int(m["frame"])
+        if 0 <= f < duration:
+            out.append({"frame": f, "downbeat": bool(m.get("downbeat")), "beat_index": m.get("beat_index"),
+                        "t": m.get("t")})
+    return out
+
+
+def file_frames(path: str | Path) -> int | None:
+    """Video frame count of a file from ffprobe (``nb_frames``), or None."""
+    import subprocess  # noqa: PLC0415
+
+    res = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=nb_frames",
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=False)
+    try:
+        return int(res.stdout.strip().split(",")[0])
+    except ValueError:
+        return None
 
 
 def timecode(frame: int, fps: int) -> str:
@@ -269,8 +380,11 @@ def _jsonable(x: Any) -> Any:
 class Builder:
     def __init__(self, reel_dir: Path, walk_dir: Path, project_name: str | None, stills: bool,
                  look: str | None = None, stills_only: bool = False, stills_dir: Path | None = None,
-                 script_path: Path | None = None):
+                 script_path: Path | None = None, use_track: bool = True,
+                 ambience_db: float | None = None):
         self.reel_dir = reel_dir
+        self.use_track = use_track
+        self.ambience_db_override = ambience_db
         self.reel = reel_dir.name
         self.walk_dir = walk_dir
         self.want_stills = stills
@@ -284,6 +398,15 @@ class Builder:
         self.script = load(script_path or reel_dir / "script.json")
         cuts_path = reel_dir / "cuts.json"
         self.cuts = load_json(cuts_path) if cuts_path.exists() else None
+        self.track_on = bool(self.script.track) and use_track
+        self.beats: dict | None = None
+        self.beats_path: Path | None = None
+        if self.script.track:
+            track = Path(self.script.track).expanduser()
+            track = track if track.is_absolute() else reel_dir / track
+            self.beats_path = next((bp for bp in (track.with_name("beats.json"), reel_dir / "beats.json")
+                                    if bp.exists()), None)
+            self.beats = load_json(self.beats_path) if self.beats_path else None
         canvas = self.style.get("canvas", {})
         self.width, self.height = int(canvas.get("width", 1080)), int(canvas.get("height", 1920))
         self.fps = int(canvas.get("fps", 30))
@@ -396,7 +519,7 @@ class Builder:
         self.plan = shots
 
         d.ensure_tracks(tl, "video", 3, VIDEO_TRACK_NAMES)
-        d.ensure_tracks(tl, "audio", 1, AUDIO_TRACK_NAMES)
+        d.ensure_tracks(tl, "audio", 1, {1: AUDIO_TRACK_NAMES[1]})
 
         vids = d.append(append_infos(shots, items, media_type=1, track_index=1))
         r.check("V1 items returned by AppendToTimeline", len(shots), len(vids))
@@ -415,11 +538,16 @@ class Builder:
                 r.check(f"{s.id} {kind} speed % (SetSpeed returned {ok})", round(s.speed * 100.0, 3),
                         round(float(got or 0), 3))
 
-        # Volume: ambience under a Track, natural sound at 0 dB without one.
-        vol = float(self.style["audio"]["ambience_db"]) if self.script.track else 0.0
-        if self.script.track:
-            r.notes.append(f"Track {self.script.track!r} given: ambience at {vol:g} dB; placing the Track "
-                           "on its own audio track is not implemented yet")
+        # Volume: ambience under a Track (also with --no-track, where the Track is added in
+        # Instagram), natural sound at 0 dB for a Reel without a Track; --ambience-db wins.
+        if self.ambience_db_override is not None:
+            vol = float(self.ambience_db_override)
+        else:
+            vol = float(self.style["audio"]["ambience_db"]) if self.script.track else 0.0
+        r.timeline["ambience_db"] = vol
+        if self.script.track and not self.track_on:
+            r.notes.append(f"--no-track: Track {self.script.track!r} left out; ambience stays at {vol:g} dB "
+                           "as the bed under the sound added in Instagram")
         for s, a in zip(shots, auds):
             try:
                 got = d.set_item_property_verified(a, "AudioVolume", vol)
@@ -458,15 +586,73 @@ class Builder:
             want = (where, where + dur) if i == 0 else (where - dur // 2, where + dur - dur // 2)
             r.check(f"{s.id} {opts['type']} span", list(want), list(got))
 
-        # Markers: timeline markers take offsets from the timeline start (S10).
+        if self.track_on:
+            self.place_track(tl, start, shots[-1].record_end - start)
+
+        # Markers: timeline markers take offsets from the timeline start (S10). One marker
+        # per frame, so a beat marker on a shot's first frame is left out.
+        shot_frames = set()
         for s in shots:
             payload = json.dumps({"shot_id": s.id, "clip": s.clip, "role": s.role}, ensure_ascii=False)
+            shot_frames.add(s.record_offset)
             try:
-                got = d.add_marker(tl, s.record_offset, ROLE_MARKER_COLOR.get(s.role, "Blue"), s.id,
-                                   s.overlay_text or "", s.duration, payload)
+                got = d.add_marker(tl, s.record_offset, ROLE_MARKER_COLOR.get(s.role, "Green"), s.id,
+                                   s.overlay_text or "", 1, payload)
                 r.check(f"{s.id} marker at +{s.record_offset}", payload, got.get("customData"))
             except Exception as exc:  # noqa: BLE001
                 r.check(f"{s.id} marker at +{s.record_offset}", payload, str(exc), ok=False)
+        self.beat_markers = []
+        skipped = []
+        for m in beat_marker_plan(self.cuts, shots[-1].record_end - start):
+            if m["frame"] in shot_frames:
+                skipped.append(m["frame"])
+                continue
+            color = DOWNBEAT_MARKER_COLOR if m["downbeat"] else BEAT_MARKER_COLOR
+            name = ("downbeat" if m["downbeat"] else "beat") + f" {m['beat_index']}"
+            payload = json.dumps({"beat_index": m["beat_index"], "downbeat": m["downbeat"], "t": m["t"]})
+            try:
+                got = d.add_marker(tl, m["frame"], color, name, "", 1, payload)
+                ok = r.check(f"{name} marker at +{m['frame']}", [color, payload], [got.get("color"),
+                                                                                    got.get("customData")])
+                if ok:
+                    self.beat_markers.append(m)
+            except Exception as exc:  # noqa: BLE001
+                r.check(f"{name} marker at +{m['frame']}", payload, str(exc), ok=False)
+        r.timeline["beat_markers"] = {"placed": len(self.beat_markers),
+                                      "downbeats": sum(1 for m in self.beat_markers if m["downbeat"]),
+                                      "skipped_on_shot_frames": skipped}
+
+    def place_track(self, tl: Any, start: int, duration: int) -> None:
+        """The Track on A2 "music": from the timeline start, for the picture's length, 0 dB,
+        fade-out at the end; everything read back."""
+        d, r = self.d, self.r
+        plan, notes = plan_track(self.script, self.reel_dir, start, duration, self.fps, self.beats,
+                                 DEFAULT_TRACK_FADE_OUT_S)
+        r.notes.extend(notes)
+        self.track_plan = plan
+        if not Path(plan.path).exists():
+            raise BuildError(f"Track file not found: {plan.path}")
+        d.ensure_tracks(tl, "audio", 2, AUDIO_TRACK_NAMES, sub_type="stereo")
+        r.check("A2 track name", "music", d.call(tl.GetTrackName, "audio", 2))
+        (mpi,) = d.import_media([plan.path], bin_name=f"{self.walk} music")
+        props = d.call(mpi.GetClipProperty) or {}
+        r.check("Track clip FPS = timeline fps (WAV frames are timeline frames)", float(self.fps),
+                float(props.get("FPS") or 0))
+        items = d.append([{"mediaPoolItem": mpi, "startFrame": plan.src_start, "endFrame": plan.src_end,
+                           "mediaType": 2, "trackIndex": 2, "recordFrame": plan.record_frame}])
+        r.check("A2 items returned by AppendToTimeline", 1, len(items))
+        it = items[0]
+        self.music_item = it
+        got = d.set_item_property_verified(it, "AudioVolume", 0.0)
+        r.check("music AudioVolume", 0.0, float(got))
+        want = {"FadeIn": 0, "FadeOut": plan.fade_out}
+        d.call(it.SetFades, want)
+        fades = d.call(it.GetFades) or {}
+        r.check("music fades", want, {k: int(float(fades.get(k) or 0)) for k in want})
+        r.timeline["track"] = {**asdict(plan), "beats_json": str(self.beats_path) if self.beats_path else None,
+                               "src_start_s": round(plan.src_start / self.fps, 4),
+                               "audio_sub_type": d.call(tl.GetTrackSubType, "audio", 2),
+                               "file_duration": props.get("Duration")}
 
     def _remove_audio_spill(self, tl: Any) -> None:
         """iPhone clips carry extra (spatial) audio streams that land on A2..A5 even with
@@ -496,11 +682,24 @@ class Builder:
                 continue
             (mpi,) = d.import_media([f], bin_name=f"{self.walk} overlays")
             frames = int(float((d.call(mpi.GetClipProperty) or {}).get("Frames") or 0))
+            on_disk = file_frames(f)
+            if on_disk and frames != on_disk:
+                # A re-rendered overlay keeps its path, and the pool item keeps the old
+                # length: swap the asset under the item, then read the length again.
+                ok = d.call(mpi.ReplaceClip, str(f))
+                old = frames
+                frames = int(float((d.call(mpi.GetClipProperty) or {}).get("Frames") or 0))
+                r.notes.append(f"{s.id}: overlay pool item had {old} frames, file has {on_disk}; "
+                               f"ReplaceClip returned {ok}, now {frames}")
+            r.check(f"{s.id} overlay pool frames = file frames", on_disk or frames, frames)
+            if frames != s.duration:
+                r.notes.append(f"{s.id}: overlay is {frames} frames, the shot {s.duration}; "
+                               "re-render the overlay with the shot's duration")
             (it,) = d.append([{"mediaPoolItem": mpi, "startFrame": 0, "endFrame": frames, "mediaType": 1,
                                "trackIndex": 2, "recordFrame": s.record_frame}])
             got = [int(d.call(it.GetStart)), int(d.call(it.GetEnd))]
             r.check(f"{s.id} overlay on V2", [s.record_frame, s.record_frame + frames], got)
-            placed.append({"shot": s.id, "file": str(f), "start": got[0], "end": got[1]})
+            placed.append({"shot": s.id, "file": str(f), "frames": frames, "start": got[0], "end": got[1]})
         r.overlays = {"placed": placed, "missing": missing}
         if missing:
             r.notes.append(f"{len(missing)} overlay file(s) missing, skipped: "
@@ -633,7 +832,32 @@ class Builder:
         r.timeline["expected_duration_frames"] = self.plan[-1].record_end - start
         r.timeline["track_counts"] = {t: int(d.call(tl.GetTrackCount, t)) for t in ("video", "audio")}
         r.timeline["markers"] = len(d.call(tl.GetMarkers) or {})
-        r.check("timeline marker count", len(self.plan), r.timeline["markers"])
+        r.check("timeline marker count", len(self.plan) + len(getattr(self, "beat_markers", [])),
+                r.timeline["markers"])
+        r.check("timeline length = planned picture length", r.timeline["expected_duration_frames"],
+                r.timeline["duration_frames"])
+        n_audio = 2 if self.track_on else 1
+        r.check("audio track count", n_audio, r.timeline["track_counts"]["audio"])
+        if self.track_on:
+            tp = self.track_plan
+            a2 = [it for it in (d.call(tl.GetItemListInTrack, "audio", 2) or [])
+                  if d.call(it.GetMediaPoolItem) is not None]
+            r.check("A2 item count", 1, len(a2))
+            if a2:
+                it = a2[0]
+                row = {"name": d.call(it.GetName), "start": int(d.call(it.GetStart)), "end": int(d.call(it.GetEnd)),
+                       "src_start": d.call(it.GetSourceStartFrame), "src_end": d.call(it.GetSourceEndFrame),
+                       "src_start_time": d.call(it.GetSourceStartTime),
+                       "volume": (d.call(it.GetProperties) or {}).get("AudioVolume"),
+                       "fades": d.call(it.GetFades)}
+                r.timeline["track_read_back"] = row
+                r.check("A2 music start/end", [tp.record_frame, tp.record_frame + tp.duration],
+                        [row["start"], row["end"]])
+                r.check("A2 music source in-point (frames)", tp.src_start, int(row["src_start"] or -1))
+                r.check("A2 music AudioVolume", 0.0, float(row["volume"] or 0))
+        vols = [(d.call(it.GetProperties) or {}).get("AudioVolume") for it in a1]
+        r.check("A1 ambience AudioVolume (all items)", [r.timeline.get("ambience_db")] * len(a1),
+                [float(v) if v is not None else None for v in vols])
 
     def stills(self) -> None:
         d, r, tl = self.d, self.r, self.tl
@@ -763,6 +987,16 @@ class Builder:
         print(f"\nA1 read-back: {a_ok}/{len(r.audio)} items at the expected frames")
         if r.timeline.get("audio_spill"):
             print(f"audio spill: {r.timeline['audio_spill']}")
+        print(f"A1 ambience: {r.timeline.get('ambience_db')} dB")
+        tb = r.timeline.get("track_read_back")
+        if tb:
+            st = r.timeline["start_frame"]
+            print(f"A2 music: {tb['name']} +{tb['start'] - st}..+{tb['end'] - st}, source in {tb['src_start']} "
+                  f"({tb['src_start_time']} s), {tb['volume']} dB, fades {tb['fades']}")
+        elif self.script.track:
+            print("A2 music: none (--no-track)")
+        if r.timeline.get("beat_markers"):
+            print(f"beat markers: {r.timeline['beat_markers']}")
         if r.stills:
             print(f"stills: {sum(1 for s in r.stills if s['bytes'])}/{len(r.stills)} written to "
                   f"{self.stills_dir}")
@@ -796,6 +1030,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="no rebuild: apply the Look to the existing timeline and export the stills")
     ap.add_argument("--stills-dir", help="where the stills go (default <reel_dir>/stills)")
     ap.add_argument("--script", help="script file to use instead of <reel_dir>/script.json")
+    ap.add_argument("--no-track", action="store_true",
+                    help="leave the Track out (ambience-only build for a sound added in Instagram)")
+    ap.add_argument("--ambience-db", type=float,
+                    help="A1 ambience volume in dB (default: style.audio.ambience_db with a Track, else 0)")
     args = ap.parse_args(argv)
     reel_dir = Path(args.reel_dir).expanduser().resolve()
     walk_dir = Path(args.walk).expanduser().resolve() if args.walk else reel_dir.parent.parent
@@ -811,7 +1049,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     stills_dir = Path(args.stills_dir).expanduser().resolve() if args.stills_dir else None
     return Builder(reel_dir, walk_dir, args.project_name, stills=not args.no_stills, look=args.look,
-                   stills_only=args.stills_only, stills_dir=stills_dir, script_path=script_path).run()
+                   stills_only=args.stills_only, stills_dir=stills_dir, script_path=script_path,
+                   use_track=not args.no_track, ambience_db=args.ambience_db).run()
 
 
 if __name__ == "__main__":

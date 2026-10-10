@@ -12,7 +12,17 @@ export type FontSpec = {
   file?: string | null;
 };
 
-export type Anchor = "center" | "top-left";
+/** "center": box centred horizontally, vertical centre at y. "middle-left": left
+ * edge at x, vertical centre at y. "top-*": top edge at y.
+ * "bottom-*": bottom edge at y (at rest, before the slide-in offset). "*-left": left
+ * edge at x; "*-center": centred horizontally on the canvas. */
+export type Anchor =
+  | "center"
+  | "middle-left"
+  | "top-left"
+  | "top-center"
+  | "bottom-left"
+  | "bottom-center";
 
 export type OverlayPosition = { anchor: Anchor; x?: number; y: number };
 
@@ -30,6 +40,8 @@ export type Style = {
     body: FontSpec;
     max_words_per_line: number;
     max_lines: number;
+    /** Overlay preset from presets.ts; "legacy" (or absent) = the fields above. */
+    preset?: string;
   };
   colors: {
     text: string;
@@ -50,6 +62,15 @@ export type OverlayProps = {
   type: OverlayType;
   durationInFrames: number;
   style: Style;
+  /** Overrides style.typography.preset for this render. */
+  preset?: string;
+  /** Named placement from slots.json; overrides the role's own anchor/x/y/align. */
+  anchor?: string;
+  /** Overrides the role's scrim strength (0..1). */
+  scrim?: number;
+  /** Measurement only: "background" hides the glyphs (keeps scrim and boxes),
+   * "glyphs" shows only the glyph fill. Default "all". */
+  layers?: "all" | "background" | "glyphs";
 };
 
 export const fontRoleFor = (type: OverlayType): "display" | "body" =>

@@ -96,6 +96,8 @@ class Script:
     location_tag: str | None = None
     alt_text: str | None = None
     track: str | None = None
+    track_in_s: float | None = None
+    track_fade_out_s: float | None = None
     metrics: dict | None = None
 
     @property
@@ -111,6 +113,10 @@ def _num(d: dict, key: str, where: str, default: Any = None) -> float:
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         raise ScriptError(f"{where}: {key!r} must be a number, got {v!r}")
     return float(v)
+
+
+def _opt_num(d: dict, key: str, where: str) -> float | None:
+    return None if d.get(key) is None else _num(d, key, where)
 
 
 def _str(d: dict, key: str, where: str, required: bool = True) -> str | None:
@@ -181,6 +187,8 @@ def from_dict(d: dict) -> Script:
         location_tag=_str(d, "location_tag", "script", required=False),
         alt_text=_str(d, "alt_text", "script", required=False),
         track=_str(d, "track", "script", required=False),
+        track_in_s=_opt_num(d, "track_in_s", "script"),
+        track_fade_out_s=_opt_num(d, "track_fade_out_s", "script"),
         metrics=d.get("metrics"),
     )
 
@@ -284,6 +292,14 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
     if abs(total - script.target_length_s) > TOTAL_TOLERANCE_S + EPS:
         v.append(f"total: shots add up to {total:.2f} s, target is {script.target_length_s:g} "
                  f"+/- {TOTAL_TOLERANCE_S:g} s")
+
+    # Track.
+    for key in ("track_in_s", "track_fade_out_s"):
+        val = getattr(script, key)
+        if val is not None and val < 0:
+            v.append(f"{key}: must be >= 0, got {val:g}")
+        if val is not None and not script.track:
+            v.append(f"{key}: set without a track")
 
     # Publishing fields.
     if len(script.hashtags) > MAX_HASHTAGS:

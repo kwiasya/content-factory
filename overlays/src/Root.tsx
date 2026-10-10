@@ -11,6 +11,7 @@ const defaultProps: OverlayProps = {
   type: "place",
   durationInFrames: 3 * style.canvas.fps,
   style,
+  preset: style.typography.preset ?? "legacy",
 };
 
 export const RemotionRoot: React.FC = () => (

@@ -1,0 +1,9 @@
+{
+  "_doc": "Named placements a render spec can pass as `anchor` to override a preset role's own placement. Coordinates on the 1080x1920 canvas; see presets.ts for anchor semantics. All sit inside style.json safe_zone.",
+  "lower-left": { "anchor": "bottom-left", "x": 90, "y": 1218, "align": "left" },
+  "lower-center": { "anchor": "bottom-center", "y": 1218, "align": "center" },
+  "mid-left": { "anchor": "middle-left", "x": 90, "y": 820, "align": "left" },
+  "mid-center": { "anchor": "center", "y": 820, "align": "center" },
+  "upper-left": { "anchor": "top-left", "x": 90, "y": 300, "align": "left" },
+  "upper-center": { "anchor": "top-center", "y": 300, "align": "center" }
+}

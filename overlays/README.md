@@ -35,7 +35,7 @@ npx --no-install remotion render src/index.ts Overlay <out> --props=<tmp> \
 ## Spec format
 
 ```json
-{ "text": "Potsdam, Sanssouci", "type": "place", "duration_s": 3, "style_path": "../../style.json" }
+{ "text": "Potsdam, Sanssouci", "type": "place", "duration_s": 3, "style_path": "../../style.json", "preset": "editorial-serif" }
 ```
 
 | field | meaning |
@@ -44,8 +44,56 @@ npx --no-install remotion render src/index.ts Overlay <out> --props=<tmp> \
 | `type` | `hook` \| `place` \| `fact` \| `line`. |
 | `duration_s` | Length of the clip. Frames = `round(duration_s × canvas.fps)`. |
 | `style_path` | Path to the Style profile; a relative path resolves against the spec file's folder. |
+| `preset` | Optional. Overlay preset name (see Presets); defaults to `typography.preset` in style.json, then `legacy`. An unknown name exits 2 and lists the known ones. |
+
+## Presets
+
+A preset is one complete type system for every overlay type: font family, weight,
+italic, size, case, tracking, line height, colour or gradient fill, shadow or glow,
+backdrop / per-line box, rule, accent bar, ornament, rotation and placement. The
+catalogue is `src/presets.ts`; style.json `typography.preset` selects one, and a
+spec's `preset` overrides it for one render. The summary line reports `preset`.
+
+| preset | hook | place label |
+|---|---|---|
+| `legacy` | the original design, read from style.json (Playfair Display, translucent pill) | same |
+| `editorial-serif` | Cormorant Garamond Light Italic, lower-left | Cormorant SC, tracked |
+| `clean-grotesk` | Inter Tight Medium, lower-left | Inter Tight uppercase, tracked, 1-px rule above |
+| `lower-third-tag` | Space Grotesk SemiBold, centred mid-frame | Space Grotesk tag with an accent bar (`colors.accent`) |
+| `tiktok-hype` | Montserrat ExtraBold uppercase, black on white per-line boxes, -3° | small white box tag |
+| `pinterest-aesthetic` | Bodoni Moda lowercase, cream, tracked, centred mid-frame | lowercase, hairline under it |
+| `coquette-girly` | Great Vibes script, soft pink, tilted | Cormorant Garamond italic + pink bow |
+| `y2k-gloss` | Unbounded ExtraBold, pink→lavender gradient, glow | same, sparkles both sides |
+| `diary-typewriter` | Special Elite lowercase on cream marker strips, top-left | same, e.g. "potsdam · 04.10" |
+| `handwritten-note` | Caveat Bold with a hand-drawn squiggle underline, lower-left | Caveat, near the horizon |
+
+With a non-legacy preset, the preset replaces `typography.display/body`,
+`colors.text/text_shadow/backdrop` and `overlay_positions`. Still read from
+style.json: `canvas`, `safe_zone`, `animation`, `colors.accent`,
+`typography.max_words_per_line/max_lines` (unless the preset role sets its own).
+Some presets assume a text convention: `pinterest-aesthetic` reads best with
+"place, city"; `diary-typewriter` with "city · dd.mm". The renderer does not
+rewrite text.
+
+Anchors: `center`, `top-left`, `top-center`, `bottom-left`, `bottom-center`.
+`bottom-*` puts the box's bottom edge at `y` at rest (the slide-in starts lower,
+which the safe-zone check includes). The text width is limited by the safe zone,
+by the right rail when the box can reach below `right_rail.from_y`, and by the
+role's `maxWidth` (hooks keep to a ~600 px left column, place labels to ~470 px,
+so a centred subject stays clear). Presets break lines after punctuation when they
+can ("POV: Sunday walk, / but make it castles"); `legacy` keeps the old
+most-balanced rule. `legacy` output is pixel-identical to before presets existed
+(checked on reel-01 s01 and s06, frame 12).
+
+To compare presets on real frames, render each through `render.mjs` with a spec
+`preset`, pull one frame with
+`ffmpeg -i x.mov -vf "select=eq(n\,12)" -frames:v 1 -pix_fmt rgba x.png`
+and composite it over a still. reel-01 has such a board in
+`reels/reel-01/overlay-design/`.
 
 ## What it reads from style.json
+
+These are the `legacy` preset's inputs.
 
 | field | use |
 |---|---|
@@ -103,8 +151,12 @@ ffprobe of the output shows `prores`, profile `4444`, tag `ap4h`, 1080×1920,
 ## Known limits
 
 - The fonts come from Google's CDN at render time, so a render needs a network
-  connection. Only Playfair Display and Inter are loaded. Any other family
-  falls back to a locally installed font with a `FONT_FALLBACK` warning.
+  connection. Only the face in use is fetched. Known families are listed in
+  `src/fonts.ts` (Playfair Display, Inter, Inter Tight, Cormorant Garamond,
+  Cormorant SC, Space Grotesk, Montserrat, Bodoni Moda, Great Vibes, Unbounded,
+  Special Elite, Caveat). Any other family falls back to a locally installed font
+  with a `FONT_FALLBACK` warning.
+- Rotation (`rotate`) is not included in the safe-zone measurement; keep it to a few degrees.
   `typography.*.file` is not supported yet.
 - The right rail (`safe_zone.right_rail`) is only checked. Text placed low
   on the right would be reported, not moved.

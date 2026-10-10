@@ -2,7 +2,8 @@
 
 import unittest
 
-from cf.build import BuildError, append_infos, plan_shots, source_end, timecode
+from cf.build import (BuildError, append_infos, beat_marker_plan, plan_shots, plan_track, source_end,
+                      timecode)
 from cf.script_schema import from_dict
 
 START = 108000  # 01:00:00:00 at 30 fps (read from GetStartFrame() in a real build)
@@ -17,11 +18,11 @@ MANIFEST = {
 }
 
 
-def script(shots):
+def script(shots, **extra):
     return from_dict({
         "schema": "cf-script/1", "walk": "w", "concept": "c", "format": "pov", "target_length_s": 10,
         "hook": {"type": "pov", "text": "one two three four five", "clip": shots[0]["clip"]},
-        "shots": shots, "ending": "reveal_last", "location_tag": "x",
+        "shots": shots, "ending": "reveal_last", "location_tag": "x", **extra,
     })
 
 
@@ -66,7 +67,9 @@ class SourceFrameMathTest(unittest.TestCase):
         self.assertEqual((plan[0].src_start, plan[0].src_end), (60, 240))
         plan, _ = plan_shots(s, MANIFEST, START, 30)
         self.assertEqual(plan[0].src_start, 60)
-        self.assertAlmostEqual(plan[0].src_end, 60 + 90 * 59.94006 / 30, places=2)
+        # At 59.94 fps, frames 60..239.76 hold 89.94 timeline frames: snapped down to 89.
+        self.assertEqual(plan[0].duration, 89)
+        self.assertAlmostEqual(plan[0].src_end, 60 + 89 * 59.94006 / 30, places=2)
 
     def test_speed_keeps_timeline_duration_and_scales_source(self):
         # 1.5 s of 60 fps source at 0.5x -> 3 s on the timeline. Appended at 100 % for 90
@@ -89,10 +92,41 @@ class RecordFrameTest(unittest.TestCase):
             self.assertEqual(a.record_end, b.record_frame)
         self.assertTrue(any("back to back" in n for n in notes))
 
-    def test_cumulative_rounding_does_not_drift(self):
+    def test_each_shot_snaps_down_and_the_next_starts_at_the_snapped_end(self):
+        # 1.71 s = 51.3 frames: every shot gets 51 (never 52, which would show source past
+        # out_s), and the next record frame follows the snapped duration, so nothing overlaps
+        # and no shot is stretched to absorb the rounding.
         s = script([shot("C30.mov", 0.0, 1.71) for _ in range(10)])
+        plan, notes = plan_shots(s, MANIFEST, START, 30)
+        self.assertEqual([p.duration for p in plan], [51] * 10)
+        self.assertEqual([p.record_offset for p in plan], [51 * i for i in range(10)])
+        self.assertEqual(plan[-1].record_end - START, 510)
+        self.assertTrue(all(p.src_end <= 1.71 * 30 for p in plan))
+        self.assertTrue(any("snapped down" in n for n in notes))
+
+    def test_24fps_snapping_never_extends_past_out(self):
+        # IMG_0493-like 24 fps clip on a 30 fps timeline. 1.25-4.5 s = 97.5 timeline frames
+        # -> 97; source end 30 + 97 x 0.8 = 107.6 (+0.001) stays below out frame 108.
+        # An in-point between frames (1.26 s = frame 30.24) starts at frame 31, not 30.
+        s = script([shot("B24.MOV", 1.25, 4.5, role="hook"), shot("B24.MOV", 1.26, 4.5),
+                    shot("A60.MOV", 0.0, 2.0)])
         plan, _ = plan_shots(s, MANIFEST, START, 30)
-        self.assertEqual(plan[-1].record_end - START, round(17.1 * 30))
+        a, b, c = plan
+        self.assertEqual((a.src_start, a.duration), (30, 97))
+        self.assertLessEqual(a.src_end, 108)
+        self.assertEqual(int((a.src_end - a.src_start) * 30 / 24), 97)
+        self.assertEqual((b.src_start, b.duration), (31, 96))  # (108 - 31) / 24 s = 96.25 frames
+        self.assertLessEqual(b.src_end, 108)
+        self.assertEqual([p.record_offset for p in plan], [0, 97, 193])
+        self.assertEqual(c.duration, 60)
+
+    def test_four_decimal_times_land_on_their_frames(self):
+        # 6.8667 s is 412.002 frames at 60 fps and 9.2667 s is 556.002: frame 412, 72 frames.
+        # 22.1667 s at 24 fps is frame 532.0008 -> 532; 16.9833 s (rounded down) still holds 43.
+        s = script([shot("A60.MOV", 6.8667, 9.2667, role="hook"), shot("B24.MOV", 22.1667, 23.5667),
+                    shot("A60.MOV", 15.55, 16.9833)])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        self.assertEqual([(p.src_start, p.duration) for p in plan], [(412, 72), (532, 42), (933, 43)])
 
     def test_cuts_json_overrides_record_positions(self):
         s = script([shot("A60.MOV", 0.0, 2.5, role="hook"), shot("B24.MOV", 1.0, 4.0)])
@@ -104,6 +138,29 @@ class RecordFrameTest(unittest.TestCase):
         self.assertAlmostEqual(plan[1].src_end, 24 + 64.8, places=2)
         self.assertTrue(any("cuts.json" in n for n in notes))
 
+    def test_cuts_json_is_the_authority_for_record_frames(self):
+        # Gaps and positions come from cuts.json even where back-to-back would differ; the
+        # source in-point comes from the cut's src_in_s.
+        s = script([shot("A60.MOV", 0.0, 3.0, role="hook"), shot("B24.MOV", 1.0, 4.0)])
+        cuts = {"fps": 30, "shots": [
+            {"id": "s01", "record_frame_offset": 0, "duration_frames": 74, "src_in_s": 0.5, "src_out_s": 2.9667},
+            {"id": "s02", "record_frame_offset": 74, "duration_frames": 72, "src_in_s": 1.25, "src_out_s": 3.65}]}
+        plan, notes = plan_shots(s, MANIFEST, START, 30, cuts=cuts)
+        self.assertEqual([(p.record_offset, p.duration) for p in plan], [(0, 74), (74, 72)])
+        self.assertEqual([p.src_start for p in plan], [30, 30])
+        self.assertAlmostEqual(plan[1].src_end, 30 + 72 * 0.8, places=2)
+        self.assertTrue(any("s01" in n and "differs" in n for n in notes))
+
+    def test_cuts_json_fps_must_match_and_overlong_cut_is_reported(self):
+        s = script([shot("C30.mov", 0.0, 2.0, role="hook")])
+        with self.assertRaises(BuildError):
+            plan_shots(s, MANIFEST, START, 30, cuts={"fps": 24, "shots": [
+                {"id": "s01", "record_frame_offset": 0, "duration_frames": 48}]})
+        plan, notes = plan_shots(s, MANIFEST, START, 30, cuts={"fps": 30, "shots": [
+            {"id": "s01", "record_frame_offset": 0, "duration_frames": 63}]})
+        self.assertEqual(plan[0].duration, 63)
+        self.assertTrue(any("3 more" in n for n in notes))
+
     def test_cuts_json_missing_shot_or_overlap_fails(self):
         s = script([shot("A60.MOV", 0.0, 2.5, role="hook"), shot("B24.MOV", 1.0, 4.0)])
         with self.assertRaises(BuildError):
@@ -113,6 +170,41 @@ class RecordFrameTest(unittest.TestCase):
                           {"id": "s02", "record_frame_offset": 72, "duration_frames": 81}]}
         with self.assertRaises(BuildError):
             plan_shots(s, MANIFEST, START, 30, cuts=cuts)
+
+
+class TrackPlanTest(unittest.TestCase):
+    BEATS = {"intro_end": 1.62, "duration_s": 269.7}
+
+    def test_in_point_from_script_snapped_to_a_frame(self):
+        s = script([shot("C30.mov", 0.0, 3.0)], track="track/source.wav", track_in_s=2.12)
+        tp, notes = plan_track(s, "/walk/reels/r", START, 475, 30, self.BEATS)
+        self.assertEqual(tp.path, "/walk/reels/r/track/source.wav")
+        self.assertEqual((tp.src_start, tp.src_end, tp.record_frame, tp.duration), (64, 539, START, 475))
+        self.assertEqual(tp.fade_out, 18)  # 0.6 s default
+        self.assertTrue(any("snapped" in n for n in notes))
+
+    def test_default_in_point_is_intro_end_and_fade_from_script(self):
+        s = script([shot("C30.mov", 0.0, 3.0)], track="/abs/t.wav", track_fade_out_s=1.0)
+        tp, _ = plan_track(s, "/r", START, 90, 30, self.BEATS)
+        self.assertEqual((tp.path, tp.in_source, tp.src_start, tp.fade_out),
+                         ("/abs/t.wav", "beats.json intro_end", round(1.62 * 30), 30))
+        tp, notes = plan_track(s, "/r", START, 90, 30, None)
+        self.assertEqual(tp.src_start, 0)
+        self.assertTrue(notes)
+
+    def test_track_too_short_fails(self):
+        s = script([shot("C30.mov", 0.0, 3.0)], track="t.wav", track_in_s=268.0)
+        with self.assertRaises(BuildError):
+            plan_track(s, "/r", START, 90, 30, self.BEATS)
+
+    def test_beat_markers_inside_the_timeline(self):
+        cuts = {"beat_markers": [{"frame": -1, "downbeat": True, "beat_index": 0},
+                                 {"frame": 15, "downbeat": True, "beat_index": 2, "t": 0.5},
+                                 {"frame": 31, "downbeat": False, "beat_index": 3, "t": 1.04},
+                                 {"frame": 90, "downbeat": False, "beat_index": 9}]}
+        got = beat_marker_plan(cuts, 90)
+        self.assertEqual([(m["frame"], m["downbeat"]) for m in got], [(15, True), (31, False)])
+        self.assertEqual(beat_marker_plan(None, 90), [])
 
 
 class AppendInfosTest(unittest.TestCase):

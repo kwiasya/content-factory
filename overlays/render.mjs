@@ -5,7 +5,10 @@
 //   npm run render -- --spec spec.json --out overlay.mov
 //
 // spec.json: { "text": "...", "type": "hook|place|fact|line", "duration_s": 3,
-//              "style_path": "../style.json" }
+//              "style_path": "../style.json", "preset": "editorial-serif" }
+// `preset` is optional; it defaults to style.json typography.preset, then "legacy".
+// Optional `anchor` (a slot name from src/slots.json, e.g. "lower-left") overrides
+// the preset's placement; optional `scrim` (0..1) overrides its scrim strength.
 // Relative style_path resolves against the spec file's folder; relative --spec and
 // --out resolve against the caller's cwd (INIT_CWD under npm run).
 // Last stdout line is a JSON summary; exit 0 ok, 1 render failed, 2 bad input,
@@ -57,6 +60,8 @@ if (typeof spec.text !== "string" || !spec.text.trim()) die(2, "spec.text must b
 if (!TYPES.includes(spec.type)) die(2, `spec.type must be one of ${TYPES.join("|")}`);
 if (!(typeof spec.duration_s === "number" && spec.duration_s > 0)) die(2, "spec.duration_s must be a positive number");
 if (typeof spec.style_path !== "string") die(2, "spec.style_path must be a path to style.json");
+if (spec.preset !== undefined && (typeof spec.preset !== "string" || !spec.preset.trim()))
+  die(2, "spec.preset must be a non-empty string when present");
 
 const stylePath = path.resolve(path.dirname(specPath), spec.style_path);
 let style;
@@ -68,6 +73,20 @@ try {
 for (const key of ["canvas", "safe_zone", "typography", "colors", "overlay_positions", "animation"])
   if (!style[key]) die(2, `style.json is missing "${key}"`);
 if (!style.overlay_positions[spec.type]) die(2, `style.overlay_positions has no "${spec.type}"`);
+
+const preset = (spec.preset ?? style.typography.preset ?? "legacy").trim();
+// The catalogue lives in src/presets.ts; check the name here so a typo is exit 2,
+// not a failed render.
+const presetSrc = fs.readFileSync(path.join(HERE, "src", "presets.ts"), "utf8");
+const knownPresets = ["legacy", ...[...presetSrc.matchAll(/^  "([a-z0-9-]+)": \{$/gm)].map((m) => m[1])];
+if (!knownPresets.includes(preset)) die(2, `unknown preset "${preset}"; known: ${knownPresets.join(", ")}`);
+
+const slots = JSON.parse(fs.readFileSync(path.join(HERE, "src", "slots.json"), "utf8"));
+const knownSlots = Object.keys(slots).filter((k) => !k.startsWith("_"));
+if (spec.anchor !== undefined && !knownSlots.includes(spec.anchor))
+  die(2, `unknown anchor "${spec.anchor}"; known: ${knownSlots.join(", ")}`);
+if (spec.scrim !== undefined && !(typeof spec.scrim === "number" && spec.scrim >= 0 && spec.scrim <= 1))
+  die(2, "spec.scrim must be a number in 0..1");
 
 const fps = style.canvas.fps;
 const durationInFrames = Math.round(spec.duration_s * fps);
@@ -113,7 +132,15 @@ const releaseLock = () => {
 };
 
 const propsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cf-overlay-")), "props.json");
-fs.writeFileSync(propsFile, JSON.stringify({ text: spec.text, type: spec.type, durationInFrames, style }));
+fs.writeFileSync(propsFile, JSON.stringify({
+    text: spec.text,
+    type: spec.type,
+    durationInFrames,
+    style,
+    preset,
+    ...(spec.anchor !== undefined ? { anchor: spec.anchor } : {}),
+    ...(spec.scrim !== undefined ? { scrim: spec.scrim } : {}),
+  }));
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
 const cliArgs = [
@@ -169,6 +196,8 @@ const summary = {
   ok: code === 0,
   out: outPath,
   type: spec.type,
+  preset,
+  anchor: spec.anchor ?? null,
   fps,
   frames: durationInFrames,
   width: style.canvas.width,
