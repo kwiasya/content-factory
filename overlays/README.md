@@ -45,6 +45,8 @@ npx --no-install remotion render src/index.ts Overlay <out> --props=<tmp> \
 | `duration_s` | Length of the clip. Frames = `round(duration_s × canvas.fps)`. |
 | `style_path` | Path to the Style profile; a relative path resolves against the spec file's folder. |
 | `preset` | Optional. Overlay preset name (see Presets); defaults to `typography.preset` in style.json, then `legacy`. An unknown name exits 2 and lists the known ones. |
+| `anchor` | Optional. A named slot from `src/slots.json` (`lower-left`, `lower-center`, `mid-left`, `mid-center`, `high-left`, `high-center`, `upper-left`, `upper-center`) that replaces the preset role's placement, for example the calmest, darkest area of this shot that is clear of the face. Unknown → exit 2. |
+| `scrim` | Optional, 0..1. Overrides the preset role's scrim strength. |
 
 ## Presets
 
@@ -57,15 +59,30 @@ spec's `preset` overrides it for one render. The summary line reports `preset`.
 | preset | hook | place label |
 |---|---|---|
 | `legacy` | the original design, read from style.json (Playfair Display, translucent pill) | same |
-| `editorial-serif` | Cormorant Garamond Light Italic, lower-left | Cormorant SC, tracked |
-| `clean-grotesk` | Inter Tight Medium, lower-left | Inter Tight uppercase, tracked, 1-px rule above |
-| `lower-third-tag` | Space Grotesk SemiBold, centred mid-frame | Space Grotesk tag with an accent bar (`colors.accent`) |
+| `editorial-serif` | Cormorant Garamond SemiBold Italic 96 px, outline, scrim | Cormorant SC SemiBold 48 px, tracked |
+| `clean-grotesk` | Inter Tight SemiBold 86 px, scrim | Inter Tight Bold uppercase 40 px, tracked, 2-px rule above |
+| `lower-third-tag` | Space Grotesk SemiBold 86 px, centred, scrim | Space Grotesk 48 px tag with an accent bar (`colors.accent`) |
 | `tiktok-hype` | Montserrat ExtraBold uppercase, black on white per-line boxes, -3° | small white box tag |
-| `pinterest-aesthetic` | Bodoni Moda lowercase, cream, tracked, centred mid-frame | lowercase, hairline under it |
-| `coquette-girly` | Great Vibes script, soft pink, tilted | Cormorant Garamond italic + pink bow |
-| `y2k-gloss` | Unbounded ExtraBold, pink→lavender gradient, glow | same, sparkles both sides |
+| `pinterest-aesthetic` | Bodoni Moda SemiBold 84 px lowercase, cream, outline, scrim | 42 px lowercase, hairline under it |
+| `coquette-girly` | Great Vibes 104 px, light pink, plum outline, tilted, full scrim | Cormorant Garamond Bold Italic 52 px + pink bow |
+| `y2k-gloss` | Unbounded ExtraBold 84 px, pastel gradient, violet outline, glow, full scrim | 40 px, sparkles both sides |
 | `diary-typewriter` | Special Elite lowercase on cream marker strips, top-left | same, e.g. "potsdam · 04.10" |
-| `handwritten-note` | Caveat Bold with a hand-drawn squiggle underline, lower-left | Caveat, near the horizon |
+| `handwritten-note` | Caveat Bold 104 px, outline, squiggle underline, scrim | Caveat Bold 72 px, near the horizon |
+
+**Legibility without a box.** These are the role fields that make the box-free presets
+readable on bright footage (reel-01 measurements are in
+`reels/reel-01/overlay-design/README.md`):
+- `shadow`: every box-free text uses the layered shadow
+  `0 2px 3px rgba(0,0,0,.7), 0 10px 40px rgba(0,0,0,.55)`.
+- `stroke: {width, color}`: a dark outline. It is drawn as a stroked copy of the
+  text *under* the fill (stroke width 2×), so the glyph shape is not thinned.
+  Use it for serifs, scripts and thin faces.
+- `scrim: 0..1`: a feathered dark ellipse behind the text block, about 1.6× its
+  size plus 50 px, centre alpha 0.6 × scrim, blurred 48 px. It darkens pale sky
+  or stone under the text without drawing a shape. At 1.0 on bright sky it shows
+  as a faint grey haze.
+- `layers` (prop only, for measurement): `background` renders only the scrim and
+  boxes; `glyphs` renders only the glyph fill.
 
 With a non-legacy preset, the preset replaces `typography.display/body`,
 `colors.text/text_shadow/backdrop` and `overlay_positions`. Still read from
@@ -75,12 +92,12 @@ Some presets assume a text convention: `pinterest-aesthetic` reads best with
 "place, city"; `diary-typewriter` with "city · dd.mm". The renderer does not
 rewrite text.
 
-Anchors: `center`, `top-left`, `top-center`, `bottom-left`, `bottom-center`.
+Anchors: `center`, `middle-left`, `top-left`, `top-center`, `bottom-left`, `bottom-center`.
 `bottom-*` puts the box's bottom edge at `y` at rest (the slide-in starts lower,
 which the safe-zone check includes). The text width is limited by the safe zone,
 by the right rail when the box can reach below `right_rail.from_y`, and by the
-role's `maxWidth` (hooks keep to a ~600 px left column, place labels to ~470 px,
-so a centred subject stays clear). Presets break lines after punctuation when they
+role's `maxWidth` (hooks ≤ 760 px, place labels ≤ 640 px for most presets; keeping
+clear of the person is the job of the `anchor` choice). Presets break lines after punctuation when they
 can ("POV: Sunday walk, / but make it castles"); `legacy` keeps the old
 most-balanced rule. `legacy` output is pixel-identical to before presets existed
 (checked on reel-01 s01 and s06, frame 12).

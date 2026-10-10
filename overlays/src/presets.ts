@@ -106,6 +106,8 @@ const PLACE_COL = 640;
 
 const CREAM = "#F5EFE6";
 const PINK = "#F7C8D6";
+/** Lighter pink for script fill: #F7C8D6 is L* 84, too close to pale stone. */
+const PINK_LIGHT = "#FCDDE7";
 const Y2K_GRADIENT = "linear-gradient(180deg, #FFF4FB 0%, #FFC2E6 45%, #DCC8FF 100%)";
 const Y2K_GLOW =
   "drop-shadow(0 1px 1px rgba(70,10,90,0.8)) drop-shadow(0 0 5px rgba(255,120,205,0.55)) drop-shadow(0 4px 12px rgba(40,0,60,0.4))";
@@ -240,7 +242,7 @@ export const PRESETS: Record<string, Preset> = {
       },
       place: {
         family: "Bodoni Moda", weight: 600, size: 42, case: "lower", tracking: 0.1,
-        lineHeight: 1.2, color: CREAM, shadow: LEGIBLE, stroke: THIN_STROKE, scrim: 0.7, ...NO_BOX,
+        lineHeight: 1.2, color: CREAM, shadow: LEGIBLE, stroke: THIN_STROKE, scrim: 0.9, ...NO_BOX,
         anchor: "center", y: 820, align: "center", maxWidth: 760,
         rule: { width: "text", thickness: 2, gap: 14, color: "rgba(245,239,230,0.95)", position: "below" },
       },
@@ -264,7 +266,7 @@ export const PRESETS: Record<string, Preset> = {
     roles: {
       hook: {
         family: "Great Vibes", weight: 400, size: 104, case: "lower", lineHeight: 1.0,
-        color: PINK, shadow: LEGIBLE, stroke: SCRIPT_STROKE, scrim: 0.9, ...NO_BOX, ...bottomLeft,
+        color: PINK_LIGHT, shadow: LEGIBLE, stroke: SCRIPT_STROKE, scrim: 1, ...NO_BOX, ...bottomLeft,
         y: 1200, maxWidth: 700, maxLines: 3, rotate: -4, punctuationBreaks: true,
       },
       place: {
@@ -280,7 +282,7 @@ export const PRESETS: Record<string, Preset> = {
       },
       line: {
         family: "Great Vibes", weight: 400, size: 96, case: "lower", lineHeight: 1.0,
-        color: PINK, shadow: LEGIBLE, stroke: SCRIPT_STROKE, scrim: 0.9, ...NO_BOX, ...bottomLeft,
+        color: PINK_LIGHT, shadow: LEGIBLE, stroke: SCRIPT_STROKE, scrim: 1, ...NO_BOX, ...bottomLeft,
         maxWidth: 700, maxLines: 3, rotate: -4, punctuationBreaks: true,
       },
     },
@@ -292,7 +294,7 @@ export const PRESETS: Record<string, Preset> = {
     roles: {
       hook: {
         family: "Unbounded", weight: 800, size: 84, case: "upper", lineHeight: 1.08,
-        gradient: Y2K_GRADIENT, filter: Y2K_GLOW, shadow: LEGIBLE, stroke: Y2K_STROKE, scrim: 0.9,
+        gradient: Y2K_GRADIENT, filter: Y2K_GLOW, shadow: LEGIBLE, stroke: Y2K_STROKE, scrim: 1,
         ...NO_BOX, anchor: "center", y: 820, align: "center", maxWidth: 920, maxLines: 4,
         maxWordsPerLine: 2, punctuationBreaks: true,
       },
@@ -309,7 +311,7 @@ export const PRESETS: Record<string, Preset> = {
       },
       line: {
         family: "Unbounded", weight: 800, size: 84, case: "upper", lineHeight: 1.08,
-        gradient: Y2K_GRADIENT, filter: Y2K_GLOW, shadow: LEGIBLE, stroke: Y2K_STROKE, scrim: 0.9,
+        gradient: Y2K_GRADIENT, filter: Y2K_GLOW, shadow: LEGIBLE, stroke: Y2K_STROKE, scrim: 1,
         ...NO_BOX, anchor: "center", y: 820, align: "center", maxWidth: 920, maxLines: 4,
         maxWordsPerLine: 2, punctuationBreaks: true,
       },
