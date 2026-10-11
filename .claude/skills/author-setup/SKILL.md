@@ -1,6 +1,6 @@
 ---
 name: author-setup
-description: Interview the author and write the three author context files (author/who-i-am.md, how-i-talk.md, how-you-work.md) that every skill reads before writing text or acting on the author's behalf. Use on a fresh clone, when the user says "set up", "start", "who am I", "настрой контекст", or when a skill finds author/ empty or stale.
+description: Interview the author and write the three author context files (author/who-i-am.md, how-i-talk.md, how-you-work.md) that every skill reads before writing text or acting on the author's behalf. Use on a fresh clone, when the Author says "set up", "start", "who am I", "настрой контекст", or when a skill finds author/ empty or stale.
 ---
 
 # Author setup
@@ -11,7 +11,7 @@ Files and what each one feeds:
 
 | File | Answers | Read by |
 |---|---|---|
-| `author/who-i-am.md` | who films, what account, which viewer, gear, cadence, current priority | `write-script` (audience, places), `style.json` review |
+| `author/who-i-am.md` | who films, which Channel, which viewer, gear, cadence, current priority | `write-script` (audience, places), `style.json` review |
 | `author/how-i-talk.md` | caption language, tone, signature phrases, example captions, what to avoid | `write-script` (hook, overlays, caption, hashtags) |
 | `author/how-you-work.md` | how the Editor starts a task, shows results, what needs approval, how to push back | every skill, every session |
 
@@ -30,7 +30,7 @@ Files and what each one feeds:
 
 Batch 1:
 1. Who are you and what do you film? (How they would say it in one sentence.)
-2. Which account is this for, and what is already posted there? (Handle, number of reels so far, what worked.)
+2. Which Channel is this for, and what is already posted there? (Handle, number of reels so far, what worked.)
 3. Who is the one viewer you make these for? (One concrete person, not a demographic. This becomes `audience` in `style.json`.)
 4. What do you film with? (iPhone model, Osmo, anything else.)
 
@@ -45,7 +45,7 @@ Write `author/who-i-am.md`:
 # Who I am
 
 ## What I do
-## The account
+## The Channel
 ## The one viewer
 ## Gear
 ## Cadence

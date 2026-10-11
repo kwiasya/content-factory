@@ -17,6 +17,6 @@ A niche becomes evidence for hooks, formats and Ideas through these skills, in o
 | 4 | `mine-hooks` | hooks, formats and topics summaries for the Watchlist, and the Format's Hook library `formats/<format_id>/hook-library.md` in the repo |
 | 5 | `suggest-ideas` | Idea rows in the inbox (status `inbox`) |
 
-Store: `~/Movies/content-factory/factory.db` (override `CF_FACTORY_DB` or `--db`); raw payloads, media, transcripts and cards under `~/Movies/content-factory/references/`. CLI: `.venv/bin/python -m cf.research <group> <cmd> [--json]`; quota left today: `.venv/bin/python -m cf.research quota`. Vocabulary: `GLOSSARY.md` (section Исследование). Plan: GitHub issue #1; the product it reproduces: `docs/research/sandcastles-map.md`.
+Store: `~/Movies/content-factory/factory.db` (override `CF_FACTORY_DB` or `--db`); API payloads, media, transcripts and cards under `~/Movies/content-factory/references/`. CLI: `.venv/bin/python -m cf.research <group> <cmd> [--json]`; quota left today: `.venv/bin/python -m cf.research quota`. Vocabulary: `GLOSSARY.md` (section Исследование). Plan: GitHub issue #1; the product it reproduces: `docs/research/sandcastles-map.md`.
 
 Shortest path to a first card: 1 → 2 → 3 on the top outlier of the feed.

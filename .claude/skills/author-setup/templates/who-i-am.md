@@ -5,7 +5,7 @@
 ## What I do
 <!-- add later -->
 
-## The account
+## The Channel
 <!-- add later -->
 
 ## The one viewer

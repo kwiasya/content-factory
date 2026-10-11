@@ -1,6 +1,6 @@
 ---
 name: research-watchlist
-description: Create a Watchlist for one niche (Format, Channel, language, seed Reference channels, search queries) in the research store. Use when the author names a niche to research, pastes competitor channels, or asks to set up research for a Format.
+description: Create a Watchlist for one niche (Format, Channel, language, seed Reference channels, search queries) in the research store. Use when the author names a niche to research, pastes Reference channels, or asks to set up research for a Format.
 ---
 
 # Create a Watchlist
