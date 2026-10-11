@@ -181,7 +181,14 @@ V3 = """
 ALTER TABLE watchlist RENAME COLUMN channel_id TO author_channel;
 """
 
-MIGRATIONS: list[str] = [V1, V2, V3]  # MIGRATIONS[i] takes the store from version i to i + 1
+# Version 4 (scout): how far a channel's uploads are known without a gap. ``uploads_through`` is the
+# publish time of the newest upload a scout run saw on a run that then paged down, unbroken, to
+# what the store already had from uploads (or to the backfill target, or the end of the list).
+V4 = """
+ALTER TABLE channel ADD COLUMN uploads_through TEXT;
+"""
+
+MIGRATIONS: list[str] = [V1, V2, V3, V4]  # MIGRATIONS[i] takes the store from version i to i + 1
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

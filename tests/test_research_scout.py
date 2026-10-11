@@ -11,7 +11,7 @@ from datetime import timedelta
 from unittest import mock
 
 from cf.research import quota
-from research_synth import NOW, FakeYouTube, add_member, ago, channel_payload, iso, video_item
+from research_synth import NOW, FakeYouTube, add_member, add_videos, ago, channel_payload, iso, video_item
 from cf.research import watchlist as wl
 
 FIX = Path(__file__).parent / "fixtures" / "research"
@@ -206,6 +206,46 @@ class ScoutUploadsTest(StoreCase):
         yt.calls.clear()
         c = scout.scout(self.store, "w", transport=yt, now=NOW).channels[0]
         self.assertEqual((c.mode, c.pages, c.new_videos), ("new", 1, 0))
+
+
+    def backfilled_channel(self, yt, ch):
+        """A Watchlist ``w`` whose one channel has 20 old uploads, already backfilled."""
+        wl.create(self.store, "w", format_id="walk_reel")
+        add_member(self.store, "w", ch, "@gappy")
+        yt.uploads[ch] = [video_item(f"old{i:08d}", ch, ago(days=200 + i), 30, 1000) for i in range(20)]
+        scout.scout(self.store, "w", search=False, transport=yt, now=NOW)
+
+    def missing(self, items):
+        have = {r["external_id"] for r in self.store.query("SELECT external_id FROM video")}
+        return [v["id"] for v in items if v["id"] not in have]
+
+    def test_an_upload_known_from_a_search_hit_does_not_end_the_paging(self):
+        yt, ch = FakeYouTube(), "UCaaaaaaaaaaaaaaaaaa0003"
+        self.backfilled_channel(yt, ch)
+        new = [video_item(f"new{i:08d}", ch, ago(days=i * 0.1), 30, 1000) for i in range(70)]
+        yt.uploads[ch] = new + yt.uploads[ch]
+        add_videos(self.store, [new[10]])  # found earlier by a search query or a fetch
+        c = scout.scout(self.store, "w", search=False, transport=yt, now=NOW).channels[0]
+        self.assertEqual(self.missing(new), [])
+        self.assertEqual((c.mode, c.pages, c.new_videos), ("new", 2, 69))
+
+    def test_a_new_uploads_run_cut_by_the_quota_is_finished_by_the_next_run(self):
+        yt, ch = FakeYouTube(), "UCaaaaaaaaaaaaaaaaaa0004"
+        self.backfilled_channel(yt, ch)
+        new = [video_item(f"new{i:08d}", ch, ago(days=i * 0.1), 30, 1000) for i in range(100)]
+        yt.uploads[ch] = new + yt.uploads[ch]
+        used = next(b.used for b in quota.usage(self.store).buckets if b.bucket == "default")
+        with mock.patch.dict("os.environ", {"CF_QUOTA_DEFAULT": str(used + 2)}):  # page 1 and its videos
+            r = scout.scout(self.store, "w", search=False, transport=yt, now=NOW)
+        self.assertIn("quota", r.stopped)
+        self.assertEqual(r.channels[0].new_videos, 50)
+        r = scout.scout(self.store, "w", search=False, transport=yt, now=NOW)
+        self.assertIsNone(r.stopped)
+        self.assertEqual(self.missing(new), [])
+        self.assertEqual((r.channels[0].pages, r.channels[0].new_videos), (3, 50))
+        yt.calls.clear()
+        r = scout.scout(self.store, "w", search=False, transport=yt, now=NOW)
+        self.assertEqual((r.channels[0].pages, r.channels[0].new_videos), (1, 0))
 
 
 class ScoutQuotaTest(StoreCase):

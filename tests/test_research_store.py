@@ -80,7 +80,7 @@ class MigrationTest(unittest.TestCase):
     def test_v3_renames_the_authors_channel_of_a_watchlist_and_keeps_the_data(self):
         self.make_v2()
         with st.open_store(self.path, seed=False) as s:
-            self.assertEqual(s.schema_version(), 3)
+            self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
             cols = [r["name"] for r in s.query("PRAGMA table_info(watchlist)")]
             self.assertIn("author_channel", cols)
             self.assertNotIn("channel_id", cols)

@@ -4,7 +4,17 @@
 history for the Outlier baseline: at least ``BACKFILL_PER_KIND`` videos of each
 kind, or the whole history if it is shorter; afterwards only new uploads) and
 runs the Watchlist's search queries, whose results bring Reference and
-candidate channels. Every video it reads gets a snapshot. ``snapshot`` records
+candidate channels.
+
+When the uploads are caught up: a channel remembers ``uploads_through``, the
+publish time of the newest upload of the last run that paged without a gap.
+A later run pages its uploads, newest first, until a page reaches an upload
+published at or before that mark (or the list ends). A video the store already
+knows is no proof: a search hit or a fetch can bring a new upload before the
+scout does, and a run the quota or an API error cut short leaves a gap below
+the uploads it did read. Such a run does not move the mark, so the next run
+pages through the gap. A channel scouted before the mark existed (no
+``uploads_through`` yet) pages until a page brings nothing new, then gets one. Every video it reads gets a snapshot. ``snapshot`` records
 views, likes and comments of every Reference of the Watchlist. Both plan the run
 with ``quota.check`` before the first call and, if the quota runs out midway,
 stop cleanly and report what was done.
@@ -156,6 +166,8 @@ def _uploads(run: _Run, ch: dict, progress: list) -> ChannelScout:
     """Page one channel's uploads; append its ``ChannelScout`` to ``progress`` even if the quota stops it."""
     playlist = ch["uploads_playlist_id"] or "UU" + ch["external_id"][2:]
     backfill = ch["backfilled_at"] is None
+    mark = ch["uploads_through"]  # every upload published up to here is in the store
+    newest = None
     state = {"pages": 0, "new": 0, "end": False, "done": not backfill}
 
     def report() -> ChannelScout:
@@ -169,9 +181,12 @@ def _uploads(run: _Run, ch: dict, progress: list) -> ChannelScout:
         page = youtube.playlist_items_list(run.store, playlist, page_token=token, transport=run.transport)
         run.calls["playlistItems.list"] += 1
         state["pages"] += 1
-        ids = [(it.get("contentDetails") or {}).get("videoId") for it in page.get("items") or []
-               if (it.get("contentDetails") or {}).get("videoPublishedAt")]  # private/deleted have no date
-        ids = [i for i in ids if i]
+        items = [it.get("contentDetails") or {} for it in page.get("items") or []]
+        items = [it for it in items if it.get("videoId") and it.get("videoPublishedAt")]  # private/deleted: no date
+        ids = [it["videoId"] for it in items]
+        dates = [it["videoPublishedAt"] for it in items]
+        if newest is None and dates:
+            newest = max(dates)
         known = run.known(ids)
         fresh = [i for i in ids if i not in known]
         if fresh:
@@ -184,12 +199,17 @@ def _uploads(run: _Run, ch: dict, progress: list) -> ChannelScout:
         if backfill:
             if min(run.kind_counts(ch["id"]).values()) >= BACKFILL_PER_KIND:
                 break
-        elif known:
+        elif mark is not None:
+            if any(d <= mark for d in dates):
+                break
+        elif not fresh:  # no mark yet (scouted before it existed): a page with nothing new
             break
-    if backfill:
-        with run.store.transaction() as c:
-            c.execute("UPDATE channel SET backfilled_at = ? WHERE id = ?", (run.taken_at, ch["id"]))
-        state["done"] = True
+    # reached only when no call failed: everything from ``newest`` down to the old mark is in
+    through = max(d for d in (mark, newest) if d) if (mark or newest) else None
+    with run.store.transaction() as c:
+        c.execute("UPDATE channel SET backfilled_at = COALESCE(backfilled_at, ?), uploads_through = ? WHERE id = ?",
+                  (run.taken_at, through, ch["id"]))
+    state["done"] = True
     return report()
 
 
@@ -243,7 +263,7 @@ def scout(store: Store, name: str, *, search: bool = True, search_days: float = 
     now = now or datetime.now(timezone.utc)
     run = _Run(store, transport, now_iso(now))
     chans = store.query(
-        "SELECT c.id, c.external_id, c.handle, c.uploads_playlist_id, c.backfilled_at FROM channel c "
+        "SELECT c.id, c.external_id, c.handle, c.uploads_playlist_id, c.backfilled_at, c.uploads_through FROM channel c "
         "JOIN watchlist_channel wc ON wc.channel_id = c.id WHERE wc.watchlist_id = ? "
         "ORDER BY wc.added_at, c.id", (w["id"],))
     queries = json.loads(w["queries"]) if search and search_pages > 0 else []
