@@ -158,6 +158,14 @@ class SectionsTest(unittest.TestCase):
             {"start_s": 4.0, "end_s": 4.3, "text": "here"},
         ])
 
+    def test_common_abbreviations_do_not_end_a_section(self):
+        text = ("Try street food, e.g. pastel de nata at 3.50 euros. Ask Dr. Silva or Mr. Costa (i.e. locals) "
+                "on St. Paul street, cafes vs. bakeries, etc. Then go.")
+        ws = [{"word": " " + w, "start": i * 0.3, "end": i * 0.3 + 0.2} for i, w in enumerate(text.split())]
+        self.assertEqual([x["text"] for x in measure.sections(ws)], [
+            "Try street food, e.g. pastel de nata at 3.50 euros.",
+            "Ask Dr. Silva or Mr. Costa (i.e. locals) on St. Paul street, cafes vs. bakeries, etc. Then go.",
+        ])
 
 if __name__ == "__main__":
     unittest.main()

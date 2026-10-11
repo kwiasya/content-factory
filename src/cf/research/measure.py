@@ -21,6 +21,8 @@ MAX_PEAKS = 5
 QUOTE_MAX_WORDS = 60
 SECTION_GAP_S = 1.5            # a pause longer than this ends a transcript section
 SENTENCE_END = re.compile(r"[.?!…。？！][\"'”’)\]]*$")
+# words whose final dot is not a sentence end (compared lowercased, without brackets and quotes)
+ABBREVIATIONS = frozenset({"e.g.", "i.e.", "etc.", "vs.", "mr.", "mrs.", "ms.", "dr.", "st."})
 OCR_MIN_CONF = 0.5             # Vision text line confidence that counts as on-screen text
 OCR_MIN_CHARS = 3              # letters or digits in a line; drops stray glyphs read off textures
 
@@ -73,7 +75,8 @@ def words_between(ws: list[dict], start: float, end: float) -> list[dict]:
 
 def sections(ws: list[dict], max_gap: float = SECTION_GAP_S) -> list[dict]:
     """Transcript sections ``{start_s, end_s, text}``: a section ends at a word ending a
-    sentence (``. ? !``) or before a pause longer than ``max_gap`` seconds."""
+    sentence (``. ? !``, not a common abbreviation such as ``e.g.`` or ``Dr.``) or before a
+    pause longer than ``max_gap`` seconds."""
     out: list[dict] = []
     cur: list[dict] = []
 
@@ -86,7 +89,8 @@ def sections(ws: list[dict], max_gap: float = SECTION_GAP_S) -> list[dict]:
         if cur and w["start"] - cur[-1]["end"] > max_gap:
             close()
         cur.append(w)
-        if SENTENCE_END.search(w["word"].strip()):
+        word = w["word"].strip()
+        if SENTENCE_END.search(word) and word.strip("\"'“”‘’()[]").lower() not in ABBREVIATIONS:
             close()
     close()
     return out
