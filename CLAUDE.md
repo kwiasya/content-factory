@@ -14,7 +14,7 @@ Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/ag
 
 ## Project
 
-Content Factory: an Editor agent that assembles the user's own Instagram Reels (vertical, 45–60 s, travel walks) in DaVinci Resolve Studio 21.1.1 on a MacBook Air M2 8 GB. Terms: `GLOSSARY.md`. Plan and decisions: `docs/research/SYNTHESIS.md`, `docs/adr/`. Pipeline skills in order: `/reel`. Resolve API rules: `docs/resolve-rules.md`. Script format: `docs/script-schema.md`. Python runs from `.venv` (3.12); footage and outputs live in `~/Movies/content-factory/<walk>/`, never in the repo.
+Content Factory: an Editor agent that assembles the user's own Instagram Reels (vertical, 45–60 s, travel walks) in DaVinci Resolve Studio 21.1.1 on a MacBook Air M2 8 GB. Terms: `GLOSSARY.md`. Plan and decisions: `docs/research/SYNTHESIS.md`, `docs/adr/`. Pipeline skills in order: `/reel`; research contour (Watchlist → Reference → Hook library → Idea): skills map `/research`, CLI `python -m cf.research`, store `~/Movies/content-factory/factory.db`. Resolve API rules: `docs/resolve-rules.md`. Script format: `docs/script-schema.md`. Python runs from `.venv` (3.12); footage and outputs live in `~/Movies/content-factory/<walk>/`, never in the repo.
 
 ## Author
 
