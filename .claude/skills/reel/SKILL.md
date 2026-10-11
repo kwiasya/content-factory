@@ -10,6 +10,7 @@ One Walk becomes one or more Reels through these skills, in order. Each produces
 
 | Step | Skill | Artifact |
 |---|---|---|
+| 00 | `author-setup` | `author/*.md` — once per clone, again when the author's voice or rules change |
 | 0 | `resolve-smoke` | `docs/research/smoke-results.md` — run once per Resolve update |
 | 1 | `ingest-walk` | `<walk>/clip_manifest.json` + 540p proxies |
 | 2 | `analyze-clips` | `<walk>/shotlog/<clip>.json` |
