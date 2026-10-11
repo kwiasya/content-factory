@@ -685,7 +685,7 @@ def _summary_human(r: summary.Summary) -> str:
         for g in sec.groups:
             out += ["", f"**{g.label or g.value}**" + (" (предложено)" if g.proposed else "")]
             out += [_example_line(e) for e in g.examples]
-    out += ["", f"### Выбросы без карточки (outlier ≥ {feed._decimal(r.min_outlier)}x)", ""]
+    out += ["", f"### Выбросы без разбора (outlier ≥ {feed._decimal(r.min_outlier)}x)", ""]
     if not r.uncarded:
         out.append("Нет: сводка опирается на все выбросы окна.")
     for i, u in enumerate(r.uncarded, 1):

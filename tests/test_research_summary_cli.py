@@ -71,7 +71,7 @@ class SummaryCliTest(unittest.TestCase):
         self.assertIn("Сводка тем lisbon (Format walk-reel) за 14 дн.: 3 Reference, с карточкой 2.", out)
         self.assertIn("| # | Значение | Название | Карточек | Вес | Лучший outlier |", out)
         self.assertIn("«Alfama | at dawn»", out)
-        self.assertIn("### Выбросы без карточки (outlier ≥ 2x)", out)
+        self.assertIn("### Выбросы без разбора (outlier ≥ 2x)", out)
         self.assertIn("1. **4,0x**", out)
 
     def test_hooks_save_list_export_remove(self):

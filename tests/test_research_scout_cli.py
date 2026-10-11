@@ -66,7 +66,7 @@ class ScoutCliTest(unittest.TestCase):
         rows = self.json_of("feed", "lisbon", "--days", "3")
         self.assertEqual([x["external_id"] for x in rows], ["hit", "lens1"])
         self.assertEqual(rows[0]["outlier"], 5.0)
-        self.assertEqual((rows[0]["handle"], rows[0]["has_card"], rows[0]["url"]),
+        self.assertEqual((rows[0]["handle"], rows[0]["analyzed"], rows[0]["url"]),
                          ("@alpha", False, "https://www.youtube.com/watch?v=hit"))
         self.assertIsNone(rows[1]["outlier"])
         self.assertTrue(rows[1]["candidate"])
@@ -86,7 +86,7 @@ class ScoutCliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         lines = [ln for ln in out.splitlines() if ln[:2] in ("1.", "2.")]
         self.assertEqual(lines[0], f"1. **5,0x** · 5 тыс. просмотров · {real_ago(days=1)[:10]} · "
-                                   "«Alfama | at dawn» · @alpha · https://www.youtube.com/watch?v=hit · без карточки")
+                                   "«Alfama | at dawn» · @alpha · https://www.youtube.com/watch?v=hit · без разбора")
         self.assertTrue(lines[1].startswith("2. **—** · 70 тыс. просмотров"))
         self.assertIn("кандидат", lines[1])
 
@@ -109,7 +109,7 @@ class ScoutCliTest(unittest.TestCase):
 class ReportLineTest(unittest.TestCase):
     def row(self, **kw):
         base = dict(external_id="x", date="2026-10-09", outlier=12.345, views=1_203_344, title="T",
-                    handle="@h", url="https://www.youtube.com/watch?v=x", has_card=True, kind="short",
+                    handle="@h", url="https://www.youtube.com/watch?v=x", analyzed=True, kind="short",
                     duration_s=30.0, published_at="2026-10-09T00:00:00Z", channel_title="H")
         base.update(kw)
         return feed.FeedRow(**base)

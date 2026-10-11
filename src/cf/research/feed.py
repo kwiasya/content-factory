@@ -28,7 +28,7 @@ class FeedRow:
     title: str | None
     handle: str | None
     url: str | None
-    has_card: bool
+    analyzed: bool  # its card has the analysis section; a measured-only card still needs analysis
     kind: str | None
     duration_s: float | None
     published_at: str | None
@@ -45,7 +45,7 @@ class FeedRow:
 _SELECT = """
 SELECT v.id, v.external_id, v.title, v.url, v.kind, v.duration_s, v.published_at, v.own,
        c.handle, c.title AS channel_title,
-       EXISTS (SELECT 1 FROM card WHERE card.video_id = v.id) AS has_card,
+       EXISTS (SELECT 1 FROM card WHERE card.video_id = v.id AND card.analysis IS NOT NULL) AS analyzed,
        s.views, s.likes, s.comments
 FROM video v
 JOIN channel c ON c.id = v.channel_id
@@ -57,7 +57,7 @@ LEFT JOIN snapshot s ON s.id = (SELECT id FROM snapshot WHERE video_id = v.id
 def _row(r: dict, outlier: float | None, candidate: bool = False) -> FeedRow:
     return FeedRow(
         external_id=r["external_id"], date=(r["published_at"] or "")[:10] or None, outlier=outlier,
-        views=r["views"], title=r["title"], handle=r["handle"], url=r["url"], has_card=bool(r["has_card"]),
+        views=r["views"], title=r["title"], handle=r["handle"], url=r["url"], analyzed=bool(r["analyzed"]),
         kind=r["kind"], duration_s=r["duration_s"], published_at=r["published_at"],
         channel_title=r["channel_title"], likes=r["likes"], comments=r["comments"], own=bool(r["own"]),
         candidate=candidate)
@@ -145,13 +145,13 @@ def outlier_text(score: float | None) -> str:
 
 def report_line(n: int, row: FeedRow) -> str:
     """One feed row in the Sandcastles report shape: number, outlier, views, date, title, handle, link,
-    then ``без карточки`` and ``кандидат`` marks."""
+    then ``без разбора`` (no analysis yet, measured or not) and ``кандидат`` marks."""
     title = " ".join((row.title or "без названия").split())
     who = row.handle or row.channel_title or "без хэндла"
     parts = [f"{n}. **{outlier_text(row.outlier)}**", views_text(row.views), row.date or "—",
              f"«{title}»", who, row.url or "—"]
-    if not row.has_card:
-        parts.append("без карточки")
+    if not row.analyzed:
+        parts.append("без разбора")
     if row.candidate:
         parts.append("кандидат")
     return " · ".join(parts)
@@ -163,7 +163,7 @@ def report(name: str, rows: list[FeedRow], *, lookback_days: float, filters: str
     head = f"Лента {name} за {days} дн." + (f" ({filters})" if filters else "")
     if not rows:
         return head + ": ничего не нашлось."
-    uncarded = sum(1 for r in rows if not r.has_card)
-    lines = [f"{head}: {len(rows)} Reference, без карточки {uncarded}.", ""]
+    pending = sum(1 for r in rows if not r.analyzed)
+    lines = [f"{head}: {len(rows)} Reference, без разбора {pending}.", ""]
     lines += [report_line(i, r) for i, r in enumerate(rows, 1)]
     return "\n".join(lines)

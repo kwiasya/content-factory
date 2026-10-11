@@ -48,7 +48,7 @@ class IngestVideosTest(StoreCase):
                          ("Lisbon Alfama at Golden Hour — 4K Walk", "long", 2467.0, "@slowwalks", "2026-10-09"))
         self.assertEqual(long_.url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         self.assertEqual((short.kind, short.duration_s), ("short", 58.0))
-        self.assertFalse(short.has_card)
+        self.assertFalse(short.analyzed)
         self.assertIsNone(feed.reference(self.store, "nope"))
 
     def test_a_video_from_an_unknown_channel_brings_a_candidate_channel_outside_the_watchlist(self):

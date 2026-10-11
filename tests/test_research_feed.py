@@ -1,4 +1,4 @@
-"""The feed of a Watchlist on synthetic snapshots: filters, order, rows, the uncarded mark."""
+"""The feed of a Watchlist on synthetic snapshots: filters, order, rows, the not-analyzed mark."""
 
 import tempfile
 import unittest
@@ -38,8 +38,11 @@ class FeedTest(unittest.TestCase):
                    + [video_item("d1", D, ago(days=1), 600, 100),
                       video_item("c1", C, ago(days=1), 600, 10_000_000)])
         hit = s.one("SELECT id FROM video WHERE external_id = 'hitL'")["id"]
+        s.conn.execute("INSERT INTO card (video_id, schema, analysis, written_at) "
+                       "VALUES (?, 'cf-reference-card/1', '{}', ?)", (hit, ago(hours=1)))
+        mid = s.one("SELECT id FROM video WHERE external_id = 'midL'")["id"]  # fetched, measured, not analyzed
         s.conn.execute("INSERT INTO card (video_id, schema, written_at) VALUES (?, 'cf-reference-card/1', ?)",
-                       (hit, ago(hours=1)))
+                       (mid, ago(hours=1)))
         s.conn.commit()
 
     def tearDown(self):
@@ -52,13 +55,23 @@ class FeedTest(unittest.TestCase):
     def test_order_is_outlier_then_views_with_unscored_last(self):
         self.assertEqual(self.ids(lookback_days=3), ["hitL", "longS", "midL", "hitS", "d1", "b1", "b2"])
 
-    def test_rows_carry_date_outlier_views_title_handle_link_and_card(self):
+    def test_rows_carry_date_outlier_views_title_handle_link_and_analysis_flag(self):
         first, second = feed.feed(self.store, "lisbon", lookback_days=3, now=NOW)[:2]
-        self.assertEqual((first.date, first.views, first.title, first.handle, first.url, first.has_card),
+        self.assertEqual((first.date, first.views, first.title, first.handle, first.url, first.analyzed),
                          (ago(days=2)[:10], 500, "Alfama at dawn", "@alpha",
                           "https://www.youtube.com/watch?v=hitL", True))
         self.assertAlmostEqual(first.outlier, 5.0)
-        self.assertFalse(second.has_card)
+        self.assertFalse(second.analyzed)
+
+    def test_a_measured_card_without_analysis_still_needs_analysis(self):
+        rows = {r.external_id: r for r in feed.feed(self.store, "lisbon", lookback_days=3, now=NOW)}
+        self.assertFalse(rows["midL"].analyzed)
+        report = feed.report("lisbon", list(rows.values()), lookback_days=3)
+        self.assertIn("без разбора 6.", report.splitlines()[0])
+        mid_line = next(ln for ln in report.splitlines() if "watch?v=midL" in ln)
+        self.assertTrue(mid_line.endswith("· без разбора"), mid_line)
+        hit_line = next(ln for ln in report.splitlines() if "watch?v=hitL" in ln)
+        self.assertNotIn("без разбора", hit_line)
 
     def test_lookback_window(self):
         got = self.ids()
