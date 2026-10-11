@@ -32,6 +32,13 @@ class LoadEnvTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertEqual(env.api_key(self.path), "from-file")
 
+    def test_cf_env_file_points_elsewhere(self):
+        other = Path(self.dir.name) / "elsewhere.env"
+        other.write_text("YOUTUBE_API_KEY=from-other\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"CF_ENV_FILE": str(other)}, clear=True):
+            self.assertEqual(env.env_path(), other)
+            self.assertEqual(env.api_key(), "from-other")
+
     def test_missing_file_means_no_key(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertEqual(env.load_env(self.path), {})

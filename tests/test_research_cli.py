@@ -78,6 +78,7 @@ class CliTest(unittest.TestCase):
     def test_add_channel_without_an_api_key_says_so_and_costs_nothing(self):
         self.run_cli("watchlist", "add", "claude-jobs", "--format", "tech_explainer")
         env = {k: v for k, v in os.environ.items() if k != "YOUTUBE_API_KEY"}
+        env["CF_ENV_FILE"] = os.path.join(self.dir.name, "no-such.env") if hasattr(self, "dir") else "/nonexistent/.env"
         with mock.patch.dict(os.environ, env, clear=True):
             code, _, err = self.run_cli("watchlist", "add-channel", "claude-jobs", "@slowwalks")
         self.assertEqual(code, 1)

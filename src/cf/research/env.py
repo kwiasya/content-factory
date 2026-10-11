@@ -14,16 +14,22 @@ from pathlib import Path
 from cf.research.store import REPO_ROOT
 
 ENV_PATH = REPO_ROOT / ".env"
+PATH_VAR = "CF_ENV_FILE"  # another .env location (tests point it at a missing file)
 KEY_VAR = "YOUTUBE_API_KEY"
 KEY_HELP = (f"{KEY_VAR} is not set; create an API key for YouTube Data API v3 in Google Cloud Console "
-            f"and put `{KEY_VAR}=...` into {ENV_PATH} (gitignored) or export it")
+            f"and put `{KEY_VAR}=...` into {ENV_PATH} (gitignored; another file via {PATH_VAR}) or export it")
 
 
-def load_env(path: Path = ENV_PATH) -> dict[str, str]:
-    """Load ``path`` into ``os.environ`` (existing variables are kept); return what the file defined."""
+def env_path(path: Path | None = None) -> Path:
+    """``path``, else ``$CF_ENV_FILE``, else ``<repo>/.env``."""
+    return path or Path(os.environ.get(PATH_VAR) or ENV_PATH)
+
+
+def load_env(path: Path | None = None) -> dict[str, str]:
+    """Load the ``.env`` file into ``os.environ`` (existing variables are kept); return what it defined."""
     found: dict[str, str] = {}
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = env_path(path).read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
         return found
     for raw in lines:
@@ -42,7 +48,7 @@ def load_env(path: Path = ENV_PATH) -> dict[str, str]:
     return found
 
 
-def api_key(path: Path = ENV_PATH) -> str | None:
+def api_key(path: Path | None = None) -> str | None:
     """The YouTube Data API key from the environment, else from ``.env``; None when absent."""
     key = os.environ.get(KEY_VAR)
     if not key:
