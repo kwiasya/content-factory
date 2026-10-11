@@ -5,9 +5,19 @@
 - OCR: `tools/vision-score` gained `--text` (Apple Vision `RecognizeTextRequest`) and `--until S`; built with `swift build -c release` (31 s).
 - Store and footage: a scratch `--db` and `CF_FOOTAGE_ROOT` in a temp dir, so the real `factory.db` was not touched. Model weights went to the default `~/Movies/content-factory/_models` (Whisper `small`, Silero VAD v5.1.2, `yolo26n.pt`: first download).
 
-## Data API part: not run
+## Data API part: PASS (2026-10-11, key from `.env`, scratch DB and footage root)
 
-`YOUTUBE_API_KEY` is not set on this Mac, so `channels.list` could not be called and quota before/after could not be measured (`python -m cf.research quota` after the runs: 0 of 10 000 units and 0 of 100 search calls; without a key no call is charged). Fetch carried on as designed: the channel row was made from the yt-dlp info dict (`raw` NULL, handle `@jawed`, title, follower count) and `channel_source` says why; the next fetch with a key fills it from `channels.list` (1 unit). To finish this part: export the key, then `python -m cf.research quota`, `python -m cf.research fetch <a video of a channel not in the store>`, `python -m cf.research quota` again (expect +1 unit on `channels.list`, 0 on a second fetch).
+Watchlist `smoke` (Format `tech-explainer`, en, US), Reference channel `@GoogleDevelopers`, one query «claude code tutorial».
+
+| Step | Result | Calls |
+|---|---|---|
+| `watchlist add-channel smoke @GoogleDevelopers` | handle, title, 2 680 000 subscribers, 6 111 videos, channel id resolved | channels.list ×1 |
+| `scout smoke --search-pages 1` | 3.3 s; 3 uploads pages (150 videos, backfill ≥ 30 per kind), 1 search page (50 hits, 37 candidate channels), no errors, `stopped: null` | playlistItems.list ×3, videos.list ×4, search.list ×1, channels.list ×1 |
+| `snapshot smoke` | 200 Reference, one snapshot row each | videos.list ×4 |
+| `feed smoke --days 365 --limit 8` | 8 rows ranked by Outlier score (930x … 19,7x), all `без разбора` | none |
+| `quota` | default 13 / 10 000, search 1 / 100; per-method table matches the calls above | none |
+
+Quota accounting matched the calls one to one. A Watchlist with 15–20 channels costs about 5 units per channel on the first scout and 1–2 afterwards, plus 1 search call per query page.
 
 ## yt-dlp + stable-ts + proxy + Shot log + OCR: PASS
 
