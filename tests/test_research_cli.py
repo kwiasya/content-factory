@@ -41,7 +41,7 @@ class CliTest(unittest.TestCase):
         w = self.json_of("watchlist", "add", "claude-jobs", "--format", "tech_explainer",
                          "--channel", "yt-main", "--language", "en", "--region", "US",
                          "--query", "claude code agents")
-        self.assertEqual((w["name"], w["format_id"], w["channel_id"], w["queries"]),
+        self.assertEqual((w["name"], w["format_id"], w["author_channel"], w["queries"]),
                          ("claude-jobs", "tech_explainer", "yt-main", ["claude code agents"]))
         self.json_of("watchlist", "add-query", "claude-jobs", "job search automation")
         [listed] = self.json_of("watchlist", "list")

@@ -174,7 +174,13 @@ CREATE TABLE search_hit (
 );
 """
 
-MIGRATIONS: list[str] = [V1, V2]  # MIGRATIONS[i] takes the store from version i to i + 1
+# Version 3: the Author's Channel a Watchlist serves gets a name of its own, apart from the
+# ``channel_id`` foreign keys to Reference channels (``video``, ``watchlist_channel``).
+V3 = """
+ALTER TABLE watchlist RENAME COLUMN channel_id TO author_channel;
+"""
+
+MIGRATIONS: list[str] = [V1, V2, V3]  # MIGRATIONS[i] takes the store from version i to i + 1
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

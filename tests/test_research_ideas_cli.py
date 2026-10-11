@@ -33,7 +33,7 @@ class IdeasCliTest(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         with st.open_store(self.db) as s:
-            wl.create(s, "lisbon", format_id="walk_reel", channel_id="travelwalks")
+            wl.create(s, "lisbon", format_id="walk_reel", author_channel="travelwalks")
             add_member(s, "lisbon", A, "@alpha")
             add_videos(s, [video_item(f"base{i:07d}", A, ago(days=10 + i), 40, 1000) for i in range(5)]
                        + [video_item(V1, A, ago(days=2), 40, 9000, title="Alfama at dusk"),

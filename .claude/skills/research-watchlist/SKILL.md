@@ -12,12 +12,12 @@ A Watchlist scopes all research for one niche and one Format (`GLOSSARY.md`, sec
 1. Read `author/how-you-work.md`, then `author/who-i-am.md` for the author's Channels and priorities. If `author/` is missing or those files have empty headings, stop and tell the author to run `/author-setup` first.
 2. Collect what the author has not already said, in one batch:
    - **name**: short, folder-safe (`claude-jobs`, `vienna-long`); it becomes `references/<name>/`.
-   - **Format** id (`walk-reel`, `tech-explainer`, `travel-long`: the folder name under `formats/`, where the Format's Hook library lands) and the author's **Channel** it serves.
+   - **Format** id (`walk-reel`, `tech-explainer`, `travel-long`: the folder name under `formats/`, where the Format's Hook library lands) and the author's **Channel** it serves (the Author's Channel, stored as `author_channel`: a short folder name such as `travelwalks`, where its Briefs land under `channels/<channel>/briefs/`; not a Reference channel).
    - **language** (ISO 639-1, default `en`) and **region** (ISO 3166-1, e.g. `US`), when it matters.
    - **seed Reference channels**: handles or URLs, aiming at 15–20 for the niche; 5 is enough to start.
    - **search queries**: 3–5 phrases a viewer of this niche would type.
    - which of the channels are the author's own (added with `--own`).
-3. Create it: `.venv/bin/python -m cf.research watchlist add <name> --format <format> --channel <channel> --language <lang> [--region <XX>] [--query "<q>" ...]`.
+3. Create it: `.venv/bin/python -m cf.research watchlist add <name> --format <format> --channel <author-channel> --language <lang> [--region <XX>] [--query "<q>" ...]`.
 4. Add every channel: `.venv/bin/python -m cf.research watchlist add-channel <name> <handle-or-url> [--own]`. A channel that is not found or a video link is reported in one line; collect those, keep going, and ask the author for the right channel URL at the end. A quota refusal stops the step: report what was added and when the quota resets.
 5. Add queries given after creation with `watchlist add-query <name> "<q>"`.
 6. Show the author `.venv/bin/python -m cf.research watchlist show <name>` (the channel table with subscribers and the own flag) and apply their corrections with `add-channel`, `remove-channel`, `add-query`.

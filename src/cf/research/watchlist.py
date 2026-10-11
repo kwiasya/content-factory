@@ -93,7 +93,7 @@ NAME_RE = re.compile(r"^[\w][\w.-]*$")
 class Watchlist:
     name: str
     format_id: str
-    channel_id: str | None
+    author_channel: str | None  # the Author's Channel this Watchlist serves (a folder name, not a YouTube id)
     language: str
     region: str | None
     queries: list[str]
@@ -105,7 +105,7 @@ class Watchlist:
 
 
 @dataclass(frozen=True)
-class Channel:
+class ReferenceChannel:
     """A Reference channel as the store holds it."""
     external_id: str
     handle: str | None
@@ -127,8 +127,8 @@ _CHANNEL_COLS = ("external_id, handle, title, subscriber_count, video_count, vie
                  "uploads_playlist_id, own, platform, country, fetched_at")
 
 
-def _channel(row: dict) -> Channel:
-    return Channel(**{**row, "own": bool(row["own"])})
+def _channel(row: dict) -> ReferenceChannel:
+    return ReferenceChannel(**{**row, "own": bool(row["own"])})
 
 
 def _row(store: Store, name: str) -> dict:
@@ -140,14 +140,15 @@ def _row(store: Store, name: str) -> dict:
 
 def _watchlist(store: Store, row: dict) -> Watchlist:
     n = store.one("SELECT COUNT(*) AS n FROM watchlist_channel WHERE watchlist_id = ?", (row["id"],))["n"]
-    return Watchlist(row["name"], row["format_id"], row["channel_id"], row["language"], row["region"],
+    return Watchlist(row["name"], row["format_id"], row["author_channel"], row["language"], row["region"],
                      json.loads(row["queries"]), int(n), row["created_at"])
 
 
-def create(store: Store, name: str, *, format_id: str, channel_id: str | None = None,
+def create(store: Store, name: str, *, format_id: str, author_channel: str | None = None,
            language: str = "en", region: str | None = None,
            queries: list[str] | None = None) -> Watchlist:
-    """Create a Watchlist. ``name`` doubles as a folder name under ``references/``."""
+    """Create a Watchlist. ``name`` doubles as a folder name under ``references/``;
+    ``author_channel`` names the Author's Channel it serves (Brief folder)."""
     if not name or not NAME_RE.match(name):
         raise WatchlistError(f"Watchlist name {name!r}: use letters, digits, '-', '_' or '.', "
                              f"no spaces or slashes, not starting with '.'")
@@ -163,9 +164,9 @@ def create(store: Store, name: str, *, format_id: str, channel_id: str | None = 
             qs.append(q)
     try:
         with store.transaction() as c:
-            c.execute("INSERT INTO watchlist (name, format_id, channel_id, language, region, queries, created_at) "
+            c.execute("INSERT INTO watchlist (name, format_id, author_channel, language, region, queries, created_at) "
                       "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                      (name, format_id.strip(), channel_id or None, language or "en", region or None,
+                      (name, format_id.strip(), author_channel or None, language or "en", region or None,
                        dumps(qs), now_iso()))
     except sqlite3.IntegrityError as exc:
         raise WatchlistError(f"Watchlist {name!r} already exists") from exc
@@ -203,7 +204,7 @@ def add_query(store: Store, name: str, query: str) -> Watchlist:
 
 # --- Reference channels ----------------------------------------------------
 
-def channels(store: Store, name: str) -> list[Channel]:
+def channels(store: Store, name: str) -> list[ReferenceChannel]:
     """Reference channels of a Watchlist in the order they were added."""
     wid = _row(store, name)["id"]
     rows = store.query(
@@ -213,7 +214,7 @@ def channels(store: Store, name: str) -> list[Channel]:
     return [_channel(r) for r in rows]
 
 
-def find_channel(store: Store, ref: ChannelRef) -> tuple[int, Channel] | None:
+def find_channel(store: Store, ref: ChannelRef) -> tuple[int, ReferenceChannel] | None:
     """The stored channel a reference points at (handle or id), or None. Usernames are never stored."""
     if ref.kind == "id":
         where, value = "external_id = ?", ref.value
@@ -229,7 +230,7 @@ def find_channel(store: Store, ref: ChannelRef) -> tuple[int, Channel] | None:
 
 
 def add_channel(store: Store, name: str, ref: str, *, own: bool = False, refresh: bool = False,
-                transport: youtube.Transport | None = None) -> Channel:
+                transport: youtube.Transport | None = None) -> ReferenceChannel:
     """Add a Reference channel to a Watchlist by handle, channel id or URL.
 
     A channel the store already knows is reused without an API call unless
@@ -268,7 +269,7 @@ def add_channel(store: Store, name: str, ref: str, *, own: bool = False, refresh
     return _channel(row)
 
 
-def remove_channel(store: Store, name: str, ref: str) -> Channel:
+def remove_channel(store: Store, name: str, ref: str) -> ReferenceChannel:
     """Take a Reference channel out of a Watchlist (no API call); the channel stays in the store."""
     wid = _row(store, name)["id"]
     parsed = parse_channel_ref(ref)

@@ -1,6 +1,7 @@
 """Research store: where the database lives and what a fresh one holds. No network."""
 
 import os
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -55,6 +56,39 @@ class StoreLocationTest(unittest.TestCase):
         with self.assertRaises(st.StoreError) as cm:
             st.open_store(path)
         self.assertIn("newer", str(cm.exception))
+
+
+class MigrationTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "v2.db"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def make_v2(self) -> None:
+        conn = sqlite3.connect(self.path)
+        for v, script in enumerate(st.MIGRATIONS[:2]):
+            conn.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {v + 1};\nCOMMIT;")
+        conn.execute("INSERT INTO watchlist (name, format_id, channel_id, language, queries, created_at) "
+                     "VALUES ('lisbon', 'walk-reel', 'travelwalks', 'pt', '[\"alfama\"]', '2026-10-01T00:00:00Z')")
+        conn.execute("INSERT INTO channel (external_id, handle) VALUES ('UCaaaaaaaaaaaaaaaaaaaaaa', '@alpha')")
+        conn.execute("INSERT INTO watchlist_channel (watchlist_id, channel_id, added_at) VALUES (1, 1, 'x')")
+        conn.commit()
+        conn.close()
+
+    def test_v3_renames_the_authors_channel_of_a_watchlist_and_keeps_the_data(self):
+        self.make_v2()
+        with st.open_store(self.path, seed=False) as s:
+            self.assertEqual(s.schema_version(), 3)
+            cols = [r["name"] for r in s.query("PRAGMA table_info(watchlist)")]
+            self.assertIn("author_channel", cols)
+            self.assertNotIn("channel_id", cols)
+            self.assertEqual(s.one("SELECT name, format_id, author_channel, language, queries FROM watchlist"),
+                             {"name": "lisbon", "format_id": "walk-reel", "author_channel": "travelwalks",
+                              "language": "pt", "queries": '["alfama"]'})
+            self.assertEqual(s.one("SELECT watchlist_id, channel_id FROM watchlist_channel"),
+                             {"watchlist_id": 1, "channel_id": 1})
 
 
 if __name__ == "__main__":

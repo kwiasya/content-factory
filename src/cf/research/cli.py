@@ -64,12 +64,12 @@ def md_table(headers: list[str], rows: Iterable[Iterable[Any]]) -> str:
 def _wl_table(ws: list[watchlist.Watchlist]) -> str:
     if not ws:
         return "Watchlist пока нет."
-    return md_table(["Watchlist", "Format", "Channel", "Язык", "Регион", "Каналов", "Запросы"],
-                    [(w.name, w.format_id, w.channel_id, w.language, w.region, w.channel_count,
+    return md_table(["Watchlist", "Format", "Channel автора", "Язык", "Регион", "Каналов", "Запросы"],
+                    [(w.name, w.format_id, w.author_channel, w.language, w.region, w.channel_count,
                       "; ".join(w.queries)) for w in ws])
 
 
-def _ch_table(chs: list[watchlist.Channel]) -> str:
+def _reference_channels_table(chs: list[watchlist.ReferenceChannel]) -> str:
     if not chs:
         return "Reference channel пока нет."
     return md_table(["Хэндл", "Название", "Подписчики", "Видео", "Свой", "ID"],
@@ -78,7 +78,7 @@ def _ch_table(chs: list[watchlist.Channel]) -> str:
 
 
 def cmd_wl_add(args, store) -> int:
-    w = watchlist.create(store, args.name, format_id=args.format, channel_id=args.channel,
+    w = watchlist.create(store, args.name, format_id=args.format, author_channel=args.channel,
                          language=args.language, region=args.region, queries=args.query)
     return emit(args, w.to_dict(), lambda: f"Watchlist {w.name} создан.\n\n" + _wl_table([w]))
 
@@ -92,7 +92,7 @@ def cmd_wl_show(args, store) -> int:
     w = watchlist.get(store, args.name)
     chs = watchlist.channels(store, args.name)
     return emit(args, {"watchlist": w.to_dict(), "channels": [c.to_dict() for c in chs]},
-                lambda: _wl_table([w]) + "\n\n" + _ch_table(chs))
+                lambda: _wl_table([w]) + "\n\n" + _reference_channels_table(chs))
 
 
 def cmd_wl_remove(args, store) -> int:
@@ -103,7 +103,7 @@ def cmd_wl_remove(args, store) -> int:
 def cmd_wl_add_channel(args, store) -> int:
     c = watchlist.add_channel(store, args.name, args.ref, own=args.own, refresh=args.refresh)
     return emit(args, {"watchlist": args.name, "channel": c.to_dict()},
-                lambda: f"Канал добавлен в {args.name}.\n\n" + _ch_table([c]))
+                lambda: f"Канал добавлен в {args.name}.\n\n" + _reference_channels_table([c]))
 
 
 def cmd_wl_remove_channel(args, store) -> int:
@@ -123,7 +123,8 @@ def register_watchlist(sub, common) -> None:
     p = gs.add_parser("add", parents=[common], help="create a Watchlist")
     p.add_argument("name")
     p.add_argument("--format", required=True, help="Format id: lower case letters, digits, - or _ (e.g. walk-reel, tech-explainer)")
-    p.add_argument("--channel", help="the Author's Channel id this Watchlist serves")
+    p.add_argument("--channel", help="the Author's Channel this Watchlist serves (folder name under "
+                   "<footage root>/channels/, where its Briefs go); not a Reference channel")
     p.add_argument("--language", default="en")
     p.add_argument("--region", help="ISO 3166-1 alpha-2, e.g. US")
     p.add_argument("--query", action="append", default=[], help="search query (repeatable)")
@@ -636,7 +637,8 @@ def register_ideas(sub, common) -> None:
     p = gs.add_parser("brief", parents=[common],
                       help="write the Brief of a shortlisted Idea under <footage root>/channels/<channel>/briefs/")
     p.add_argument("id", type=int)
-    p.add_argument("--channel", help="Channel folder (default: the Watchlist's Channel, else _unassigned)")
+    p.add_argument("--channel", help="the Author's Channel folder (default: the Watchlist's Author's Channel, "
+                   "else _unassigned)")
     p.add_argument("--format", help="Format id (default: the Watchlist's)")
     p.set_defaults(func=cmd_ideas_brief)
     p = gs.add_parser("candidates", parents=[common],

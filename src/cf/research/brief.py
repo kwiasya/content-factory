@@ -3,7 +3,8 @@
 ``create`` fills ``research/templates/brief.md`` (``string.Template``, ``$name``
 placeholders) and writes it to
 ``<footage root>/channels/<channel>/briefs/<idea id>-<slug>.md``, where the
-channel is the argument, else the Watchlist's Channel, else ``_unassigned``.
+channel is the argument, else the Watchlist's Author's Channel (``author_channel``),
+else ``_unassigned``.
 Then the Idea moves shortlisted → brief with ``brief_path``. One Brief per
 Idea: a second call, or an existing file at the target, refuses.
 """
@@ -109,7 +110,7 @@ def create(store: Store, idea_id: int, *, channel: str | None = None, format_id:
     if idea.status != "shortlisted":
         raise IdeaError(f"Idea {idea.id} is {idea.status}; brief needs an Idea that is shortlisted")
     w = get_watchlist(store, idea.watchlist)
-    ch = channel if channel is not None else (w.channel_id or UNASSIGNED)
+    ch = channel if channel is not None else (w.author_channel or UNASSIGNED)
     path = path_for(idea, ch, root)
     if path.exists():
         raise IdeaError(f"Brief file already exists, not overwriting: {path}")

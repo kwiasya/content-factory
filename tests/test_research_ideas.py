@@ -46,7 +46,7 @@ class IdeasCase(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         s = self.store = st.open_store(Path(self.tmp.name) / "f.db")
         self.addCleanup(s.close)
-        wl.create(s, "lisbon", format_id="walk_reel", channel_id="travelwalks")
+        wl.create(s, "lisbon", format_id="walk_reel", author_channel="travelwalks")
         wl.create(s, "other", format_id="travel_long")
         add_member(s, "lisbon", A, "@alpha")
         add_videos(s, [video_item(f"base{i:07d}", A, ago(days=10 + i), 40, 1000) for i in range(5)]

@@ -41,7 +41,7 @@ class WatchlistTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def make(self, name="claude-jobs", **kw):
-        args = dict(format_id="tech_explainer", channel_id="yt-main", language="en", region="US")
+        args = dict(format_id="tech_explainer", author_channel="yt-main", language="en", region="US")
         args.update(kw)
         return wl.create(self.store, name, **args)
 
@@ -52,13 +52,13 @@ class WatchlistTest(unittest.TestCase):
 
     def test_create_and_list(self):
         self.make()
-        self.make("vienna-long", format_id="travel_long", channel_id=None, language="de", region=None)
+        self.make("vienna-long", format_id="travel_long", author_channel=None, language="de", region=None)
         got = {w.name: w for w in wl.list_watchlists(self.store)}
         self.assertEqual(set(got), {"claude-jobs", "vienna-long"})
         w = got["claude-jobs"]
-        self.assertEqual((w.format_id, w.channel_id, w.language, w.region), ("tech_explainer", "yt-main", "en", "US"))
+        self.assertEqual((w.format_id, w.author_channel, w.language, w.region), ("tech_explainer", "yt-main", "en", "US"))
         self.assertEqual((w.channel_count, w.queries), (0, []))
-        self.assertIsNone(got["vienna-long"].channel_id)
+        self.assertIsNone(got["vienna-long"].author_channel)
 
     def test_create_with_seed_queries(self):
         self.make(queries=["claude code job search", "ai job hunt automation"])
