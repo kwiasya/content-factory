@@ -1270,7 +1270,11 @@ class Builder:
                 r.timeline["track_read_back"] = row
                 r.check("A2 music start/end", [tp.record_frame, tp.record_frame + tp.duration],
                         [row["start"], row["end"]])
-                r.check("A2 music source in-point (frames)", tp.src_start, int(row["src_start"] or -1))
+                # GetSourceStartFrame() floors a float (988 reads 987 for 32.9333 s; cf.frames), so the
+                # in-point is read from GetSourceStartTime() when Resolve returns it.
+                t = row.get("src_start_time")
+                got_in = round(float(t) * self.fps) if t is not None else int(row["src_start"] or -1)
+                r.check("A2 music source in-point (frames, from GetSourceStartTime)", tp.src_start, got_in)
                 r.check("A2 music AudioVolume", 0.0, float(row["volume"] or 0))
         vols = [(d.call(it.GetProperties) or {}).get("AudioVolume") for it in a1]
         r.check("A1 ambience AudioVolume (all items)", [r.timeline.get("ambience_db")] * len(a1),
