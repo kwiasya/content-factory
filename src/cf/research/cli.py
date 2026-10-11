@@ -652,7 +652,8 @@ def register_ideas(sub, common) -> None:
 # --- summary ------------------------------------------------------------------
 
 _SUMMARY_NAMES = {"hooks": "хуков", "formats": "форматов", "topics": "тем"}
-_SECTION_NAMES = {"hook_category": "Категории хуков", "storytelling_format": "Форматы повествования",
+_SECTION_NAMES = {"hook_category": "Категории хуков", "hook_formula": "Формулы хуков",
+                  "storytelling_format": "Форматы повествования",
                   "visual_layout": "Визуальная подача", "topic": "Темы"}
 
 
@@ -707,7 +708,7 @@ def cmd_summary(args, store) -> int:
 def register_summary(sub, common) -> None:
     g = sub.add_parser("summary", help="hooks, formats and topics that work in a Watchlist, from its cards")
     gs = g.add_subparsers(dest="cmd", required=True)
-    for name, text in (("hooks", "hook categories with spoken hooks and formulas"),
+    for name, text in (("hooks", "hook categories, then hook formulas (case and spaces folded), with examples"),
                        ("formats", "storytelling formats and visual layouts"),
                        ("topics", "topics (idea_analysis.topic), case and spaces folded")):
         p = gs.add_parser(name, parents=[common], help=text)

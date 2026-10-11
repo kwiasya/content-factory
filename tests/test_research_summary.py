@@ -113,6 +113,19 @@ class HooksSummaryTest(SummaryCase):
         st_ = next(g for g in groups if g.value == "sunset_tease")
         self.assertEqual([e.proposed for e in st_.examples], [True, False])
 
+    def test_a_second_section_ranks_hook_formulas_folded_for_case_and_spaces(self):
+        put_card(self.store, "waitForSun5", hook("sunset_tease", "  sunset IN n   minutes", None))
+        r = summary.hooks(self.store, "lisbon", now=NOW)
+        self.assertEqual([sec.kind for sec in r.sections], ["hook_category", "hook_formula"])
+        groups = self.section(r, "hook_formula").groups
+        self.assertEqual([(g.value, g.count, round(g.weight, 2)) for g in groups],
+                         [("why is <place> <adjective>?", 1, 9.0), ("place name + superlative", 1, 5.0),
+                          ("sunset in n minutes", 2, 3.5), ("stairs + count", 1, 3.0),
+                          ("n cafes", 1, 1.0), ("n viewpoints", 1, 1.0)])
+        sunset = groups[2]
+        self.assertEqual(sunset.label, "Sunset in N minutes")
+        self.assertEqual([e.external_id for e in sunset.examples], ["sunsetSoon4", "waitForSun5"])
+
     def test_cards_outside_the_window_or_the_watchlist_are_left_out(self):
         values = {g.value for g in self.section(summary.hooks(self.store, "lisbon", now=NOW), "hook_category").groups}
         self.assertNotIn("contrast", values)  # oldhit is 20 days old, c1 belongs to another Watchlist

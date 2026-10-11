@@ -74,6 +74,12 @@ class SummaryCliTest(unittest.TestCase):
         self.assertIn("### Выбросы без разбора (outlier ≥ 2x)", out)
         self.assertIn("1. **4,0x**", out)
 
+    def test_summary_hooks_shows_hook_formulas_below_the_categories(self):
+        code, out, _ = self.run_cli("summary", "hooks", "lisbon")
+        self.assertEqual(code, 0)
+        self.assertLess(out.index("### Категории хуков"), out.index("### Формулы хуков"))
+        self.assertIn("| 1 | place name + superlative | Place name + superlative | 1 | 5,0 | 5,0x |", out)
+
     def test_hooks_save_list_export_remove(self):
         saved = self.json_of("hooks", "save", "walk-reel", "https://www.youtube.com/watch?v=alfamaDawn1")
         self.assertEqual((saved["category"], saved["text"], saved["outlier"]),
