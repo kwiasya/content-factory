@@ -17,6 +17,7 @@ A Script is the text plan of one Reel, written before anything touches Resolve. 
 | `hook.clip` | clip id | The most striking Clip, not the chronologically first |
 | `shots[]` | list | Ordered. Each: `clip`, `in_s`, `out_s`, `role` (`hook` · `build` · `payoff` · `loop`), `speed` (1.0 default), `overlay` (`{text, type}` or `null`, type ∈ `place` · `fact` · `line`), `transition` (`cut` · `dissolve` · `dip`), `beat_index` (int or null) |
 | `shots[].id` | string, optional | Shot id used for markers, `cuts.json` and `overlays/<id>.mov`; defaults to `s01`, `s02`, … by position |
+| `shots[].reframe` | object, optional | How a clip wider than the canvas (landscape on the 9:16 canvas) fills it: `{mode, x, x_end, zoom}`. `mode` ∈ `follow` (a static window placed on the person by the build) · `center` · `pan` (a fixed window at `x`) · `smart` (Resolve Smart Reframe; opt-in only, it leaves black bands). `x` −1..1, pan only and required for it: −1 = window at the left edge of the source, 1 = right edge. `x_end` (pan only, −1..1) is recorded but not animated: the API cannot keyframe Pan, so the build applies a static pan at `x`. `zoom` ≥ 1 (default 1): extra zoom over "source height fills the canvas height". Default when absent: `style.json` `reframe.default` (`follow`) for a clip wider than the canvas, none otherwise. Only allowed on a clip whose aspect differs from the canvas, and only for clips wider than it. See Reframe below |
 | `shots[].fade_in_s`, `fade_out_s` | number, optional | Fade from/to black on picture and sound, seconds (default 0) |
 | `ending` | enum | `loop_seamless` (default: the last shot is the run-up into the first shot's first source frame, see below) · `loop_match` (weaker: the last shot ends in a similar pose or move to frame 0) · `reveal_last` · `question_overlay`. Default from `style.ending.default` |
 | `cta` | string | A send or save prompt |
@@ -44,6 +45,15 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 - Text reads without sound: overlays carry the story.
 - Only the user's own footage; no watermarks.
 - No on-camera speech: a shot never overlaps a second flagged `speech_on_camera` in the Shot log (until the voiceover phase). Off-camera speech (the author filming) is allowed; music covers it.
+
+## Reframe (landscape clips on the vertical canvas)
+
+`cf.build` scales a landscape clip so its height fills the canvas (Resolve's own fit is fit-width, which letterboxes) and shows a 9:16 window of it. On 2160×3840 the window is 1215×2160 source px of a 3840×2160 DJI clip (upscaled ×1.78) and 607×1080 of a 1920×1080 iPhone clip (×3.56, visibly soft even with Super Scale 2x). Math and probe evidence: `src/cf/reframe.py`.
+
+- `follow` (default): `cf.follow` runs the shot-log person detector (Ultralytics nano + ByteTrack, conf 0.1) on the proxy at 5 fps over the shot's range, takes the subject (the track with the largest summed box height), and picks the one static window that holds her whole box in the most frames; ties go to the window holding the latest frames (the end of a shot is where she looks into the lens). It never leaves the source and has no Tilt, so it can never show black. When her box is wider than the window (close, arms out, carrying the pool ring), no frame fits and the window with the most overlap wins. With `loop_seamless`, a first and last shot that are both `follow` on the same clip share one window computed over both ranges. The build report has the window x and the coverage per shot; detections are cached in `<reel>/follow-boxes.json`. A person crossing the frame cannot be held by a static window: reel-01 s01 walks from 0.53 to 0.15 of the width.
+- `smart` (opt-in only; the author rejected it for black bars) follows the subject horizontally **and vertically** and does not stop at the source edge. At `zoom` 1 a subject above or below the centre leaves a black band (470 px in the probe); the build exports 5 frames of every smart shot, fails on a band and suggests the `zoom` that hides it (1.35 in the probe). Choose `zoom` ≥ 1.3 up front for a subject far from the vertical centre.
+- `pan` with `x` picks a fixed window; use it when the subject is static or `smart` picks the wrong person.
+- A `loop_seamless` Reel needs the same reframe on the first and last shot (validator): same mode and zoom, and a pan whose end (`x_end`, else `x`) is the first shot's `x`. Two `smart` shots are analysed separately and can still jump a little at the seam: check it in Resolve.
 
 ## Seamless loop (`ending: loop_seamless`)
 

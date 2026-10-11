@@ -29,9 +29,18 @@ plain 2x by default, ``2x-enhanced`` optional; ``cf.canvas.upscale_plan``);
 ``--no-superscale`` turns it off on every clip. Stills are exported at the canvas size and
 downscaled to the proxy size for the luma comparison.
 
+Reframe (``cf.reframe``): a V1 item whose source is wider than the canvas (a landscape clip
+on the vertical canvas) gets the Script's ``reframe`` (default ``style.json`` ``reframe.default``,
+``follow``: a static window on the person from ``cf.follow``, computed on the proxies before Resolve
+is touched): ``ZoomX``/``ZoomY`` (ganged) so the source height fills the canvas, then ``Pan`` (0
+for ``center``/``smart``, the window position for ``pan``/``follow``), each read back. Every still
+with more than 8 px of black at an edge fails the build. ``smart`` (opt-in) runs ``SmartReframe()`` and polls
+``GetSmartReframeStatus()``. The Smart Reframe keyframes do not show in ``GetProperties()``
+(Pan reads 0), so the still is its read-back. ``x_end`` is not animated (no keyframe API).
+
 The planning part (``plan_shots``, ``plan_track``, ``beat_marker_plan``, ``append_infos``,
-``source_end``) is pure and has no Resolve dependency, so it is unit-tested in
-``tests/test_build_plan.py``.
+``source_end``, ``plan_reframes``) is pure and has no Resolve dependency, so it is unit-tested
+in ``tests/test_build_plan.py`` and ``tests/test_reframe.py``.
 """
 
 from __future__ import annotations
@@ -47,6 +56,8 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from cf import follow as fw
+from cf import reframe as rf
 from cf.canvas import Canvas, from_style, scaled_safe_zone, upscale_plan
 from cf.script_schema import Script, load, load_json, manifest_clips, validate
 
@@ -95,6 +106,9 @@ BEAT_MARKER_COLOR = "Cyan"
 VIDEO_TRACK_NAMES = {1: "shots", 2: "overlays", 3: "overlays 2"}
 AUDIO_TRACK_NAMES = {1: "ambience", 2: "music"}
 DEFAULT_TRACK_FADE_OUT_S = 0.6
+SMART_REFRAME_TIMEOUT_S = 600
+SMART_REFRAME_DONE = ("Complete", "Failed", "Cancelled")
+BLACK_BAND_TOLERANCE_PX = 8  # rows/columns of pure black at any edge of any still before the build fails
 
 
 class BuildError(RuntimeError):
@@ -249,6 +263,62 @@ def append_infos(shots: list[PlannedShot], items: dict[str, Any], media_type: in
             for s in shots]
 
 
+def effective_reframes(script: Script, manifest: dict, canvas_w: int, canvas_h: int,
+                       default_mode: str = rf.DEFAULT_MODE) -> dict[str, tuple[rf.Reframe | None, bool]]:
+    """Shot id -> (the reframe it gets, whether it is the default)."""
+    clips = manifest_clips(manifest)
+    return {s.id: rf.effective(s.reframe, clips.get(s.clip), canvas_w, canvas_h, default_mode) for s in script.shots}
+
+
+def follow_groups(script: Script, eff: dict[str, tuple[rf.Reframe | None, bool]]) -> list[list[str]]:
+    """Shots that share ONE follow window: each follow shot alone, except the loop seam.
+
+    With ``ending: loop_seamless`` and the first and last shot both ``follow`` on the same clip
+    at the same zoom, the two are one group (one window over the union of both ranges), so the
+    picture does not jump at the seam.
+    """
+    ids = [s.id for s in script.shots if (eff[s.id][0] is not None and eff[s.id][0].mode == "follow")]
+    groups = [[i] for i in ids]
+    first, last = script.shots[0], script.shots[-1]
+    if (script.ending == "loop_seamless" and len(script.shots) > 1 and first.id in ids and last.id in ids
+            and first.clip == last.clip and abs(eff[first.id][0].zoom - eff[last.id][0].zoom) < 1e-9):
+        groups = [g for g in groups if g[0] not in (first.id, last.id)] + [[last.id, first.id]]
+    return groups
+
+
+def plan_reframes(script: Script, manifest: dict, canvas_w: int, canvas_h: int,
+                  mismatch: str = "scaleToFit", default_mode: str = rf.DEFAULT_MODE,
+                  follow_x: dict[str, float] | None = None) -> dict[str, rf.ReframePlan | None]:
+    """Shot id -> the reframe cf.build writes (None: the item keeps Resolve's fit).
+
+    A shot's ``reframe`` wins; without one, a clip wider than the canvas gets ``default_mode``
+    (``style.json`` ``reframe.default``, ``follow``). A ``follow`` shot takes its window position
+    from ``follow_x`` (``cf.follow``). The source size is the manifest's display size.
+    ``mismatch`` is the timeline's ``timelineInputResMismatchBehavior``.
+    """
+    clips = manifest_clips(manifest)
+    eff = effective_reframes(script, manifest, canvas_w, canvas_h, default_mode)
+    out: dict[str, rf.ReframePlan | None] = {}
+    for s in script.shots:
+        c = clips.get(s.clip)
+        want, is_default = eff[s.id]
+        if want is None:
+            out[s.id] = None
+            continue
+        if want.mode == "follow":
+            if s.id not in (follow_x or {}):
+                raise BuildError(f"shot {s.id}: follow needs a window from cf.follow (no person analysis ran)")
+            want = rf.Reframe("follow", x=float(follow_x[s.id]), zoom=want.zoom)
+        w, h = rf.display_size(c)
+        if not w or not h:
+            raise BuildError(f"shot {s.id}: reframe needs the clip's size, the manifest has none for {s.clip}")
+        try:
+            out[s.id] = rf.plan_reframe(want, w, h, canvas_w, canvas_h, mismatch, default=is_default)
+        except ValueError as exc:
+            raise BuildError(f"shot {s.id}: {exc}") from exc
+    return out
+
+
 @dataclass
 class PlannedTrack:
     path: str
@@ -351,8 +421,8 @@ def still_stats(path: Path, compare_size: tuple[int, int] | None = None) -> dict
     return out
 
 
-def proxy_frame_stats(proxy: Path, t: float) -> dict | None:
-    """Luma stats of the proxy frame at source time ``t`` (the proxies are the tone-map reference)."""
+def proxy_frame(proxy: Path, t: float) -> Any:
+    """The proxy frame at source time ``t`` as an RGB uint8 array, or None."""
     import subprocess  # noqa: PLC0415
 
     import numpy as np  # noqa: PLC0415
@@ -364,11 +434,83 @@ def proxy_frame_stats(proxy: Path, t: float) -> dict | None:
     probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                             "stream=width,height", "-of", "csv=p=0", str(proxy)], capture_output=True, text=True)
     try:
-        w, h = (int(x) for x in probe.stdout.strip().split(",")[:2])
-        return {"time_s": round(t, 3), "width": w, "height": h,
-                **luma_stats(np.frombuffer(res.stdout, np.uint8).reshape(h, w, 3))}
+        # First line only: for a proxy with a data stream (DJI) ffprobe prints the stream twice.
+        w, h = (int(x) for x in probe.stdout.strip().splitlines()[0].split(",")[:2])
+        return np.frombuffer(res.stdout, np.uint8).reshape(h, w, 3)
     except ValueError:
         return None
+
+
+def proxy_frame_stats(proxy: Path, t: float, frame: Any = None, crop: tuple[float, float] | None = None) -> dict | None:
+    """Luma stats of the proxy frame at source time ``t`` (the proxies are the tone-map reference).
+
+    ``crop`` = (left, width) as fractions of the frame width: the stats of that column band,
+    i.e. of the reframe window, so a reframed still is compared with what it shows.
+    """
+    rgb = frame if frame is not None else proxy_frame(proxy, t)
+    if rgb is None:
+        return None
+    h, w = rgb.shape[:2]
+    out = {"time_s": round(t, 3), "width": w, "height": h}
+    if crop is not None:
+        x0 = max(0, min(w - 1, round(crop[0] * w)))
+        x1 = max(x0 + 1, min(w, round((crop[0] + crop[1]) * w)))
+        rgb = rgb[:, x0:x1]
+        out.update(width=x1 - x0, crop_px=[x0, x1], full_width=w)
+    return {**out, **luma_stats(rgb)}
+
+
+def black_band(bgr: Any, level: float = 2.0) -> dict:
+    """Rows/columns of pure black at each edge of a still (Resolve fills uncovered canvas with 0)."""
+    import numpy as np  # noqa: PLC0415
+
+    a = np.asarray(bgr)
+    g = a.max(axis=2) if a.ndim == 3 else a
+    rows = g.max(axis=1) <= level
+    cols = g.max(axis=0) <= level
+
+    def run(mask: Any) -> int:
+        n = 0
+        for v in mask:
+            if not v:
+                break
+            n += 1
+        return n
+
+    return {"top": run(rows), "bottom": run(rows[::-1]), "left": run(cols), "right": run(cols[::-1])}
+
+
+def find_window(still_bgr: Any, proxy_rgb: Any, plan: rf.ReframePlan, src_w: int, src_h: int) -> dict:
+    """Where a reframed still sits in the source: template match of the still on the proxy frame.
+
+    The still is scaled to the proxy grid and its middle 60 % of rows (clear of any Smart
+    Reframe black band) is matched (normalized cross-correlation, so gain and offset do not
+    matter). Returns the window's left and top edges in source px, the position as ``x``
+    (-1..1, the Script's scale), the vertical offset from centre and the match score.
+    """
+    import cv2  # noqa: PLC0415
+
+    ph, pw = proxy_rgb.shape[:2]
+    k = (pw / src_w) * (1.0 / plan.scale)  # proxy px per canvas px
+    cw, ch = still_bgr.shape[1], still_bgr.shape[0]
+    tw, th = max(8, round(cw * k)), max(8, round(ch * k))
+    small = cv2.cvtColor(cv2.resize(still_bgr, (tw, th), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY)
+    r0, r1 = round(th * 0.2), round(th * 0.8)
+    tpl = small[r0:r1]
+    ref = cv2.cvtColor(proxy_rgb, cv2.COLOR_RGB2GRAY)
+    if tpl.shape[0] > ref.shape[0] or tpl.shape[1] > ref.shape[1]:
+        return {"error": f"template {tpl.shape} larger than proxy {ref.shape}"}
+    res = cv2.matchTemplate(ref, tpl, cv2.TM_CCOEFF_NORMED)
+    _, score, _, (mx, my) = cv2.minMaxLoc(res)
+    sx, sy = src_w / pw, src_h / ph
+    x0, y0 = mx * sx, (my - r0) * sy
+    c = (src_w - plan.window_w) / 2
+    return {"x0_src": round(x0, 1), "y0_src": round(y0, 1), "score": round(float(score), 3),
+            "x": round((x0 - c) / c, 3) if c > 0 else 0.0,
+            "tilt_src": round(y0 - (src_h - plan.window_h) / 2, 1),
+            # 3 % of the width: overlays and the Look on the still disturb the match by ~1 %; a wrong Pan
+            # sign or unit is off by hundreds of px. The exact Pan is checked by read-back.
+            "tolerance_src": round(max(4 * sx, 0.03 * src_w), 1)}
 
 
 # -- report ----------------------------------------------------------------------
@@ -387,6 +529,7 @@ class Report:
     writes: list[dict] = field(default_factory=list)
     canvas: dict = field(default_factory=dict)
     upscale: list[dict] = field(default_factory=list)
+    reframe: list[dict] = field(default_factory=list)
     overlays: dict = field(default_factory=dict)
     look: dict = field(default_factory=dict)
     stills: list[dict] = field(default_factory=list)
@@ -637,6 +780,8 @@ class Builder:
                 got = d.call(it.GetFades) or {}
                 r.check(f"{s.id} {kind} fades", want, {k: got.get(k) for k in want})
 
+        self.reframe(tl, shots, vids)
+
         # Transitions: a shot's transition is the one INTO it (the first shot: from black).
         dur = int(self.style.get("transitions", {}).get("dissolve_frames", 8))
         for i, s in enumerate(shots):
@@ -693,6 +838,160 @@ class Builder:
         r.timeline["beat_markers"] = {"placed": len(self.beat_markers),
                                       "downbeats": sum(1 for m in self.beat_markers if m["downbeat"]),
                                       "skipped_on_shot_frames": skipped}
+
+    def follow_analysis(self) -> None:
+        """Person boxes on the proxies for every reframed landscape shot; the follow windows.
+
+        Runs before Resolve is touched (the detector and Resolve together are heavy on 8 GB).
+        ``follow`` shots get the window from ``cf.follow.choose_window`` (the loop-seam pair
+        shares one window over both ranges); ``center``/``pan`` shots get the coverage of their
+        fixed window, for the report. Raw detections are cached in ``<reel>/follow-boxes.json``.
+        """
+        r = self.r
+        self.default_mode = rf.default_mode(self.style)
+        eff = effective_reframes(self.script, self.manifest, self.width, self.height, self.default_mode)
+        clips = manifest_clips(self.manifest)
+        wanted = [s for s in self.script.shots if eff[s.id][0] is not None and eff[s.id][0].mode != "smart"]
+        self.follow_x: dict[str, float] = {}
+        self.follow_rows: dict[str, dict] = {}
+        if not wanted:
+            return
+        cache_path = self.reel_dir / "follow-boxes.json"
+        try:
+            cache = json.loads(cache_path.read_text()) if cache_path.exists() else {}
+        except json.JSONDecodeError:
+            cache = {}
+        det = None
+        boxes: dict[str, list[fw.Box | None]] = {}
+        try:
+            for s in wanted:
+                proxy = self.walk_dir / "proxy" / (Path(s.clip).stem + ".mp4")
+                key = f"{s.clip}|{s.in_s:.4f}|{s.out_s:.4f}|{fw.SAMPLE_FPS:g}|{fw.CONF:g}"
+                if key not in cache:
+                    if not proxy.exists():
+                        raise BuildError(f"shot {s.id}: reframe {eff[s.id][0].mode} needs the proxy {proxy}")
+                    if det is None:
+                        det = fw.Detector()
+                    cache[key] = {"model": det.model_name, "samples": det.samples(proxy, s.in_s, s.out_s)}
+                boxes[s.id] = fw.subject_boxes([(t, [tuple(d) for d in ds]) for t, ds in cache[key]["samples"]])
+        finally:
+            if det is not None:
+                det.close()
+        cache_path.write_text(json.dumps(cache))
+        by_id = {s.id: s for s in self.script.shots}
+        for group in follow_groups(self.script, eff):
+            s0 = by_id[group[0]]
+            w_px, h_px = rf.display_size(clips.get(s0.clip))
+            w = fw.window_fraction(w_px, h_px, self.width, self.height, eff[s0.id][0].zoom)
+            # In source-time order: the seam pair is [last, first], and the last shot runs up to the first.
+            union = [b for g in group for b in boxes[g]]
+            res = fw.choose_window(union, w)
+            for g in group:
+                self.follow_x[g] = res.x
+                cov, n = fw.coverage(boxes[g], res.left, w)
+                self.follow_rows[g] = {**res.to_dict(), "group": group,
+                                       "shot_covered": cov, "shot_detected": n,
+                                       "shot_coverage_pct": round(100.0 * cov / n, 1) if n else 0.0}
+            if res.fallback:
+                r.notes.append(f"{'+'.join(group)}: follow: {res.fallback} fallback (no window holds the whole "
+                               f"person in any frame; best overlap window at x {res.x:g})")
+            elif res.coverage_pct < 100:
+                r.notes.append(f"{'+'.join(group)}: follow window x {res.x:g} holds the whole person in "
+                               f"{res.covered}/{res.detected} frames ({res.coverage_pct:g} %); missed at source "
+                               f"{res.missed_times} s")
+        for s in wanted:
+            want = eff[s.id][0]
+            if want.mode in ("center", "pan"):
+                w_px, h_px = rf.display_size(clips.get(s.clip))
+                w = fw.window_fraction(w_px, h_px, self.width, self.height, want.zoom)
+                x = want.x if want.mode == "pan" else 0.0
+                left = fw.left_for_x(x, w)
+                cov, n = fw.coverage(boxes[s.id], left, w)
+                alt = fw.choose_window(boxes[s.id], w)
+                self.follow_rows[s.id] = {"x": x, "left": round(left, 5), "width": round(w, 5),
+                                          "frames": len(boxes[s.id]), "detected": n, "covered": cov,
+                                          "coverage_pct": round(100.0 * cov / n, 1) if n else 0.0,
+                                          "follow_would_choose": {"x": alt.x, "coverage_pct": alt.coverage_pct,
+                                                                  "fallback": alt.fallback}}
+                if alt.coverage_pct > (100.0 * cov / n if n else 0.0):
+                    r.notes.append(f"{s.id}: {want.mode} x {x:g} holds the person in {cov}/{n} frames; follow "
+                                   f"would hold {alt.covered}/{alt.detected} at x {alt.x:g}")
+
+    def reframe(self, tl: Any, shots: list[PlannedShot], vids: list[Any]) -> None:
+        """Fit-height zoom and Pan on V1 items with a source wider than the canvas; Smart Reframe.
+
+        Order (probe 2026-10-11): the zoom first. ``SmartReframe()`` on a fit-width
+        (letterboxed) item completes and changes nothing; after the zoom it keyframes Pan to
+        follow the subject. The keyframes do not show in ``GetProperties()`` (Pan still reads
+        the written value), so the per-shot still is the read-back for ``smart``.
+        """
+        d, r = self.d, self.r
+        mismatch = (d.call(tl.GetSettings) or {}).get("timelineInputResMismatchBehavior") or \
+            (d.call(d.project.GetSettings) or {}).get("timelineInputResMismatchBehavior") or "scaleToFit"
+        plans = plan_reframes(self.script, self.manifest, self.width, self.height, mismatch,
+                              getattr(self, "default_mode", rf.DEFAULT_MODE), getattr(self, "follow_x", {}))
+        self.reframe_plans = plans
+        for s, v in zip(shots, vids):
+            p = plans.get(s.id)
+            if p is None:
+                continue
+            row: dict[str, Any] = {"shot": s.id, "clip": s.clip, **p.to_dict()}
+            if s.id in getattr(self, "follow_rows", {}):
+                row["person"] = self.follow_rows[s.id]
+            before = d.call(v.GetProperties) or {}
+            row["before"] = {k: before.get(k) for k in ("ZoomX", "ZoomY", "ZoomGang", "Pan", "Tilt", "Scaling")}
+            try:
+                if not before.get("ZoomGang"):
+                    d.set_item_property_verified(v, "ZoomGang", True)
+                d.set_item_property_verified(v, "ZoomX", p.zoom_x)
+                d.set_item_property_verified(v, "Pan", p.pan)
+            except Exception as exc:  # noqa: BLE001 - recorded as a mismatch
+                row["error"] = str(exc)
+            got = d.call(v.GetProperties) or {}
+            row["after"] = {k: got.get(k) for k in ("ZoomX", "ZoomY", "ZoomGang", "Pan", "Tilt")}
+            r.check(f"{s.id} reframe {p.mode} ZoomX/ZoomY/Pan", [round(p.zoom_x, 4), round(p.zoom_x, 4), p.pan],
+                    [round(float(got.get("ZoomX") or 0), 4), round(float(got.get("ZoomY") or 0), 4),
+                     round(float(got.get("Pan") or 0), 4)])
+            if p.mode == "smart" and "error" not in row:
+                row["smart_reframe"] = self._smart_reframe(v)
+                got = d.call(v.GetProperties) or {}
+                row["after_smart"] = {k: got.get(k) for k in ("ZoomX", "ZoomY", "Pan", "Tilt")}
+                status = row["smart_reframe"].get("status") or {}
+                r.check(f"{s.id} Smart Reframe job (returned {row['smart_reframe'].get('returned')})", "Complete",
+                        status.get("JobStatus"))
+                r.check(f"{s.id} ZoomX after Smart Reframe", round(p.zoom_x, 4),
+                        round(float(got.get("ZoomX") or 0), 4))
+            for n in p.notes:
+                r.notes.append(f"{s.id}: reframe {p.mode}: {n}")
+            r.reframe.append(row)
+
+    def _smart_reframe(self, item: Any) -> dict:
+        """``TimelineItem.SmartReframe()`` and poll ``Project.GetSmartReframeStatus()`` to the end.
+
+        The status is project-wide and keeps the last job's 'Complete', so a terminal status
+        counts only on two reads a second apart.
+        """
+        d = self.d
+        if d.call(d.resolve.GetCurrentPage) not in ("edit", "color"):
+            d.call(d.resolve.OpenPage, "edit")
+        t0 = time.monotonic()
+        ok = d.call(item.SmartReframe, timeout=SMART_REFRAME_TIMEOUT_S)
+        status: dict = {}
+        seen: list[str] = []
+        terminal_reads = 0
+        while time.monotonic() - t0 < SMART_REFRAME_TIMEOUT_S:
+            status = d.call(d.project.GetSmartReframeStatus) or {}
+            js = status.get("JobStatus")
+            if not seen or seen[-1] != js:
+                seen.append(js)
+            # 'Inactive' ends the wait only when the call failed or no job showed up in 15 s.
+            idle = js == "Inactive" and (not ok or (seen == ["Inactive"] and time.monotonic() - t0 > 15))
+            terminal_reads = terminal_reads + 1 if js in SMART_REFRAME_DONE or idle else 0
+            if terminal_reads >= 2:
+                break
+            time.sleep(1.0)
+        return {"returned": ok, "status": status, "statuses_seen": seen,
+                "seconds": round(time.monotonic() - t0, 1)}
 
     def place_track(self, tl: Any, start: int, duration: int) -> None:
         """The Track on A2 "music": from the timeline start, for the picture's length, 0 dB,
@@ -961,14 +1260,25 @@ class Builder:
             f.unlink(missing_ok=True)
             set_ok = d.call(tl.SetCurrentTimecode, tc)
             got_tc = d.call(tl.GetCurrentTimecode)
-            ok = d.call(d.project.ExportCurrentFrameAsStill, str(f), timeout=60)
+            # The first export after Smart Reframe (and sometimes after a timeline switch) can
+            # return False with no file (probe, 2026-10-11); a second try a second later works.
+            tries = 0
+            for tries in range(1, 4):
+                ok = d.call(d.project.ExportCurrentFrameAsStill, str(f), timeout=60)
+                if ok and f.exists():
+                    break
+                time.sleep(1.0)
             size = f.stat().st_size if f.exists() else 0
             row = {"shot": s.id, "frame": frame, "timecode": tc, "playhead": got_tc, "set_returned": set_ok,
-                   "export_returned": ok, "file": str(f), "bytes": size}
+                   "export_returned": ok, "export_tries": tries, "file": str(f), "bytes": size}
             if size:
                 src_t = (s.src_start + (s.duration // 2) * s.speed * s.clip_fps / self.fps) / s.clip_fps
                 proxy = self.walk_dir / "proxy" / (Path(s.clip).stem + ".mp4")
-                ref = proxy_frame_stats(proxy, src_t) if proxy.exists() else None
+                rp = (getattr(self, "reframe_plans", None) or {}).get(s.id)
+                if rp is not None:
+                    ref = self._reframe_still_checks(s, rp, f, proxy, src_t, row)
+                else:
+                    ref = proxy_frame_stats(proxy, src_t) if proxy.exists() else None
                 row.update(still_stats(f, (ref["width"], ref["height"]) if ref else None))
                 if ref:
                     row["proxy"] = ref
@@ -980,8 +1290,83 @@ class Builder:
                                        "(check the color settings)")
                 r.check(f"{s.id} still size = canvas", [self.width, self.height],
                         [row.get("width"), row.get("height")])
+                import cv2  # noqa: PLC0415
+
+                img = cv2.imread(str(f), cv2.IMREAD_COLOR)
+                band = black_band(img) if img is not None else None
+                row["black_band"] = band
+                worst = max(band.values()) if band else None
+                r.check(f"{s.id} no black band > {BLACK_BAND_TOLERANCE_PX} px at any edge of the still "
+                        "(top, bottom, left, right)", "<= " + str(BLACK_BAND_TOLERANCE_PX),
+                        band, ok=worst is not None and worst <= BLACK_BAND_TOLERANCE_PX)
             r.stills.append(row)
             r.check(f"{s.id} still at {tc}", True, bool(ok) and size > 0 and got_tc == tc)
+
+    def _reframe_still_checks(self, s: PlannedShot, rp: rf.ReframePlan, f: Path, proxy: Path, src_t: float,
+                              row: dict) -> dict | None:
+        """Read-back of a reframed shot from its stills.
+
+        Window position: the mid still is template-matched on the proxy frame; for ``center``
+        and ``pan`` the window's left edge must be where the plan puts it. For ``smart`` the
+        found position is recorded, and 5 frames (first, quarters, last) are checked for a
+        black band: Smart Reframe keeps the subject centred and can move past the source edge.
+        Returns the proxy luma stats of the window (the band the still shows), or None.
+        """
+        import cv2  # noqa: PLC0415
+
+        d, r, tl = self.d, self.r, self.tl
+        src_w, src_h = (int(float(v)) for v in rp.source.split("x"))
+        ref = None
+        frame = proxy_frame(proxy, src_t) if proxy.exists() else None
+        bgr = cv2.imread(str(f), cv2.IMREAD_COLOR)
+        x0 = rp.window_x0
+        if frame is not None and bgr is not None:
+            win = find_window(bgr, frame, rp, src_w, src_h)
+            row["reframe_window"] = win
+            if "x0_src" in win:
+                if rp.mode == "smart":
+                    x0 = win["x0_src"]
+                else:
+                    r.check(f"{s.id} reframe {rp.mode} window left edge in source px (still matched on the proxy, "
+                            f"score {win['score']})", rp.window_x0, win["x0_src"],
+                            ok=abs(win["x0_src"] - rp.window_x0) <= win["tolerance_src"] and win["score"] >= 0.5)
+            ref = proxy_frame_stats(proxy, src_t, frame, (x0 / src_w, rp.window_w / src_w))
+        if rp.mode != "smart":
+            return ref
+        bands = []
+        probe = f.with_name(f".{s.id}-smart-check.png")
+        for off in sorted({0, s.duration // 4, s.duration // 2, 3 * s.duration // 4, s.duration - 1}):
+            if off == s.duration // 2 and bgr is not None:
+                img = bgr
+            else:
+                probe.unlink(missing_ok=True)
+                d.call(tl.SetCurrentTimecode, timecode(s.record_frame + off, self.fps))
+                for _ in range(3):
+                    if d.call(d.project.ExportCurrentFrameAsStill, str(probe), timeout=60) and probe.exists():
+                        break
+                    time.sleep(1.0)
+                img = cv2.imread(str(probe), cv2.IMREAD_COLOR)
+                probe.unlink(missing_ok=True)
+            if img is not None:
+                bands.append({"offset": off, **black_band(img)})
+        worst_v = max((max(b["top"], b["bottom"]) for b in bands), default=0)
+        worst_h = max((max(b["left"], b["right"]) for b in bands), default=0)
+        suggest = rf.zoom_to_hide_band(worst_v, self.height, rp.zoom) if worst_v > BLACK_BAND_TOLERANCE_PX else None
+        row["smart_black_band"] = {"frames": bands, "worst_vertical_px": worst_v, "worst_horizontal_px": worst_h,
+                                   "suggested_zoom": suggest}
+        ok = r.check(f"{s.id} Smart Reframe leaves no black band (5 frames; px at top/bottom, left/right)",
+                     [0, 0], [worst_v, worst_h],
+                     ok=worst_v <= BLACK_BAND_TOLERANCE_PX and worst_h <= BLACK_BAND_TOLERANCE_PX)
+        if not ok:
+            r.notes.append(
+                f"{s.id}: Smart Reframe moved the window past the source edge ({worst_v} px black at top/bottom, "
+                f"{worst_h} px at the sides): it centres the subject and does not stop at the frame edge. Fix in "
+                f"the Script with reframe {{mode: 'smart', zoom: {suggest}}}" if suggest else
+                f"{s.id}: Smart Reframe moved the window past the source edge ({worst_v} px black at top/bottom, "
+                f"{worst_h} px at the sides); no zoom hides it")
+            if suggest:
+                r.notes[-1] += (" (or mode 'pan'/'center'; or delete the Tilt keyframes in the Inspector by hand)")
+        return ref
 
     # ---- run
     def attach_timeline(self) -> None:
@@ -1005,6 +1390,10 @@ class Builder:
         self.plan, notes = plan_shots(self.script, self.manifest, start, self.fps, self.cuts, clip_fps,
                                       raw_dir=self.walk_dir / "raw")
         r.notes.extend(notes)
+        mismatch = (d.call(tl.GetSettings) or {}).get("timelineInputResMismatchBehavior") or "scaleToFit"
+        self.reframe_plans = plan_reframes(self.script, self.manifest, self.width, self.height, mismatch,
+                                           getattr(self, "default_mode", rf.DEFAULT_MODE),
+                                           getattr(self, "follow_x", {}))
         self.vids = [it for it in (d.call(tl.GetItemListInTrack, "video", 1) or [])
                      if d.call(it.GetMediaPoolItem) is not None]
         r.check("V1 items on the existing timeline", len(self.plan), len(self.vids))
@@ -1015,6 +1404,7 @@ class Builder:
         if self.stills_only:
             try:
                 self.validate()
+                self.follow_analysis()
                 self.connect()
                 self.attach_timeline()
                 self.look_lut()
@@ -1028,6 +1418,7 @@ class Builder:
             return 1 if (self.r.error or self.r.mismatches) else 0
         try:
             self.validate()
+            self.follow_analysis()
             self.connect()
             self.project_settings()
             items = self.import_clips()
@@ -1075,6 +1466,36 @@ class Builder:
                 print(f"  {u['clip']:<14} h={u['display_height']!s:<5} {u['wanted']:<12} -> {u['super_scale']}"
                       + (f"  sharp {u['sharpness']} nr {u['noise_reduction']}" if u["wanted"] == "2x Enhanced" else "")
                       + f"  ({u['reason']})")
+        if r.reframe:
+            bands = {st["shot"]: st.get("black_band") for st in r.stills}
+            print("\nreframe coverage (person = whole box inside the window, sampled at "
+                  f"{fw.SAMPLE_FPS:g} fps on the proxy; black band = max px at any edge of the mid still):")
+            print(f"  {'shot':<5}{'clip':<14}{'mode':<8}{'x':>8}{'coverage':>10}{'frames':>9}{'band px':>9}  note")
+            for f in r.reframe:
+                pr = f.get("person") or {}
+                band = bands.get(f["shot"])
+                cov = f"{pr['coverage_pct']:g} %" if pr else "-"
+                frames = f"{pr.get('covered', '-')}/{pr.get('detected', '-')}" if pr else "-"
+                note = []
+                if pr.get("group") and len(pr["group"]) > 1:
+                    note.append("seam window " + "+".join(pr["group"]))
+                if pr.get("fallback"):
+                    note.append(pr["fallback"] + " fallback")
+                if pr.get("follow_would_choose"):
+                    fc = pr["follow_would_choose"]
+                    note.append(f"follow: x {fc['x']:g}, {fc['coverage_pct']:g} %")
+                x = f["x"] if f["x"] is not None else 0.0
+                print(f"  {f['shot']:<5}{f['clip'][:12]:<14}{f['mode']:<8}{x:>8.3f}{cov:>10}{frames:>9}"
+                      f"{(max(band.values()) if band else '-')!s:>9}  {'; '.join(note)}")
+            print("\nreframe (ZoomX ganged, Pan in canvas px; read back):")
+            for f in r.reframe:
+                sr = f.get("smart_reframe") or {}
+                smart = (f"  Smart Reframe {sr.get('status', {}).get('JobStatus')} in {sr.get('seconds')} s"
+                         if sr else "")
+                print(f"  {f['shot']:<5}{f['mode']:<7}{'(default) ' if f['default'] else ''}src {f['source']} "
+                      f"window {f['window_w']:g}x{f['window_h']:g} at x0 {f['window_x0']:g}  ZoomX {f['zoom_x']:.4f} "
+                      f"-> {(f.get('after') or {}).get('ZoomX')}  Pan {f['pan']:g} -> {(f.get('after') or {}).get('Pan')}"
+                      + smart + (f"  ERROR {f['error']}" if f.get("error") else ""))
         print("\nV1 read-back (frames; offsets from timeline start):")
         hdr = f"  {'shot':<5}{'clip':<14}{'role':<8}{'spd':>5}{'exp start':>10}{'got':>7}{'exp end':>9}{'got':>7}" \
               f"{'dur':>5}{'got':>5}{'src in':>8}{'src out':>9}  ok"

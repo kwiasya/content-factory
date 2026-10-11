@@ -21,6 +21,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from cf import reframe as rf
+from cf.reframe import Reframe
+
 SCHEMA = "cf-script/1"
 FORMATS = ("pov", "listicle", "levels", "day_in_the_life", "reveal", "contrast")
 HOOK_TYPES = ("visual_payoff", "pov", "list", "contrast", "question", "curiosity")
@@ -37,6 +40,7 @@ TOTAL_TOLERANCE_S = 3.0
 TARGET_MAX_S = 90
 MAX_HASHTAGS = 5
 DEFAULT_FPS = 30.0  # timeline fps; the seam tolerance falls back to it without a manifest
+DEFAULT_CANVAS = (2160, 3840)  # style.json canvas when no style is given
 EPS = 1e-6
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -66,6 +70,7 @@ class Shot:
     beat_index: int | None = None
     fade_in_s: float = 0.0
     fade_out_s: float = 0.0
+    reframe: Reframe | None = None  # None: the default for the clip (smart for landscape on portrait)
 
     @property
     def duration_s(self) -> float:
@@ -141,6 +146,10 @@ def shot_from_dict(d: dict, index: int) -> Shot:
         if not isinstance(ov, dict):
             raise ScriptError(f"{where}.overlay: must be an object or null")
         overlay = Overlay(text=_str(ov, "text", f"{where}.overlay"), type=_str(ov, "type", f"{where}.overlay"))
+    try:
+        reframe = rf.from_shot(d.get("reframe"), f"{where}.reframe")
+    except ValueError as exc:
+        raise ScriptError(str(exc)) from exc
     beat = d.get("beat_index")
     if beat is not None and (isinstance(beat, bool) or not isinstance(beat, int)):
         raise ScriptError(f"{where}: 'beat_index' must be an int or null, got {beat!r}")
@@ -156,6 +165,7 @@ def shot_from_dict(d: dict, index: int) -> Shot:
         beat_index=beat,
         fade_in_s=_num(d, "fade_in_s", where, 0.0),
         fade_out_s=_num(d, "fade_out_s", where, 0.0),
+        reframe=reframe,
     )
 
 
@@ -224,6 +234,7 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
     shot_min = float(shot_s.get("min", SHOT_MIN_S))
     payoff_max = max(SHOT_MAX_S, float(shot_s.get("payoff_max", SHOT_MAX_S)))
     min_hold = float((style.get("animation") or {}).get("min_hold_s", 2.0))
+    canvas_w, canvas_h = canvas_size(style)
     clips = manifest_clips(manifest)
 
     if script.schema != SCHEMA:
@@ -273,6 +284,8 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
                 v.append(f"{w}: clip {s.clip!r} not in the manifest")
             elif s.out_s > float(c["duration_s"]) + EPS:
                 v.append(f"{w}: out_s={s.out_s:g} is past the end of {s.clip} ({float(c['duration_s']):g} s)")
+        src_w, src_h = rf.display_size(clips.get(s.clip))
+        v.extend(f"{w}: {p}" for p in rf.problems(s.reframe, src_w, src_h, canvas_w, canvas_h))
         d = s.duration_s
         hi = payoff_max if s.role == "payoff" else SHOT_MAX_S
         if d < shot_min - EPS or d > hi + EPS:
@@ -351,7 +364,26 @@ def loop_seamless_problems(script: Script, clips: dict[str, dict], style: dict) 
     if last.overlay is not None:
         v.append(f"{w}: {last.id} must have overlay null: an overlay fills its shot, so it would "
                  f"vanish at the seam ({last.overlay.text!r})")
+    # The window must not jump at the seam: same reframe (explicit or the clip's default), and a
+    # pan ends where the first shot's pan starts.
+    cw, ch = canvas_size(style)
+    dm = rf.default_mode(style)
+    a, _ = rf.effective(last.reframe, clips.get(last.clip), cw, ch, dm)
+    b, _ = rf.effective(first.reframe, clips.get(first.clip), cw, ch, dm)
+    if a is not None or b is not None:
+        a_end = (a.x_end if a.x_end is not None else a.x) if a else None
+        if (a.mode if a else None) != (b.mode if b else None) or (a and b and abs(a.zoom - b.zoom) > EPS) or \
+                (a and a.mode == "pan" and (a_end is None or b.x is None or abs(a_end - b.x) > EPS)):
+            v.append(f"{w}: the window would jump at the seam: {last.id} reframe "
+                     f"{a.to_dict() if a else None} must end where {first.id} reframe "
+                     f"{b.to_dict() if b else None} starts (same mode and zoom; a pan's end x = the first x)")
     return v
+
+
+def canvas_size(style: dict | None) -> tuple[int, int]:
+    """``style.json`` ``canvas`` width and height (2160x3840 when missing)."""
+    c = (style or {}).get("canvas") or {}
+    return int(c.get("width", DEFAULT_CANVAS[0])), int(c.get("height", DEFAULT_CANVAS[1]))
 
 
 def main(argv: list[str] | None = None) -> int:
