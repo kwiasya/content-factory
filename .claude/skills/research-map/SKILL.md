@@ -12,7 +12,7 @@ A niche becomes evidence for hooks, formats and Ideas through these skills, in o
 |---|---|---|
 | 00 | `author-setup` | `author/*.md`, once per clone |
 | 1 | `research-watchlist` | one Watchlist row (Format, Channel, language, Reference channels, queries) |
-| 2 | `scout-references` | refreshed Reference rows and today's snapshots for the Watchlist, and its feed of outliers |
+| 2 | `scout-references` | refreshed Reference rows and today's snapshots for the Watchlist, its feed of outliers and the candidate channels its searches found |
 | 3 | `analyze-reference` | one Reference card (`cf-reference-card/1`) in the store and under `references/<watchlist>/<video_id>/` |
 | 4 | `mine-hooks` | hooks, formats and topics summaries for the Watchlist, and the Format's Hook library export in the repo |
 | 5 | `suggest-ideas` | Idea rows in the inbox (status `inbox`) |

@@ -1,0 +1,39 @@
+{
+  "kind": "youtube#searchListResponse",
+  "etag": "u1V2w3X4",
+  "nextPageToken": "CDIQAA",
+  "regionCode": "US",
+  "pageInfo": {"totalResults": 1000000, "resultsPerPage": 2},
+  "items": [
+    {
+      "kind": "youtube#searchResult",
+      "etag": "y5Z6a7B8",
+      "id": {"kind": "youtube#video", "videoId": "Ab3dEf6hIj0"},
+      "snippet": {
+        "publishedAt": "2026-10-07T12:30:00Z",
+        "channelId": "UCxR9mXyZbC1dEf2GhIjKlMn",
+        "title": "POV: you found the quietest street in Lisbon",
+        "description": "#lisbon #shorts",
+        "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/Ab3dEf6hIj0/hqdefault.jpg", "width": 480, "height": 360}},
+        "channelTitle": "Slow Walks",
+        "liveBroadcastContent": "none",
+        "publishTime": "2026-10-07T12:30:00Z"
+      }
+    },
+    {
+      "kind": "youtube#searchResult",
+      "etag": "c9D0e1F2",
+      "id": {"kind": "youtube#video", "videoId": "Lm4nOp5qRs6"},
+      "snippet": {
+        "publishedAt": "2026-10-02T18:05:00Z",
+        "channelId": "UCq1W2e3R4t5Y6u7I8o9P0aS",
+        "title": "Lisbon&#39;s 7 hills &amp; the tram you should skip",
+        "description": "Tram 28 vs walking &amp; why.",
+        "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/Lm4nOp5qRs6/hqdefault.jpg", "width": 480, "height": 360}},
+        "channelTitle": "Lisbon Lens",
+        "liveBroadcastContent": "none",
+        "publishTime": "2026-10-02T18:05:00Z"
+      }
+    }
+  ]
+}

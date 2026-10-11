@@ -1,0 +1,26 @@
+{
+  "kind": "youtube#videoListResponse",
+  "etag": "u3V4w5X6",
+  "pageInfo": {"totalResults": 1, "resultsPerPage": 1},
+  "items": [
+    {
+      "kind": "youtube#video",
+      "etag": "y7Z8a9B0",
+      "id": "Zx9yW8vU7tS",
+      "snippet": {
+        "publishedAt": "2026-09-20T08:15:00Z",
+        "channelId": "UCxR9mXyZbC1dEf2GhIjKlMn",
+        "title": "Porto Ribeira Morning Walk",
+        "description": "Ribeira to Dom Luís I bridge.",
+        "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/Zx9yW8vU7tS/hqdefault.jpg", "width": 480, "height": 360}},
+        "channelTitle": "Slow Walks",
+        "tags": ["porto", "walking tour"],
+        "categoryId": "19",
+        "liveBroadcastContent": "none",
+        "defaultAudioLanguage": "en"
+      },
+      "contentDetails": {"duration": "PT12M30S", "dimension": "2d", "definition": "hd", "caption": "true", "licensedContent": true, "contentRating": {}, "projection": "rectangular"},
+      "statistics": {"viewCount": "40210", "likeCount": "1203", "favoriteCount": "0", "commentCount": "88"}
+    }
+  ]
+}
