@@ -4,7 +4,8 @@ Groups so far: ``watchlist`` (add, list, show, remove, add-channel,
 remove-channel, add-query), ``taxonomy`` (list, approve, reject), ``quota``,
 ``scout``, ``snapshot``, ``feed``, ``fetch`` (one Reference, deep), ``card``
 (validate, save, show), ``ideas`` (add, list, show, shortlist, discard,
-restore, note, brief, candidates). Every command takes
+restore, note, brief, candidates), ``summary`` (hooks, formats, topics), ``hooks``
+(save, remove, list, export: the Hook library of a Format). Every command takes
 ``--json`` (machine output on stdout) and ``--db`` (default ``CF_FACTORY_DB`` or
 ``<footage root>/factory.db``). Human output is a Markdown table in Russian.
 Errors: one line on stderr, exit 1.
@@ -24,14 +25,14 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cf.research import brief, card, feed, fetch, ideas, quota, scout, taxonomy, watchlist, youtube
+from cf.research import brief, card, feed, fetch, hooks, ideas, quota, scout, summary, taxonomy, watchlist, youtube
 from cf.research.kinds import KINDS
 from cf.research.store import StoreError, open_store
 
 # Errors a command reports as one line and exit 1.
 USER_ERRORS: tuple[type[Exception], ...] = (
     watchlist.WatchlistError, taxonomy.TaxonomyError, quota.QuotaExceeded,
-    youtube.YouTubeError, StoreError, fetch.FetchError, card.CardError, ideas.IdeaError,
+    youtube.YouTubeError, StoreError, fetch.FetchError, card.CardError, ideas.IdeaError, hooks.HookError,
 )
 
 
@@ -121,7 +122,7 @@ def register_watchlist(sub, common) -> None:
     gs = g.add_subparsers(dest="cmd", required=True)
     p = gs.add_parser("add", parents=[common], help="create a Watchlist")
     p.add_argument("name")
-    p.add_argument("--format", required=True, help="Format id, e.g. tech_explainer, walk_reel, travel_long")
+    p.add_argument("--format", required=True, help="Format id, e.g. walk-reel, tech-explainer, travel-long")
     p.add_argument("--channel", help="the Author's Channel id this Watchlist serves")
     p.add_argument("--language", default="en")
     p.add_argument("--region", help="ISO 3166-1 alpha-2, e.g. US")
@@ -646,9 +647,135 @@ def register_ideas(sub, common) -> None:
     p.set_defaults(func=cmd_ideas_candidates)
 
 
+# --- summary ------------------------------------------------------------------
+
+_SUMMARY_NAMES = {"hooks": "хуков", "formats": "форматов", "topics": "тем"}
+_SECTION_NAMES = {"hook_category": "Категории хуков", "storytelling_format": "Форматы повествования",
+                  "visual_layout": "Визуальная подача", "topic": "Темы"}
+
+
+def _weight_text(w: float) -> str:
+    return f"{w:.1f}".replace(".", ",")
+
+
+def _example_line(e: summary.Example) -> str:
+    title = " ".join((e.title or "без названия").split())
+    parts = [f"**{feed.outlier_text(e.outlier)}**", feed.views_text(e.views), e.date or "—", f"«{title}»",
+             e.handle or "без хэндла", e.url or "—"]
+    if e.spoken_hook:
+        parts.append(f"хук: «{' '.join(e.spoken_hook.split())}»")
+    if e.formula:
+        parts.append(f"формула: {' '.join(e.formula.split())}")
+    return "- " + " · ".join(parts)
+
+
+def _summary_human(r: summary.Summary) -> str:
+    out = [f"Сводка {_SUMMARY_NAMES[r.summary]} {r.watchlist} (Format {r.format_id}) за "
+           f"{feed._decimal(r.days)} дн.: {r.references} Reference, с карточкой {r.carded}. "
+           "Вес группы: сумма Outlier score её Reference, без оценки считается как 1."]
+    for sec in r.sections:
+        out += ["", f"### {_SECTION_NAMES.get(sec.kind, sec.kind)}", ""]
+        if not sec.groups:
+            out.append("Карточек с этим полем в окне нет.")
+            continue
+        out.append(md_table(["#", "Значение", "Название", "Карточек", "Вес", "Лучший outlier"],
+                            [(i, g.value + (" (предложено)" if g.proposed else ""), g.label, g.count,
+                              _weight_text(g.weight), feed.outlier_text(g.best_outlier))
+                             for i, g in enumerate(sec.groups, 1)]))
+        for g in sec.groups:
+            out += ["", f"**{g.label or g.value}**" + (" (предложено)" if g.proposed else "")]
+            out += [_example_line(e) for e in g.examples]
+    out += ["", f"### Выбросы без карточки (outlier ≥ {feed._decimal(r.min_outlier)}x)", ""]
+    if not r.uncarded:
+        out.append("Нет: сводка опирается на все выбросы окна.")
+    for i, u in enumerate(r.uncarded, 1):
+        title = " ".join((u.title or "без названия").split())
+        out.append(" · ".join([f"{i}. **{feed.outlier_text(u.outlier)}**", feed.views_text(u.views), u.date or "—",
+                               f"«{title}»", u.handle or "без хэндла", u.url or "—",
+                               "замерен, без анализа" if u.measured else "без карточки"]))
+    return "\n".join(out)
+
+
+def cmd_summary(args, store) -> int:
+    r = summary.summarize(store, args.name, args.cmd, days=args.days, min_outlier=args.min_outlier,
+                          limit=args.limit, examples=args.examples)
+    return emit(args, r.to_dict(), lambda: _summary_human(r))
+
+
+def register_summary(sub, common) -> None:
+    g = sub.add_parser("summary", help="hooks, formats and topics that work in a Watchlist, from its cards")
+    gs = g.add_subparsers(dest="cmd", required=True)
+    for name, text in (("hooks", "hook categories with spoken hooks and formulas"),
+                       ("formats", "storytelling formats and visual layouts"),
+                       ("topics", "topics (idea_analysis.topic), case and spaces folded")):
+        p = gs.add_parser(name, parents=[common], help=text)
+        p.add_argument("name", help="Watchlist")
+        p.add_argument("--days", type=float, default=summary.DEFAULT_DAYS,
+                       help="published in the last N days (default %(default)s)")
+        p.add_argument("--min-outlier", type=float, default=summary.DEFAULT_MIN_OUTLIER,
+                       help="list uncarded Reference from this Outlier score up (default %(default)s)")
+        p.add_argument("--limit", type=int, default=10, help="groups per section and uncarded rows (default %(default)s)")
+        p.add_argument("--examples", type=int, default=summary.DEFAULT_EXAMPLES,
+                       help="examples per group (default %(default)s)")
+        p.set_defaults(func=cmd_summary)
+
+
+# --- hooks (Hook library) -------------------------------------------------------
+
+def _hooks_table(hs: list[hooks.Hook]) -> str:
+    if not hs:
+        return "Хуков пока нет."
+    return md_table(["Категория", "Хук", "Формула", "Источник", "Outlier", "Ссылка", "Сохранён"],
+                    [(h.category + (" (предложено)" if h.proposed else ""), h.text or "без речи", h.formula,
+                      h.source_title or ("удалён из базы" if h.source is None else None),
+                      feed.outlier_text(h.outlier), h.source_url, h.saved_at[:10]) for h in hs])
+
+
+def cmd_hooks_save(args, store) -> int:
+    h = hooks.save(store, args.format, args.video)
+    return emit(args, h.to_dict(), lambda: f"Хук сохранён в Hook library {h.format_id}. "
+                f"Обновите файл: python -m cf.research hooks export {h.format_id}\n\n" + _hooks_table([h]))
+
+
+def cmd_hooks_remove(args, store) -> int:
+    hooks.remove(store, args.format, args.video)
+    return emit(args, {"format_id": args.format, "removed": args.video},
+                lambda: f"Хук {args.video} убран из Hook library {args.format}.")
+
+
+def cmd_hooks_list(args, store) -> int:
+    hs = hooks.list_hooks(store, args.format)
+    return emit(args, [h.to_dict() for h in hs], lambda: f"Hook library {args.format}\n\n" + _hooks_table(hs))
+
+
+def cmd_hooks_export(args, store) -> int:
+    path = hooks.export(store, args.format, args.out)
+    n = len(hooks.list_hooks(store, args.format))
+    return emit(args, {"format_id": args.format, "path": str(path), "hooks": n},
+                lambda: f"Hook library {args.format} ({n}) записана в {path}")
+
+
+def register_hooks(sub, common) -> None:
+    g = sub.add_parser("hooks", help="the Hook library of a Format: proven hooks saved from cards")
+    gs = g.add_subparsers(dest="cmd", required=True)
+    for name, func, text in (("save", cmd_hooks_save, "save the hook of a carded Reference into a Format's library"),
+                             ("remove", cmd_hooks_remove, "take a Reference's hook out of a Format's library")):
+        p = gs.add_parser(name, parents=[common], help=text)
+        p.add_argument("format", help="Format id, e.g. walk-reel (the Watchlist's Format)")
+        p.add_argument("video", help="YouTube id or URL of the carded Reference")
+        p.set_defaults(func=func)
+    p = gs.add_parser("list", parents=[common], help="the Hook library of a Format")
+    p.add_argument("format")
+    p.set_defaults(func=cmd_hooks_list)
+    p = gs.add_parser("export", parents=[common], help="write formats/<format>/hook-library.md (generated, overwritten)")
+    p.add_argument("format")
+    p.add_argument("--out", help="write here instead of formats/<format>/hook-library.md in the repo")
+    p.set_defaults(func=cmd_hooks_export)
+
+
 GROUPS: list[Callable] = [register_watchlist, register_taxonomy, register_quota,
                           register_scout, register_snapshot, register_feed, register_fetch, register_card,
-                          register_ideas]
+                          register_ideas, register_summary, register_hooks]
 
 
 def build_parser() -> argparse.ArgumentParser:

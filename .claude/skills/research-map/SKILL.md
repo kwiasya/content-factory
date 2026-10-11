@@ -14,7 +14,7 @@ A niche becomes evidence for hooks, formats and Ideas through these skills, in o
 | 1 | `research-watchlist` | one Watchlist row (Format, Channel, language, Reference channels, queries) |
 | 2 | `scout-references` | refreshed Reference rows and today's snapshots for the Watchlist, its feed of outliers and the candidate channels its searches found |
 | 3 | `analyze-reference` | one Reference card (`cf-reference-card/1`) in the store and under `references/<watchlist>/<video_id>/` |
-| 4 | `mine-hooks` | hooks, formats and topics summaries for the Watchlist, and the Format's Hook library export in the repo |
+| 4 | `mine-hooks` | hooks, formats and topics summaries for the Watchlist, and the Format's Hook library `formats/<format_id>/hook-library.md` in the repo |
 | 5 | `suggest-ideas` | Idea rows in the inbox (status `inbox`) |
 
 Store: `~/Movies/content-factory/factory.db` (override `CF_FACTORY_DB` or `--db`); raw payloads, media, transcripts and cards under `~/Movies/content-factory/references/`. CLI: `.venv/bin/python -m cf.research <group> <cmd> [--json]`; quota left today: `.venv/bin/python -m cf.research quota`. Vocabulary: `GLOSSARY.md` (section Исследование). Plan: GitHub issue #1; the product it reproduces: `docs/research/sandcastles-map.md`.
