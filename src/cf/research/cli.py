@@ -3,7 +3,8 @@
 Groups so far: ``watchlist`` (add, list, show, remove, add-channel,
 remove-channel, add-query), ``taxonomy`` (list, approve, reject), ``quota``,
 ``scout``, ``snapshot``, ``feed``, ``fetch`` (one Reference, deep), ``card``
-(validate, save, show). Every command takes
+(validate, save, show), ``ideas`` (add, list, show, shortlist, discard,
+restore, note, brief, candidates). Every command takes
 ``--json`` (machine output on stdout) and ``--db`` (default ``CF_FACTORY_DB`` or
 ``<footage root>/factory.db``). Human output is a Markdown table in Russian.
 Errors: one line on stderr, exit 1.
@@ -23,14 +24,14 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cf.research import card, feed, fetch, quota, scout, taxonomy, watchlist, youtube
+from cf.research import brief, card, feed, fetch, ideas, quota, scout, taxonomy, watchlist, youtube
 from cf.research.kinds import KINDS
 from cf.research.store import StoreError, open_store
 
 # Errors a command reports as one line and exit 1.
 USER_ERRORS: tuple[type[Exception], ...] = (
     watchlist.WatchlistError, taxonomy.TaxonomyError, quota.QuotaExceeded,
-    youtube.YouTubeError, StoreError, fetch.FetchError, card.CardError,
+    youtube.YouTubeError, StoreError, fetch.FetchError, card.CardError, ideas.IdeaError,
 )
 
 
@@ -503,8 +504,151 @@ def register_card(sub, common) -> None:
     p.set_defaults(func=cmd_card_show)
 
 
+# --- ideas --------------------------------------------------------------------
+
+def _sources_text(idea: ideas.Idea) -> str:
+    return ", ".join(s["external_id"] or f"#{s['id']}" for s in idea.sources)
+
+
+def _ideas_table(rows: list[ideas.Idea]) -> str:
+    if not rows:
+        return "Idea нет."
+    return md_table(["ID", "Статус", "Название", "Reference", "Заметок", "Brief"],
+                    [(i.id, i.status, i.title, _sources_text(i), len(i.notes) or None, i.brief_path)
+                     for i in rows])
+
+
+def _idea_human(i: ideas.Idea) -> str:
+    f = i.fields
+    sf, cm = f["storytelling_format"], f.get("contrast_mechanism")
+    lines = [f"# Idea #{i.id}: {i.title}", "",
+             f"Статус: {i.status} · Watchlist {i.watchlist} · создана {i.created_at} · изменена {i.updated_at}"]
+    if i.brief_path:
+        lines.append(f"Brief: {i.brief_path}")
+    lines += ["", "## Суть", "", f["summary"],
+              "", "## Позиционирование", "", f["content_positioning"],
+              "", "## Формат повествования", "", f"`{sf['category']}`: {sf['why']}",
+              "", "## Контраст", "",
+              f"Принято думать: {cm['common_belief']}\nНа деле: {cm['contrarian_reality']}" if cm else "нет",
+              "", "## Хук", "", f["hook_alignment"],
+              "", "## Как переложить на свой Channel", ""]
+    lines += [f"{n}. {p}" for n, p in enumerate(f["personalizations"], 1)]
+    lines += ["", "## Reference", ""]
+    lines += [f"- {s['external_id']}: {s['title'] or '—'} {s['url'] or ''}".rstrip() for s in i.sources]
+    lines += ["", "## Заметки", ""]
+    lines += [f"- {n['at']}: {n['text']}" for n in i.notes] or ["Заметок нет."]
+    return "\n".join(lines)
+
+
+def _read_ideas(path: str) -> tuple[list[dict], bool]:
+    """The Idea objects of ``path`` and whether the file held a list."""
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ideas.IdeaError(f"{path}: {exc}") from exc
+    items = data if isinstance(data, list) else [data]
+    if not items or not all(isinstance(x, dict) for x in items):
+        raise ideas.IdeaError(f"{path}: expected an Idea object or a non-empty list of them")
+    return [dict(x) for x in items], isinstance(data, list)
+
+
+def cmd_ideas_add(args, store) -> int:
+    items, many = _read_ideas(args.file)
+    watchlist.get(store, args.watchlist)
+    sources = [item.pop("sources", None) for item in items]
+    problems = [f"[{n}] {p}" if many else p
+                for n, (src, item) in enumerate(zip(sources, items)) for p in ideas.check(store, src, item)]
+    if problems:
+        return _violations(args, args.file, problems)
+    added = [ideas.add(store, args.watchlist, src, item) for src, item in zip(sources, items)]
+    return emit(args, [i.to_dict() for i in added],
+                lambda: f"В инбокс {args.watchlist} добавлено Idea: {len(added)}.\n\n" + _ideas_table(added))
+
+
+def cmd_ideas_list(args, store) -> int:
+    rows = ideas.list(store, args.watchlist, status=args.status)
+    return emit(args, [i.to_dict() for i in rows], lambda: _ideas_table(rows))
+
+
+def cmd_ideas_show(args, store) -> int:
+    i = ideas.get(store, args.id)
+    return emit(args, i.to_dict(), lambda: _idea_human(i))
+
+
+def _ideas_move(args, store, move) -> int:
+    before = ideas.get(store, args.id).status
+    i = move(store, args.id)
+    return emit(args, i.to_dict(), lambda: f"Idea {i.id}: {before} → {i.status}")
+
+
+def cmd_ideas_note(args, store) -> int:
+    i = ideas.note(store, args.id, args.text)
+    return emit(args, i.to_dict(), lambda: f"Заметка добавлена к Idea {i.id} (всего {len(i.notes)}).")
+
+
+def cmd_ideas_brief(args, store) -> int:
+    path = brief.create(store, args.id, channel=args.channel, format_id=args.format)
+    i = ideas.get(store, args.id)
+    return emit(args, i.to_dict(), lambda: f"Idea {i.id}: shortlisted → brief\nBrief: {path}")
+
+
+def cmd_ideas_candidates(args, store) -> int:
+    rows = ideas.candidates(store, args.watchlist, days=args.days, min_outlier=args.min_outlier,
+                            limit=args.limit)
+    data = [{**r.to_dict(), "outlier": None if r.outlier is None else round(r.outlier, 2)} for r in rows]
+
+    def human() -> str:
+        if not rows:
+            return f"Нет проанализированных Reference без Idea за {args.days:g} дн."
+        return md_table(["№", "Outlier", "Просмотры", "Дата", "Название", "Хэндл", "Ссылка"],
+                        [(n, feed.outlier_text(r.outlier), feed.views_text(r.views), r.date, r.title,
+                          r.handle, r.url) for n, r in enumerate(rows, 1)])
+    return emit(args, data, human)
+
+
+def register_ideas(sub, common) -> None:
+    g = sub.add_parser("ideas", help="Ideas: inbox, triage (shortlist, discard, restore, note) and Briefs")
+    gs = g.add_subparsers(dest="cmd", required=True)
+    p = gs.add_parser("add", parents=[common], help="add Ideas to a Watchlist's inbox from a JSON file")
+    p.add_argument("watchlist")
+    p.add_argument("file", help="idea.json: {sources: [...], title, summary, …} or a list of them")
+    p.set_defaults(func=cmd_ideas_add)
+    p = gs.add_parser("list", parents=[common], help="Ideas of a Watchlist")
+    p.add_argument("watchlist")
+    p.add_argument("--status", choices=ideas.STATUSES)
+    p.set_defaults(func=cmd_ideas_list)
+    p = gs.add_parser("show", parents=[common], help="one Idea with every field and note")
+    p.add_argument("id", type=int)
+    p.set_defaults(func=cmd_ideas_show)
+    for name, move, text in (("shortlist", ideas.shortlist, "inbox → shortlisted"),
+                             ("discard", ideas.discard, "inbox → discarded"),
+                             ("restore", ideas.restore, "discarded → inbox")):
+        p = gs.add_parser(name, parents=[common], help=text)
+        p.add_argument("id", type=int)
+        p.set_defaults(func=lambda args, store, move=move: _ideas_move(args, store, move))
+    p = gs.add_parser("note", parents=[common], help="append an Author's note")
+    p.add_argument("id", type=int)
+    p.add_argument("text")
+    p.set_defaults(func=cmd_ideas_note)
+    p = gs.add_parser("brief", parents=[common],
+                      help="write the Brief of a shortlisted Idea under <footage root>/channels/<channel>/briefs/")
+    p.add_argument("id", type=int)
+    p.add_argument("--channel", help="Channel folder (default: the Watchlist's Channel, else _unassigned)")
+    p.add_argument("--format", help="Format id (default: the Watchlist's)")
+    p.set_defaults(func=cmd_ideas_brief)
+    p = gs.add_parser("candidates", parents=[common],
+                      help="analyzed top outliers of the window that no Idea uses yet (input of suggest-ideas)")
+    p.add_argument("watchlist")
+    p.add_argument("--days", type=float, default=ideas.DEFAULT_CANDIDATE_DAYS,
+                   help="published in the last N days (default %(default)s)")
+    p.add_argument("--min-outlier", type=float)
+    p.add_argument("--limit", type=int, default=ideas.DEFAULT_CANDIDATE_LIMIT, help="rows (default %(default)s)")
+    p.set_defaults(func=cmd_ideas_candidates)
+
+
 GROUPS: list[Callable] = [register_watchlist, register_taxonomy, register_quota,
-                          register_scout, register_snapshot, register_feed, register_fetch, register_card]
+                          register_scout, register_snapshot, register_feed, register_fetch, register_card,
+                          register_ideas]
 
 
 def build_parser() -> argparse.ArgumentParser:

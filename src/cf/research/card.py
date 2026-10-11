@@ -216,6 +216,11 @@ def _category_problem(store: Store, kind: str, raw: str) -> str | None:
     return f"{value!r} is not an approved {kind}; use one or write {PROPOSED}{value}"
 
 
+def category_problem(store: Store, kind: str, raw: str) -> str | None:
+    """Why ``raw`` (a value or ``proposed:<value>``) cannot stand in a field of taxonomy ``kind``; None when it can."""
+    return _category_problem(store, kind, raw)
+
+
 # --- saving the analysis ----------------------------------------------------------
 
 
