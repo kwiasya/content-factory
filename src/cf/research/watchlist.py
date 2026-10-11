@@ -152,7 +152,7 @@ def create(store: Store, name: str, *, format_id: str, channel_id: str | None = 
         raise WatchlistError(f"Watchlist name {name!r}: use letters, digits, '-', '_' or '.', "
                              f"no spaces or slashes, not starting with '.'")
     if not (format_id or "").strip():
-        raise WatchlistError("a Watchlist needs a Format id (e.g. tech_explainer, walk_reel)")
+        raise WatchlistError("a Watchlist needs a Format id (e.g. walk-reel, tech-explainer)")
     qs: list[str] = []
     for q in queries or []:
         q = " ".join(q.split())

@@ -5,7 +5,7 @@ description: Write the Script for one Reel from the Walk's Shot logs — clip or
 
 # Write a Script
 
-Schema, enums and the writing rules: `docs/script-schema.md`. Voice: `author/how-i-talk.md` (language, tone, example captions, `Never` rules) and the viewer in `author/who-i-am.md`; empty headings there mean `/author-setup` has not run, ask the two questions below and go on. Style: `style.json` (audience, fonts, safe zone, pacing). Hook evidence: `docs/research/06-reels-scripts-and-ai-landscape/result-a.md` Table B.
+Schema, enums and the writing rules: `docs/script-schema.md`. Voice: `author/how-i-talk.md` (language, tone, example captions, `Never` rules) and the viewer in `author/who-i-am.md`; empty headings there mean `/author-setup` has not run, ask the two questions below and go on. Style: `style.json` (audience, fonts, safe zone, pacing). Hook evidence: `docs/research/06-reels-scripts-and-ai-landscape/result-a.md` Table B, and the Hook library of this Format, `formats/walk-reel/hook-library.md` (a Walk Reel's Format id is `walk-reel`), when it exists: proven hooks from the niche's outliers with formula and Outlier score (`/mine-hooks` regenerates it).
 
 ## Steps
 
