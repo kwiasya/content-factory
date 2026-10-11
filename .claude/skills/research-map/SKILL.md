@@ -1,5 +1,5 @@
 ---
-name: research
+name: research-map
 description: Map of the research skills, in order: from a Watchlist to Ideas.
 disable-model-invocation: true
 ---
