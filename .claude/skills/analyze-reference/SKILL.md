@@ -9,7 +9,7 @@ Turns one Reference into a full card `cf-reference-card/1`: the `measured` secti
 
 ## Steps
 
-1. Read `author/how-you-work.md`. If `author/` is missing or its headings are empty, stop and tell the author to run `/author-setup` first.
+1. Read `author/how-you-work.md`. If `author/` is missing or that file's headings are empty, `/author-setup` has not run yet: run it for that part (Phase 3, how-you-work), then continue.
 2. Pick the Reference: the URL or id the author gave, else the top outlier marked `без разбора` in `.venv/bin/python -m cf.research feed <watchlist>` (ask which Watchlist if it is not known, and confirm the pick).
 3. Make sure a measured card exists: `.venv/bin/python -m cf.research card show <id> --json`. On an `error:` line ending in `run fetch first`, run `.venv/bin/python -m cf.research fetch <url> --watchlist <name> --json` (drop `--watchlist` for a one-off link); it downloads, transcribes and measures, a few minutes on this Mac. Report any `FAILED` step in one line and go on with what was measured.
 4. Read the evidence: `measured` from the card (spoken hook of the first 3 s, cuts per minute, first shot, first on-screen text, first person and face, sections, chapters, heatmap peaks with quotes, `notes`), the full text of `<dir>/transcript.json` (cross-check unclear words against the subtitle or caption `.vtt` files that `fetch --json` lists as `captions`, when there are any), and title and description from `<dir>/info.json`. Open a contact sheet (`.venv/bin/python -m cf.sheet <dir>/proxy.mp4 0 <duration_s> -o <dir>/sheet.png`) only when the visual layout is still in doubt after that.

@@ -9,7 +9,7 @@ A Watchlist scopes all research for one niche and one Format (`GLOSSARY.md`, sec
 
 ## Steps
 
-1. Read `author/how-you-work.md`, then `author/who-i-am.md` for the author's Channels and priorities. If `author/` is missing or those files have empty headings, stop and tell the author to run `/author-setup` first.
+1. Read `author/how-you-work.md`, then `author/who-i-am.md` for the author's Channels and priorities. If `author/` is missing or a heading this step needs is empty (the Channel in `who-i-am.md`, the rules in `how-you-work.md`), `/author-setup` has not run yet: run it for that part, then continue.
 2. Collect what the author has not already said, in one batch:
    - **name**: short, folder-safe (`claude-jobs`, `vienna-long`); it becomes `references/<name>/`.
    - **Format** id (`walk-reel`, `tech-explainer`, `travel-long`: the folder name under `formats/`, where the Format's Hook library lands) and the author's **Channel** it serves (the Author's Channel, stored as `author_channel`: a short folder name such as `travelwalks`, where its Briefs land under `channels/<channel>/briefs/`; not a Reference channel).

@@ -9,7 +9,7 @@ Turns a Watchlist into a fresh feed of Reference ranked by Outlier score (`GLOSS
 
 ## Steps
 
-1. Read `author/how-you-work.md`. If `author/` is missing or its headings are empty, stop and tell the author to run `/author-setup` first.
+1. Read `author/how-you-work.md`. If `author/` is missing or that file's headings are empty, `/author-setup` has not run yet: run it for that part (Phase 3, how-you-work), then continue.
 2. Pick the Watchlist: the one the author named, else `.venv/bin/python -m cf.research watchlist list` and ask. If none exists, stop and point to `/research-watchlist`.
 3. Scout: `.venv/bin/python -m cf.research scout <name> --json`. The first run per channel pages its uploads until 30 videos of each kind are known (or the history ends); later runs read only new uploads. Search reads one page of 50 per query from the last 30 days (`--search-days`, `--search-pages`, `--duration short` for Reels-length searches, `--no-search` when the search bucket is short). A refusal before the start (exit 1, `quota:` line) means nothing was spent: report it with the reset time (midnight Pacific) and stop. A non-null `stopped` means the quota ran out midway: what was read is kept, a later run resumes; say so and go on to the feed.
 4. Snapshot: `.venv/bin/python -m cf.research snapshot <name> --json`. One row per Reference per run; history is kept, so running it daily builds velocity data. Mention `missing` videos (deleted or private) in one line.

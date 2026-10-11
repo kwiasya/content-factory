@@ -9,7 +9,7 @@ Turns the cards of a Watchlist into three summaries and an updated Hook library.
 
 ## Steps
 
-1. Read `author/how-you-work.md`. If `author/` is missing or its headings are empty, stop and tell the author to run `/author-setup` first.
+1. Read `author/how-you-work.md`. If `author/` is missing or that file's headings are empty, `/author-setup` has not run yet: run it for that part (Phase 3, how-you-work), then continue.
 2. Pick the Watchlist: the one the author named, else `.venv/bin/python -m cf.research watchlist list` and ask. Note its Format id (`walk-reel` for Walk Reel).
 3. Run the three summaries with the author's window (`--days`, default 14; `--min-outlier` for the list without analysis, default 2; `--limit` groups, default 10; `--examples` per group, default 3):
    `.venv/bin/python -m cf.research summary hooks <name>`, `... summary formats <name>`, `... summary topics <name>`.

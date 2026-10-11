@@ -9,7 +9,7 @@ Turns what worked in a Watchlist's Reference into Idea rows for the author's Cha
 
 ## Steps
 
-1. Read `author/who-i-am.md` and `author/how-you-work.md`. If `author/` is missing or their headings are empty, stop and tell the author to run `/author-setup` first. The Channel, its audience and the viewer described there are who every personalization is for.
+1. Read `author/who-i-am.md` and `author/how-you-work.md`. If `author/` is missing or a heading this task needs is empty (the Channel and the one viewer in `who-i-am.md`, the rules in `how-you-work.md`), `/author-setup` has not run yet: run it for that part, then continue. The Channel, its audience and the viewer described there are who every personalization is for.
 2. Pick the Watchlist: the one the author named, else `.venv/bin/python -m cf.research watchlist list` and ask.
 3. Get the input: `.venv/bin/python -m cf.research ideas candidates <name> --json` (analyzed Reference of the last 30 days that no Idea uses yet, best Outlier score first; `--days`, `--min-outlier 2` for a strict pick, `--limit`, default 10). If it is empty, stop: say so and point to `/scout-references` for fresh outliers and `/analyze-reference` for the ones marked `без разбора` in the feed.
 4. Read the evidence: `.venv/bin/python -m cf.research card show <id> --json` for every candidate (summary, idea analysis, hook, storytelling format, measured numbers), and `.venv/bin/python -m cf.research ideas list <name> --json` so no new Idea repeats one already in the inbox, shortlist or a Brief.
