@@ -271,7 +271,8 @@ def register_fetch(sub, common) -> None:
     p = sub.add_parser("fetch", parents=[common],
                        help="deep fetch of one Reference: media, transcript, proxy, Shot log, measured card")
     p.add_argument("ref", help="YouTube video URL or 11-character id")
-    p.add_argument("--watchlist", help="Watchlist for the folder name and transcript language (no membership)")
+    p.add_argument("--watchlist", help="Watchlist for the transcript language and the folder of a first fetch "
+                        "(a fetched Reference keeps its folder; no membership)")
     p.add_argument("--force", action="store_true", help="download, transcribe and analyse again")
     p.set_defaults(func=cmd_fetch)
 

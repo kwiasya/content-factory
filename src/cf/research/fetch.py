@@ -1,7 +1,9 @@
 """Deep fetch of one Reference by URL or video id, even outside every Watchlist.
 
 Steps, each skipped when its artifact is already in the Reference folder
-(``<footage root>/references/<watchlist or _adhoc>/<video_id>/``) unless ``force``:
+(``<footage root>/references/<watchlist or _adhoc>/<video_id>/``) unless ``force``.
+A video has one Reference folder: a refetch reuses the folder it already has under
+any ``references/*/``, whatever Watchlist is given now (nothing moves or doubles).
 
 1. yt-dlp info (always refreshed: fresh view/like/comment counts) and media up
    to 720p (``<video_id>.mp4``, downloaded once), ``info.json`` next to it;
@@ -214,6 +216,16 @@ def reference_dir(video_id: str, watchlist: str | None = None, root: Path | None
     return Path(root or footage_root()) / "references" / (watchlist or ADHOC) / video_id
 
 
+def folder_for(video_id: str, watchlist: str | None = None, root: Path | None = None) -> Path:
+    """The Reference folder a fetch uses: the video's existing folder under any ``references/*/``
+    (the one of ``watchlist`` when there are several), else a new one for ``watchlist``."""
+    wanted = reference_dir(video_id, watchlist, root)
+    existing = card.reference_dirs(video_id, root)
+    if wanted in existing or not existing:
+        return wanted
+    return existing[0]
+
+
 def _read(path: Path):
     return json.loads(path.read_text())
 
@@ -237,7 +249,7 @@ def fetch(store: Store, ref: str, *, watchlist: str | None = None, force: bool =
     if watchlist is not None:
         language = watchlists.get(store, watchlist).language or DEFAULT_LANGUAGE
     a = adapters or default_adapters()
-    d = reference_dir(vid, watchlist, root)
+    d = folder_for(vid, watchlist, root)
     d.mkdir(parents=True, exist_ok=True)
     media = d / f"{vid}.mp4"
     url = f"https://www.youtube.com/watch?v={vid}"

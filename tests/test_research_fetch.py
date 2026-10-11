@@ -243,6 +243,26 @@ class FetchTest(StoreCase):
         self.assertIn(("transcribe", "pt"), self.fake.calls)
         self.assertEqual(self.store.query("SELECT * FROM watchlist_channel"), [])
 
+    def test_a_refetch_under_another_watchlist_reuses_the_existing_folder_without_moving_it(self):
+        wl.create(self.store, "lisbon-walks", format_id="walk-reel", language="pt")
+        first = self.run_fetch()
+        self.fake.calls.clear()
+        got = self.run_fetch(watchlist="lisbon-walks")
+        self.assertEqual(got["dir"], first["dir"])
+        self.assertEqual((got["steps"]["media"], got["steps"]["transcript"]), ("kept", "kept"))
+        self.assertNotIn("download", self.fake.names())
+        self.assertNotIn("transcribe", self.fake.names())
+        self.assertEqual([p.name for p in (self.root / "references").iterdir()], ["_adhoc"])
+
+    def test_an_adhoc_refetch_finds_the_folder_of_a_watchlist(self):
+        wl.create(self.store, "lisbon-walks", format_id="walk-reel")
+        first = self.run_fetch(watchlist="lisbon-walks")
+        self.fake.calls.clear()
+        got = self.run_fetch()
+        self.assertEqual(got["dir"], first["dir"])
+        self.assertNotIn("download", self.fake.names())
+        self.assertFalse((self.root / "references" / "_adhoc").exists())
+
     def test_a_failed_proxy_still_saves_a_card_without_the_shot_log_part(self):
         self.fake.proxy = lambda media, dest, force: {"status": "FAILED", "proxy_path": None, "error": "boom"}
         got = self.run_fetch()
