@@ -26,6 +26,10 @@ vision-score <video> [--fps N] [--json out.json] [--max-side PX]
 | `--fps N` | `1` | Frames sampled per second, at t = 0, 1/N, 2/N, ... < duration |
 | `--json PATH` | stdout | Write the JSON array to PATH instead of stdout |
 | `--max-side PX` | `1024` | Downscale decoded frames so the longer side is at most PX (`0` = native). Never upscales. Keeps memory small on 4K sources. 540p proxies are unaffected. |
+| `--landmarks` | off | Face landmarks; adds `mouth_open` (inner-lip gap / face height, largest face) |
+| `--faces-only` | off | Skip aesthetics and humans (those fields are null) |
+| `--text` | off | On-screen text only (Vision `RecognizeTextRequest`, accurate, language auto-detected): adds `text`; every other field is null. Used by `cf.research.ocr` for the first seconds of a Reference |
+| `--until S` | whole video | Stop sampling after S seconds |
 
 stdout (or the `--json` file) holds only the JSON. stderr gets per-frame errors and one summary line:
 
@@ -56,6 +60,7 @@ A JSON array, one object per sampled frame, in time order:
 | `max_face_h` | float 0…1 | Height of the largest face as a fraction of the frame height (`0` when there are no faces). |
 | `humans` | int | Number of people from `DetectHumanRectanglesRequest`, full body (`upperBodyOnly = false`). |
 | `max_human_h` | float 0…1 | Height of the tallest person box as a fraction of the frame height (`0` when there are none). |
+| `text` | array, only with `--text` | Recognized lines `{"s": string, "conf": 0…1, "h": box height 0…1}`, top candidate per line; `[]` when the frame has none |
 | `error` | string, optional | Only present when one or more requests failed on this frame. The fields of the failed requests are `null`. |
 
 Frames are measured upright. Rotation metadata is applied (`appliesPreferredTrackTransform`), so "height" means height on the displayed frame.

@@ -1,0 +1,145 @@
+{
+ "text": " So this is Alfama, the oldest part of Lisbon. Watch the stairs. Okay, sunset time.",
+ "language": "en",
+ "segments": [
+  {
+   "start": 0.62,
+   "end": 3.9,
+   "text": " So this is Alfama, the oldest part of Lisbon.",
+   "seek": 0,
+   "temperature": 0.0,
+   "avg_logprob": -0.21,
+   "compression_ratio": 1.2,
+   "no_speech_prob": 0.02,
+   "words": [
+    {
+     "word": " So",
+     "start": 0.62,
+     "end": 0.8,
+     "probability": 0.91
+    },
+    {
+     "word": " this",
+     "start": 0.8,
+     "end": 1.0,
+     "probability": 0.97
+    },
+    {
+     "word": " is",
+     "start": 1.0,
+     "end": 1.14,
+     "probability": 0.98
+    },
+    {
+     "word": " Alfama,",
+     "start": 1.14,
+     "end": 1.72,
+     "probability": 0.83
+    },
+    {
+     "word": " the",
+     "start": 1.9,
+     "end": 2.02,
+     "probability": 0.99
+    },
+    {
+     "word": " oldest",
+     "start": 2.02,
+     "end": 2.44,
+     "probability": 0.96
+    },
+    {
+     "word": " part",
+     "start": 2.44,
+     "end": 2.7,
+     "probability": 0.98
+    },
+    {
+     "word": " of",
+     "start": 2.7,
+     "end": 2.84,
+     "probability": 0.99
+    },
+    {
+     "word": " Lisbon.",
+     "start": 2.84,
+     "end": 3.9,
+     "probability": 0.95
+    }
+   ]
+  },
+  {
+   "start": 41.2,
+   "end": 42.3,
+   "text": " Watch the stairs.",
+   "seek": 4000,
+   "temperature": 0.0,
+   "avg_logprob": -0.35,
+   "compression_ratio": 0.9,
+   "no_speech_prob": 0.05,
+   "words": [
+    {
+     "word": " Watch",
+     "start": 41.2,
+     "end": 41.5,
+     "probability": 0.88
+    },
+    {
+     "word": " the",
+     "start": 41.5,
+     "end": 41.62,
+     "probability": 0.97
+    },
+    {
+     "word": " stairs.",
+     "start": 41.62,
+     "end": 42.3,
+     "probability": 0.9
+    }
+   ]
+  },
+  {
+   "start": 90.4,
+   "end": 91.8,
+   "text": " Okay, sunset time.",
+   "seek": 9000,
+   "temperature": 0.2,
+   "avg_logprob": -0.48,
+   "compression_ratio": 0.8,
+   "no_speech_prob": 0.11,
+   "words": [
+    {
+     "word": " Okay,",
+     "start": 90.4,
+     "end": 90.8,
+     "probability": 0.74
+    },
+    {
+     "word": " sunset",
+     "start": 90.9,
+     "end": 91.3,
+     "probability": 0.93
+    },
+    {
+     "word": " time.",
+     "start": 91.3,
+     "end": 91.8,
+     "probability": 0.95
+    }
+   ]
+  }
+ ],
+ "ori_dict": {},
+ "regroup_history": "da",
+ "nonspeech_sections": [
+  {
+   "start": 3.9,
+   "end": 41.2
+  },
+  {
+   "start": 42.3,
+   "end": 90.4
+  }
+ ],
+ "unfinished": null
+}

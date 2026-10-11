@@ -2,7 +2,7 @@
 
 Groups so far: ``watchlist`` (add, list, show, remove, add-channel,
 remove-channel, add-query), ``taxonomy list``, ``quota``, ``scout``,
-``snapshot``, ``feed``. Every command takes
+``snapshot``, ``feed``, ``fetch`` (one Reference, deep). Every command takes
 ``--json`` (machine output on stdout) and ``--db`` (default ``CF_FACTORY_DB`` or
 ``<footage root>/factory.db``). Human output is a Markdown table in Russian.
 Errors: one line on stderr, exit 1.
@@ -15,18 +15,20 @@ exit code.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import sys
 from typing import Any, Callable, Iterable
 
-from cf.research import feed, quota, scout, taxonomy, watchlist, youtube
+from cf.research import feed, fetch, quota, scout, taxonomy, watchlist, youtube
 from cf.research.kinds import KINDS
 from cf.research.store import StoreError, open_store
 
 # Errors a command reports as one line and exit 1.
 USER_ERRORS: tuple[type[Exception], ...] = (
     watchlist.WatchlistError, taxonomy.TaxonomyError, quota.QuotaExceeded,
-    youtube.YouTubeError, StoreError,
+    youtube.YouTubeError, StoreError, fetch.FetchError,
 )
 
 
@@ -185,6 +187,65 @@ def register_quota(sub, common) -> None:
     p.set_defaults(func=cmd_quota)
 
 
+# --- fetch --------------------------------------------------------------------
+
+def _mmss(s: float | None) -> str | None:
+    return None if s is None else f"{int(s // 60)}:{s % 60:04.1f}"
+
+
+def _fetch_human(r: dict) -> str:
+    m = r["card"]["measured"]
+    cuts = None if m["cut_count"] is None else f"{m['cut_count']} ({m['cuts_per_min']} в минуту)"
+    text = None if m["first_text_s"] is None else f"{m['first_text_s']} («{m['first_text']}»)"
+    out = [f"Reference {r['video_id']}: {r['title']}", f"Папка: {r['dir']}", f"Канал: {r['channel_source']}", "",
+           md_table(["Шаг", "Итог"], r["steps"].items()), "",
+           md_table(["Измерение", "Значение"], [
+               ("Длительность, с", m["duration_s"]), ("Тип", m["kind"]), ("Склеек", cuts),
+               ("Первый шот, с", m["first_shot_s"]), ("Первый текст на экране, с", text),
+               ("Первый человек, с", m["first_person_s"]), ("Первое лицо, с", m["first_face_s"]),
+               ("Начало речи, с", m["speech_onset_s"]), ("Spoken hook (первые 3 с)", m["spoken_hook"]),
+               ("Язык", m["language"]), ("Секций транскрипта", None if m["sections"] is None else len(m["sections"])),
+               ("Глав", len(m["chapters"]))])]
+    if m["heatmap_peaks"]:
+        out += ["", "Пики most replayed:", "",
+                md_table(["Окно", "Значение", "Цитата"],
+                         [(f"{_mmss(p['start_s'])}–{_mmss(p['end_s'])}", p["value"], p["quote"])
+                          for p in m["heatmap_peaks"]])]
+    if m["notes"]:
+        out += [""] + [f"- {k}: {v}" for k, v in m["notes"].items()]
+    return "\n".join(out)
+
+
+@contextlib.contextmanager
+def _stdout_to_stderr():
+    """Send everything the tools print (model downloads, ffmpeg) to stderr, so stdout holds only our output."""
+    sys.stdout.flush()
+    saved = os.dup(1)
+    try:
+        os.dup2(2, 1)
+        with contextlib.redirect_stdout(sys.stderr):
+            yield
+    finally:
+        sys.stderr.flush()
+        os.dup2(saved, 1)
+        os.close(saved)
+
+
+def cmd_fetch(args, store) -> int:
+    with _stdout_to_stderr():
+        r = fetch.fetch(store, args.ref, watchlist=args.watchlist, force=args.force)
+    return emit(args, r, lambda: _fetch_human(r))
+
+
+def register_fetch(sub, common) -> None:
+    p = sub.add_parser("fetch", parents=[common],
+                       help="deep fetch of one Reference: media, transcript, proxy, Shot log, measured card")
+    p.add_argument("ref", help="YouTube video URL or 11-character id")
+    p.add_argument("--watchlist", help="Watchlist for the folder name and transcript language (no membership)")
+    p.add_argument("--force", action="store_true", help="download, transcribe and analyse again")
+    p.set_defaults(func=cmd_fetch)
+
+
 # --- scout, snapshot, feed ---------------------------------------------------
 
 def _calls_text(calls: dict[str, int]) -> str:
@@ -278,7 +339,7 @@ def register_feed(sub, common) -> None:
 
 
 GROUPS: list[Callable] = [register_watchlist, register_taxonomy, register_quota,
-                          register_scout, register_snapshot, register_feed]
+                          register_scout, register_snapshot, register_feed, register_fetch]
 
 
 def build_parser() -> argparse.ArgumentParser:
