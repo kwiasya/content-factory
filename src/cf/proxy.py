@@ -1,6 +1,13 @@
-"""Make 540p SDR Rec.709 analysis proxies for every Clip in a Walk manifest.
+"""Make 540p SDR Rec.709 analysis proxies for every Clip in a Walk manifest, or for one file.
 
-Usage: python -m cf.proxy <clip_manifest.json | raw_dir> <proxy_dir> [--force]
+Usage:
+  python -m cf.proxy <clip_manifest.json | raw_dir> <proxy_dir> [--force]
+  python -m cf.proxy <media_file> <out_dir | out.mp4> [--force]
+
+The second form needs no manifest: the file is probed on the spot (cf.probe.probe_file:
+ffprobe, exiftool when available) and the proxy goes to <out_dir>/<stem>.mp4 (or
+<stem>_approx.mp4), or exactly to out.mp4 when the destination ends in .mp4.
+From Python: proxy_file(src, dest, force=False) -> result dict with "proxy_path" and "clip".
 
 One ffmpeg at a time (8 GB machine). HLG sources are tone-mapped with
 zscale + tonemap when the ffmpeg build has zscale. Without zscale they get an
@@ -20,6 +27,8 @@ import sys
 import time
 from functools import lru_cache
 from pathlib import Path
+
+from cf import VIDEO_EXTENSIONS
 
 PROXY_SHORT_SIDE = 540
 PROXY_EXT = ".mp4"
@@ -144,14 +153,16 @@ def is_fresh(proxy: Path, src: Path) -> bool:
     return proxy.exists() and proxy.stat().st_size > 0 and proxy.stat().st_mtime > src.stat().st_mtime
 
 
-def make_proxy(clip: dict, src: Path, proxy_dir: Path, binary: str, has_zscale: bool, force: bool) -> dict:
-    exact, approx_path = proxy_paths(clip, proxy_dir)
+def make_proxy(clip: dict, src: Path, proxy_dir: Path, binary: str, has_zscale: bool, force: bool,
+               out: Path | None = None) -> dict:
+    """Encode one proxy into proxy_dir (Walk naming), or exactly to `out` when given."""
+    exact, approx_path = (out, out) if out else proxy_paths(clip, proxy_dir)
     vf, approx = build_filter(clip, has_zscale)
     dst = approx_path if approx else exact
 
     if not force and is_fresh(dst, src):
         return {"file": clip["file"], "proxy": dst.name, "status": "skipped (fresh)", "approx": approx}
-    if not force and approx and is_fresh(exact, src):
+    if not force and approx and exact != approx_path and is_fresh(exact, src):
         # An exact proxy already exists (made with a full ffmpeg earlier); never downgrade it.
         return {"file": clip["file"], "proxy": exact.name, "status": "skipped (exact exists)", "approx": False}
 
@@ -167,7 +178,7 @@ def make_proxy(clip: dict, src: Path, proxy_dir: Path, binary: str, has_zscale: 
         return {"file": clip["file"], "proxy": None, "status": "FAILED", "approx": approx, "error": "\n".join(err)}
 
     tmp.replace(dst)
-    if not approx:
+    if not approx and approx_path != exact:
         approx_path.unlink(missing_ok=True)  # an exact proxy supersedes the approximation
     return {
         "file": clip["file"],
@@ -176,6 +187,43 @@ def make_proxy(clip: dict, src: Path, proxy_dir: Path, binary: str, has_zscale: 
         "approx": approx,
         "seconds": round(time.monotonic() - started, 1),
     }
+
+
+def proxy_file(src: Path, dest: Path, force: bool = False) -> dict:
+    """Proxy for one media file outside a Walk, no manifest.
+
+    `dest` ending in .mp4 is the exact output path; anything else is a directory that gets
+    <stem>.mp4 (or <stem>_approx.mp4). Returns make_proxy's result plus "proxy_path"
+    (absolute, None on failure) and "clip" (the cf.probe.probe_file entry).
+    """
+    from cf.probe import probe_file
+
+    src = Path(src)
+    dest = Path(dest)
+    clip = probe_file(src)
+    out = dest if dest.suffix.lower() == PROXY_EXT else None
+    proxy_dir = dest.parent if out else dest
+    proxy_dir.mkdir(parents=True, exist_ok=True)
+    binary, has_zscale = pick_ffmpeg()
+    res = make_proxy(clip, src, proxy_dir, binary, has_zscale, force, out=out)
+    res["proxy_path"] = str((proxy_dir / res["proxy"]).resolve()) if res["proxy"] else None
+    res["clip"] = clip
+    return res
+
+
+def is_media_file(arg: Path) -> bool:
+    return arg.is_file() and arg.suffix.lower() in VIDEO_EXTENSIONS
+
+
+def single_file(args) -> int:
+    res = proxy_file(args.manifest, args.proxy_dir, args.force)
+    extra = f" {res['seconds']}s" if "seconds" in res else ""
+    flag = "  [approx]" if res["approx"] else ""
+    print(f"{res['file']} -> {res['proxy_path'] or '-'} {res['status']}{extra}{flag}", flush=True)
+    if res.get("error"):
+        print("    " + res["error"].replace("\n", "\n    "), file=sys.stderr)
+        return 1
+    return 0
 
 
 def load_manifest(arg: Path) -> Path:
@@ -200,10 +248,13 @@ def resolve_source(clip: dict, manifest: dict, manifest_path: Path) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cf.proxy", description=__doc__.splitlines()[0])
-    ap.add_argument("manifest", type=Path, help="clip_manifest.json, or the raw/ dir next to it")
-    ap.add_argument("proxy_dir", type=Path)
+    ap.add_argument("manifest", type=Path, help="clip_manifest.json, the raw/ dir next to it, or one media file")
+    ap.add_argument("proxy_dir", type=Path, help="proxy directory; for one media file also an exact out .mp4 path")
     ap.add_argument("--force", action="store_true", help="re-encode even when the proxy is newer than the source")
     args = ap.parse_args(argv)
+
+    if is_media_file(args.manifest):
+        return single_file(args)
 
     manifest_path = load_manifest(args.manifest)
     manifest = json.loads(manifest_path.read_text())

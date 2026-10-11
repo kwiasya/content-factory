@@ -329,6 +329,19 @@ def probe_clip(path: Path, exif: dict) -> dict:
     return clip
 
 
+def probe_file(path: Path) -> dict:
+    """Manifest-style entry for one media file outside a Walk (e.g. a downloaded Reference).
+
+    exiftool is best effort here: without it (or without tags) the entry still carries
+    ffprobe's fps, duration, rotation and color tags; device and GPS stay empty.
+    """
+    try:
+        exif = run_exiftool([path]).get(path.name, {})
+    except (OSError, RuntimeError, ValueError):
+        exif = {}
+    return probe_clip(path, exif)
+
+
 # --------------------------------------------------------------------------
 # CLI
 
