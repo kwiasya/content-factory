@@ -7,8 +7,11 @@ copies from the card's analysis the hook category (bare, without a leftover
 when the analysis has none), and keeps a link to its source Reference.
 
 ``export`` writes the library as ``formats/<format_id>/hook-library.md`` in the
-repo, which ``write-script`` reads. The file is generated: the same store
-state gives the same bytes, and every export overwrites it.
+repo, which ``write-script`` reads. The file is generated and every export
+overwrites it. The Outlier scores in it are as of the export (``now``), so the
+same bytes come from the same store state at the same ``now``; in practice, the
+same store state on the same day, since a score moves only as videos age past
+the 3-day baseline cutoff.
 """
 
 from __future__ import annotations
@@ -165,7 +168,10 @@ def render(store: Store, format_id: str, *, now: datetime | None = None) -> str:
 
 def export(store: Store, format_id: str, path: str | Path | None = None, *,
            now: datetime | None = None) -> Path:
-    """Write the Hook library of ``format_id`` (default ``formats/<format_id>/hook-library.md``); return the path."""
+    """Write the Hook library of ``format_id`` (default ``formats/<format_id>/hook-library.md``); return the path.
+
+    Deterministic for the same store state and the same ``now`` (default: the current time); Outlier
+    scores are computed as of ``now``."""
     target = Path(path) if path is not None else library_path(format_id)
     text = render(store, check_format(format_id), now=now)
     target.parent.mkdir(parents=True, exist_ok=True)
