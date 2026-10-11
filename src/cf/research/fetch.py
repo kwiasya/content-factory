@@ -7,6 +7,8 @@ any ``references/*/``, whatever Watchlist is given now (nothing moves or doubles
 
 1. yt-dlp info (always refreshed: fresh view/like/comment counts) and media up
    to 720p (``<video_id>.mp4``, downloaded once), ``info.json`` next to it;
+   subtitles and auto-captions in the transcript language as WebVTT text
+   (``<video_id>.subs.<lang>.vtt``, ``<video_id>.auto.<lang>.vtt``), kept offline;
 2. the channel, ingested through ``channels.list`` when the store does not know
    it (no Watchlist membership), the ``video`` row and a ``snapshot``;
 3. ``transcript.json``: stable-ts with word timestamps, language of the
@@ -61,7 +63,9 @@ class Adapters:
     - ``proxy(media, dest, force) -> dict``: ``cf.proxy.proxy_file`` result (``status``, ``proxy_path``, ``error``);
     - ``shotlog(proxy, media, transcript) -> dict``: the Shot log, its speech taken from ``transcript``;
     - ``ocr(media) -> frames | None``: ``tools/vision-score --text`` records of the first seconds, None if unavailable;
-    - ``transport``: Data API transport for ``channels.list`` (None: HTTP with ``YOUTUBE_API_KEY``).
+    - ``transport``: Data API transport for ``channels.list`` (None: HTTP with ``YOUTUBE_API_KEY``);
+    - ``captions(info, ref_dir, video_id, language) -> [file name]``: subtitles and auto-captions of
+      ``language`` as ``.vtt`` files in ``ref_dir`` (None: not available).
     """
     extract: Callable[[str], dict]
     download: Callable[[str, Path, str], dict]
@@ -70,6 +74,7 @@ class Adapters:
     shotlog: Callable[[Path, Path, dict], dict]
     ocr: Callable[[Path], list | None]
     transport: youtube.Transport | None = None
+    captions: Callable[[dict, Path, str, str], list[str]] | None = None
 
 
 def default_adapters() -> Adapters:
@@ -81,7 +86,7 @@ def default_adapters() -> Adapters:
         return proxy_file(media, dest, force=force)
 
     return Adapters(extract=ytdlp.extract, download=ytdlp.download, transcribe=stablets.transcribe,
-                    proxy=proxy, shotlog=stablets.shotlog, ocr=ocr.first_seconds)
+                    proxy=proxy, shotlog=stablets.shotlog, ocr=ocr.first_seconds, captions=ytdlp.captions)
 
 
 def parse_video_ref(text: str) -> str:
@@ -242,7 +247,8 @@ def fetch(store: Store, ref: str, *, watchlist: str | None = None, force: bool =
     """Deep fetch of one Reference (see the module docstring); returns what was done and the card.
 
     Result: ``video_id`` (YouTube id), ``video`` (store id), ``dir``, ``channel_source``,
-    ``steps`` (per artifact: made, kept, downloaded, FAILED: …), ``card``.
+    ``steps`` (per artifact: made, kept, downloaded, FAILED: …), ``captions`` (``.vtt`` file
+    names in ``dir``), ``card``.
     """
     vid = parse_video_ref(ref)
     language = DEFAULT_LANGUAGE
@@ -264,6 +270,19 @@ def fetch(store: Store, ref: str, *, watchlist: str | None = None, force: bool =
     if not media.exists():
         raise FetchError(f"yt-dlp finished but {media} is missing")
     _write(d / "info.json", info)
+
+    have = sorted(p.name for p in d.glob(f"{vid}.*.vtt"))
+    if a.captions is None:
+        steps["captions"] = "unavailable"
+    elif force or not have:
+        try:
+            got = a.captions(info, d, vid, language)
+            steps["captions"] = "made" if got else "none on YouTube"
+        except FetchError as exc:
+            steps["captions"] = f"FAILED: {exc}"
+    else:
+        steps["captions"] = "kept"
+    captions = sorted(p.name for p in d.glob(f"{vid}.*.vtt"))
 
     tr_path = d / "transcript.json"
     if force or not tr_path.exists():
@@ -306,4 +325,4 @@ def fetch(store: Store, ref: str, *, watchlist: str | None = None, force: bool =
     saved = card.save(store, rec["video_id"], measured, path=d / "card.json")
     return {"video_id": vid, "video": rec["video_id"], "title": info.get("title"), "dir": str(d),
             "watchlist": watchlist, "language": language, "channel_source": rec["channel_source"],
-            "steps": steps, "card": saved}
+            "steps": steps, "captions": captions, "card": saved}

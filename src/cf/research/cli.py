@@ -227,7 +227,8 @@ def _fetch_human(r: dict) -> str:
     m = r["card"]["measured"]
     cuts = None if m["cut_count"] is None else f"{m['cut_count']} ({m['cuts_per_min']} в минуту)"
     text = None if m["first_text_s"] is None else f"{m['first_text_s']} («{m['first_text']}»)"
-    out = [f"Reference {r['video_id']}: {r['title']}", f"Папка: {r['dir']}", f"Канал: {r['channel_source']}", "",
+    out = [f"Reference {r['video_id']}: {r['title']}", f"Папка: {r['dir']}", f"Канал: {r['channel_source']}",
+           f"Субтитры: {', '.join(r['captions']) or 'нет'}", "",
            md_table(["Шаг", "Итог"], r["steps"].items()), "",
            md_table(["Измерение", "Значение"], [
                ("Длительность, с", m["duration_s"]), ("Тип", m["kind"]), ("Склеек", cuts),

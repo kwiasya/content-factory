@@ -159,7 +159,8 @@ class FakeAdapters(fetch.Adapters):
     def __init__(self, transport):
         self.calls = []
         super().__init__(extract=self._extract, download=self._download, transcribe=self._transcribe,
-                         proxy=self._proxy, shotlog=self._shotlog, ocr=self._ocr, transport=transport)
+                         proxy=self._proxy, shotlog=self._shotlog, ocr=self._ocr, transport=transport,
+                         captions=self._captions)
 
     def _extract(self, url):
         self.calls.append(("extract", url))
@@ -170,6 +171,13 @@ class FakeAdapters(fetch.Adapters):
         ref_dir.mkdir(parents=True, exist_ok=True)
         (ref_dir / f"{video_id}.mp4").write_bytes(b"media")
         return fixture("info_long.json")
+
+    def _captions(self, info, ref_dir, video_id, language):
+        self.calls.append(("captions", language))
+        names = [f"{video_id}.subs.{language}.vtt", f"{video_id}.auto.{language}.vtt"]
+        for n in names:
+            (ref_dir / n).write_text("WEBVTT\n")
+        return names
 
     def _transcribe(self, media, language):
         self.calls.append(("transcribe", language))
@@ -209,9 +217,11 @@ class FetchTest(StoreCase):
         ref = self.root / "references" / "_adhoc" / "dQw4w9WgXcQ"
         self.assertEqual(Path(got["dir"]), ref)
         self.assertEqual(sorted(p.name for p in ref.iterdir()),
-                         ["card.json", "dQw4w9WgXcQ.mp4", "info.json", "ocr.json", "proxy.mp4", "shotlog.json",
-                          "transcript.json"])
-        self.assertEqual(self.fake.names(), ["download", "transcribe", "proxy", "shotlog", "ocr"])
+                         ["card.json", "dQw4w9WgXcQ.auto.en.vtt", "dQw4w9WgXcQ.mp4", "dQw4w9WgXcQ.subs.en.vtt",
+                          "info.json", "ocr.json", "proxy.mp4", "shotlog.json", "transcript.json"])
+        self.assertEqual(self.fake.names(), ["download", "captions", "transcribe", "proxy", "shotlog", "ocr"])
+        self.assertEqual(got["captions"], ["dQw4w9WgXcQ.auto.en.vtt", "dQw4w9WgXcQ.subs.en.vtt"])
+        self.assertEqual(got["steps"]["captions"], "made")
         self.assertIn(("transcribe", "en"), self.fake.calls)
         saved = json.loads((ref / "card.json").read_text())
         self.assertEqual(saved["schema"], "cf-reference-card/1")
@@ -227,20 +237,22 @@ class FetchTest(StoreCase):
         got = self.run_fetch("dQw4w9WgXcQ")
         self.assertEqual(self.fake.calls, [("extract", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"), ("proxy", False)])
         self.assertEqual(got["steps"]["media"], "kept")
-        self.assertEqual(got["steps"]["transcript"], "kept")
+        self.assertEqual((got["steps"]["transcript"], got["steps"]["captions"]), ("kept", "kept"))
+        self.assertEqual(len(got["captions"]), 2)
         self.assertEqual(got["card"]["measured"]["spoken_hook"], "So this is Alfama, the oldest part of Lisbon.")
 
     def test_force_downloads_transcribes_and_analyses_again(self):
         self.run_fetch()
         self.fake.calls.clear()
         self.run_fetch(force=True)
-        self.assertEqual(self.fake.names(), ["download", "transcribe", "proxy", "shotlog", "ocr"])
+        self.assertEqual(self.fake.names(), ["download", "captions", "transcribe", "proxy", "shotlog", "ocr"])
 
     def test_a_watchlist_names_the_folder_and_the_transcript_language_but_adds_no_membership(self):
         wl.create(self.store, "lisbon-walks", format_id="walk_reel", language="pt")
         got = self.run_fetch(watchlist="lisbon-walks")
         self.assertEqual(Path(got["dir"]), self.root / "references" / "lisbon-walks" / "dQw4w9WgXcQ")
         self.assertIn(("transcribe", "pt"), self.fake.calls)
+        self.assertIn(("captions", "pt"), self.fake.calls)
         self.assertEqual(self.store.query("SELECT * FROM watchlist_channel"), [])
 
     def test_a_refetch_under_another_watchlist_reuses_the_existing_folder_without_moving_it(self):
@@ -262,6 +274,14 @@ class FetchTest(StoreCase):
         self.assertEqual(got["dir"], first["dir"])
         self.assertNotIn("download", self.fake.names())
         self.assertFalse((self.root / "references" / "_adhoc").exists())
+
+    def test_captions_that_fail_to_download_do_not_stop_the_fetch(self):
+        def broken(info, ref_dir, video_id, language):
+            raise fetch.FetchError("yt-dlp: HTTP Error 429")
+        self.fake.captions = broken
+        got = self.run_fetch()
+        self.assertEqual((got["steps"]["captions"], got["captions"]), ("FAILED: yt-dlp: HTTP Error 429", []))
+        self.assertIsNotNone(got["card"])
 
     def test_a_failed_proxy_still_saves_a_card_without_the_shot_log_part(self):
         self.fake.proxy = lambda media, dest, force: {"status": "FAILED", "proxy_path": None, "error": "boom"}

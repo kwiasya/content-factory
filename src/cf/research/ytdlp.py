@@ -1,4 +1,4 @@
-"""Thin yt-dlp adapter for the deep fetch: info dict and media up to 720p. No unit tests (manual smoke).
+"""Thin yt-dlp adapter for the deep fetch: info dict, media up to 720p, captions. No unit tests (manual smoke).
 
 ``res:720`` is a format *sort* key on the smaller side, not a height filter, so a
 vertical Short comes as 720x1280 and a landscape video as 1280x720; H.264 and
@@ -9,6 +9,8 @@ walls are reported, never worked around with browser cookies.
 
 from __future__ import annotations
 
+import copy
+import re
 from pathlib import Path
 
 from cf.research.fetch import FetchError
@@ -70,3 +72,33 @@ def download(url: str, ref_dir: Path, video_id: str) -> dict:
         if got and got[0].exists():
             got[0].replace(media)
     return info
+
+
+# subtitles first, then auto-captions: each pass names its files apart, since yt-dlp
+# would otherwise write the uploader's subtitles and YouTube's captions to the same name
+CAPTION_PASSES = (("subs", {"writesubtitles": True}), ("auto", {"writeautomaticsub": True}))
+
+
+def captions(info: dict, ref_dir: Path, video_id: str, language: str) -> list[str]:
+    """Write the subtitles and auto-captions of ``language`` (and its variants: ``en-US``, ``en-orig``)
+    listed in ``info`` as WebVTT text: ``<video_id>.subs.<lang>.vtt`` and ``<video_id>.auto.<lang>.vtt``.
+    No media is downloaded. Returns the file names written (empty when YouTube has none)."""
+    from yt_dlp import YoutubeDL
+    from yt_dlp.utils import DownloadError, ExtractorError
+
+    ref_dir.mkdir(parents=True, exist_ok=True)
+    langs = [re.escape(language or "en") + r"(-[\w-]+)?"]
+    written: list[str] = []
+    for tag, flags in CAPTION_PASSES:
+        opts = _base() | flags | {
+            "skip_download": True, "format": FORMAT, "format_sort": FORMAT_SORT,
+            "subtitleslangs": langs, "subtitlesformat": "vtt/best", "overwrites": True,
+            "outtmpl": {"default": str(ref_dir / f"{video_id}.{tag}.%(ext)s")},
+        }
+        try:
+            with YoutubeDL(opts) as ydl:
+                ydl.process_ie_result(copy.deepcopy(info), download=True)
+        except (DownloadError, ExtractorError) as exc:
+            raise FetchError(f"yt-dlp captions: {exc}".replace("\n", " ")) from exc
+        written += sorted(p.name for p in ref_dir.glob(f"{video_id}.{tag}.*.vtt"))
+    return written
