@@ -1,7 +1,7 @@
 """The feed of a Watchlist: its Reference with Outlier score, filtered and ordered.
 
-Views come from each video's latest snapshot; the Outlier score is computed at
-query time by ``outlier`` and never stored.
+Views, likes and comments come from each video's latest snapshot that has views (the latest one
+when none has); the Outlier score is computed at query time by ``outlier`` and never stored.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ SELECT v.id, v.external_id, v.title, v.url, v.kind, v.duration_s, v.published_at
 FROM video v
 JOIN channel c ON c.id = v.channel_id
 LEFT JOIN snapshot s ON s.id = (SELECT id FROM snapshot WHERE video_id = v.id
-                                ORDER BY taken_at DESC LIMIT 1)
+                                ORDER BY views IS NULL, taken_at DESC LIMIT 1)
 """
 
 

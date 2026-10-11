@@ -1,7 +1,7 @@
 """Outlier score: how many times a Reference beat its own channel's norm.
 
-Views of the Reference (latest snapshot) divided by the median views (each
-from its latest snapshot) of the same channel's last ``BASELINE_SIZE`` videos of
+Views of the Reference (latest snapshot with views) divided by the median views
+(each from its latest snapshot with views) of the same channel's last ``BASELINE_SIZE`` videos of
 the same kind that are at least ``MIN_AGE_DAYS`` old, excluding the Reference
 itself. None when fewer than ``MIN_BASELINE`` such videos have views, or the
 Reference has no views or no kind. Computed on every query, never stored
@@ -20,7 +20,8 @@ BASELINE_SIZE = 30
 MIN_AGE_DAYS = 3
 MIN_BASELINE = 5
 
-_LATEST_VIEWS = ("(SELECT s.views FROM snapshot s WHERE s.video_id = v.id "
+# the latest snapshot that has views: a later one without (hidden count, yt-dlp gap) does not erase them
+_LATEST_VIEWS = ("(SELECT s.views FROM snapshot s WHERE s.video_id = v.id AND s.views IS NOT NULL "
                  "ORDER BY s.taken_at DESC LIMIT 1)")
 
 

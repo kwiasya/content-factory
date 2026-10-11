@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from cf.research import outlier
+from cf.research import feed, outlier
 from cf.research import store as st
 from research_synth import NOW, add_videos, ago, iso, video_item
 
@@ -82,6 +82,14 @@ class OutlierTest(unittest.TestCase):
         add_videos(self.store, items, taken_at=iso(NOW))
         add_videos(self.store, [video_item("new", CH, ago(days=1), LONG, 1)], taken_at=ago(days=1, hours=1))
         self.assertAlmostEqual(self.score("new"), 400 / 200)
+
+    def test_a_later_snapshot_without_views_does_not_hide_the_last_known_views(self):
+        add_videos(self.store, [video_item(f"old{i}", CH, ago(days=4 + i), LONG, 100) for i in range(5)]
+                   + [video_item("new", CH, ago(days=1), LONG, 1000)], taken_at=ago(hours=2))
+        add_videos(self.store, [video_item("new", CH, ago(days=1), LONG, None),
+                                video_item("old0", CH, ago(days=4), LONG, None)], taken_at=iso(NOW))
+        self.assertAlmostEqual(self.score("new"), 1000 / 100)
+        self.assertEqual(feed.reference(self.store, "new").views, 1000)
 
     def test_a_video_without_snapshots_or_unknown_has_no_score(self):
         add_videos(self.store, [video_item(f"old{i}", CH, ago(days=4 + i), LONG, 100) for i in range(5)]
