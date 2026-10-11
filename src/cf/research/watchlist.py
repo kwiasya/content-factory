@@ -31,15 +31,16 @@ class ChannelRef:
     value: str
 
 
-CHANNEL_ID_RE = re.compile(r"^UC[\w-]{22}$")
-HANDLE_RE = re.compile(r"^[\w.-]{3,100}$")
+# patterns are used with fullmatch: ``$`` would let a trailing newline in
+CHANNEL_ID_RE = re.compile(r"UC[\w-]{22}")
+HANDLE_RE = re.compile(r"[\w.-]{3,100}")
 VIDEO_PATHS = {"watch", "shorts", "live", "embed", "v"}
 NOT_CHANNEL_PATHS = {"playlist", "results", "feed", "hashtag", "post", "channel", "user", "c"}
 
 
 def _handle(name: str, text: str) -> ChannelRef:
-    name = unquote(name).lstrip("@")
-    if not HANDLE_RE.match(name):
+    name = unquote(name).strip().lstrip("@")
+    if not HANDLE_RE.fullmatch(name):
         raise WatchlistError(f"not a channel handle: {text!r} (expected @name, a channel URL or a UC… id)")
     return ChannelRef("handle", "@" + name.lower())
 
@@ -49,7 +50,7 @@ def parse_channel_ref(text: str) -> ChannelRef:
     t = (text or "").strip()
     if not t:
         raise WatchlistError("empty channel reference")
-    if CHANNEL_ID_RE.match(t):
+    if CHANNEL_ID_RE.fullmatch(t):
         return ChannelRef("id", t)
     looks_like_url = "/" in t or "://" in t
     if not looks_like_url:
@@ -69,8 +70,8 @@ def parse_channel_ref(text: str) -> ChannelRef:
         raise WatchlistError(f"{text!r} is a video link, not a channel; paste the channel URL or @handle")
     if head == "playlist":
         raise WatchlistError(f"{text!r} is a playlist link, not a channel")
-    if head == "channel" and len(segs) > 1 and CHANNEL_ID_RE.match(segs[1]):
-        return ChannelRef("id", segs[1])
+    if head == "channel" and len(segs) > 1 and CHANNEL_ID_RE.fullmatch(unquote(segs[1]).strip()):
+        return ChannelRef("id", unquote(segs[1]).strip())
     if head == "user" and len(segs) > 1:
         return ChannelRef("username", unquote(segs[1]))
     if head == "c" and len(segs) > 1:
@@ -84,7 +85,7 @@ def parse_channel_ref(text: str) -> ChannelRef:
 
 # --- Watchlists ------------------------------------------------------------
 
-NAME_RE = re.compile(r"^[\w][\w.-]*$")
+NAME_RE = re.compile(r"[\w][\w.-]*")
 
 
 @dataclass(frozen=True)
@@ -149,7 +150,7 @@ def create(store: Store, name: str, *, format_id: str, author_channel: str | Non
            queries: list[str] | None = None) -> Watchlist:
     """Create a Watchlist. ``name`` doubles as a folder name under ``references/``;
     ``author_channel`` names the Author's Channel it serves (Brief folder)."""
-    if not name or not NAME_RE.match(name):
+    if not name or not NAME_RE.fullmatch(name):
         raise WatchlistError(f"Watchlist name {name!r}: use letters, digits, '-', '_' or '.', "
                              f"no spaces or slashes, not starting with '.'")
     if not (format_id or "").strip():

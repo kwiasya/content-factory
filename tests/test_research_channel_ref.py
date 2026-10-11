@@ -25,6 +25,9 @@ class ParseChannelRefTest(unittest.TestCase):
             "https://www.youtube.com/user/PewDiePie": ChannelRef("username", "PewDiePie"),
             "https://www.youtube.com/c/Fireship": ChannelRef("custom", "Fireship"),
             "https://www.youtube.com/fireship": ChannelRef("handle", "@fireship"),
+            "https://www.youtube.com/@abc%0A": ChannelRef("handle", "@abc"),
+            f"https://www.youtube.com/channel/{UC}%0A": ChannelRef("id", UC),
+            f"{UC}\n": ChannelRef("id", UC),
         }
         for text, want in cases.items():
             with self.subTest(text=text):
@@ -40,6 +43,8 @@ class ParseChannelRefTest(unittest.TestCase):
             "https://vimeo.com/fireship": "YouTube",
             "https://www.youtube.com/": "no channel",
             "two words": "handle",
+            "https://www.youtube.com/@ab%0Acd": "handle",
+            "@abc\ndef": "handle",
         }
         for text, why in cases.items():
             with self.subTest(text=text):

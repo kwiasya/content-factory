@@ -30,14 +30,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, unquote
 
 from cf.research import card, ingest, measure, quota, youtube
 from cf.research import watchlist as watchlists
 from cf.research.kinds import video_kind
 from cf.research.store import Store, dumps, footage_root, now_iso
 
-VIDEO_ID_RE = re.compile(r"^[\w-]{11}$")
+VIDEO_ID_RE = re.compile(r"[\w-]{11}")  # always fullmatch: ``$`` would let a trailing newline in
 VIDEO_PATHS = {"shorts", "live", "embed", "v"}
 # Bulky or volatile info keys left out of ``video.raw`` (info.json on disk keeps everything).
 RAW_DROP = ("formats", "requested_formats", "requested_downloads", "thumbnails", "automatic_captions",
@@ -91,7 +91,7 @@ def default_adapters() -> Adapters:
 def parse_video_ref(text: str) -> str:
     """The 11-character video id in a bare id or a YouTube video URL (watch, youtu.be, shorts, live, embed)."""
     t = (text or "").strip()
-    if VIDEO_ID_RE.match(t):
+    if VIDEO_ID_RE.fullmatch(t):
         return t
     if "/" not in t:
         raise FetchError(f"not a YouTube video id or URL: {text!r}")
@@ -105,7 +105,8 @@ def parse_video_ref(text: str) -> str:
             vid = (parse_qs(link.query).get("v") or [None])[0]
         elif len(segs) > 1 and segs[0] in VIDEO_PATHS:
             vid = segs[1]
-    if vid is None or not VIDEO_ID_RE.match(vid):
+    vid = unquote(vid).strip() if vid is not None else None  # a pasted %0A or space after the id
+    if vid is None or not VIDEO_ID_RE.fullmatch(vid):
         raise FetchError(f"not a YouTube video URL: {text!r} (expected watch?v=…, youtu.be/…, /shorts/… or an id)")
     return vid
 

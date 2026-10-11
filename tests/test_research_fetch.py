@@ -36,6 +36,17 @@ class VideoRefTest(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(fetch.parse_video_ref(text), "dQw4w9WgXcQ")
 
+    def test_a_trailing_newline_pasted_or_url_encoded_is_dropped_not_kept_in_the_id(self):
+        for text in ("https://www.youtube.com/watch?v=dQw4w9WgXcQ%0A", "https://youtu.be/dQw4w9WgXcQ%0A",
+                     "https://www.youtube.com/shorts/dQw4w9WgXcQ%0A", "dQw4w9WgXcQ\n"):
+            with self.subTest(text=text):
+                self.assertEqual(fetch.parse_video_ref(text), "dQw4w9WgXcQ")
+
+    def test_a_newline_inside_the_id_is_refused(self):
+        for text in ("https://www.youtube.com/watch?v=dQw4w9WgXcQ%0Ax", "dQw4w9W\ngXcQ"):
+            with self.subTest(text=text), self.assertRaises(fetch.FetchError):
+                fetch.parse_video_ref(text)
+
     def test_channel_links_and_junk_are_refused(self):
         for text in ("", "https://www.youtube.com/@slowwalks", "https://vimeo.com/123456",
                      "https://www.youtube.com/watch?v=short", "not a video"):

@@ -69,5 +69,12 @@ class TaxonomySeedTest(unittest.TestCase):
         self.assertIn("colour", str(cm.exception))
 
 
+class TaxonomyValueTest(unittest.TestCase):
+    def test_a_value_with_a_trailing_newline_is_not_snake_case(self):
+        with tempfile.TemporaryDirectory() as tmp, st.open_store(Path(tmp) / "f.db") as s:
+            with self.assertRaises(tx.TaxonomyError):
+                tx.propose(s, "hook_category", "shock_value\n", source="test")
+            self.assertIsNone(tx.get(s, "hook_category", "shock_value\n"))
+
 if __name__ == "__main__":
     unittest.main()

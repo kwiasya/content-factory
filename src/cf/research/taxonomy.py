@@ -22,7 +22,7 @@ SEED_PATH = REPO_ROOT / "research" / "taxonomy.json"
 SEED_SCHEMA = "cf-taxonomy-seed/1"
 KINDS = ("hook_category", "storytelling_format", "editing_style", "visual_layout")
 STATUSES = ("approved", "proposed", "rejected")
-VALUE_RE = re.compile(r"^[a-z0-9]+(_[a-z0-9]+)*$")
+VALUE_RE = re.compile(r"[a-z0-9]+(_[a-z0-9]+)*")  # fullmatch only: ``$`` admits a trailing newline
 
 
 class TaxonomyError(Exception):
@@ -116,7 +116,7 @@ class TaxonomyChange:
 def _check(kind: str, value: str) -> None:
     if kind not in KINDS:
         raise TaxonomyError(f"unknown taxonomy kind {kind!r}, expected one of {KINDS}")
-    if not VALUE_RE.match(value or ""):
+    if not VALUE_RE.fullmatch(value or ""):
         raise TaxonomyError(f"taxonomy value {value!r} must be snake_case (a-z, 0-9, _)")
 
 

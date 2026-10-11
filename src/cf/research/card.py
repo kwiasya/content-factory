@@ -203,7 +203,7 @@ def category_problem(store: Store, kind: str, raw: str) -> str | None:
     value, proposed = split_proposed(raw)
     status = _status(store, kind, value)
     if proposed:
-        if not taxonomy.VALUE_RE.match(value):
+        if not taxonomy.VALUE_RE.fullmatch(value):
             return f"proposed value {value!r} must be snake_case (a-z, 0-9, _)"
         if status == "rejected":
             return f"{value!r} was rejected as {kind}; pick an approved value"

@@ -72,7 +72,7 @@ class WatchlistTest(unittest.TestCase):
         self.assertIn("already exists", str(cm.exception))
 
     def test_names_must_work_as_folder_names(self):
-        for bad in ("", "a/b", ".hidden", "two words"):
+        for bad in ("", "a/b", ".hidden", "two words", "trip\n", "trip\r\n"):
             with self.subTest(name=bad), self.assertRaises(wl.WatchlistError):
                 self.make(bad)
 
