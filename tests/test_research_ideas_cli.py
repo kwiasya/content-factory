@@ -14,9 +14,8 @@ from cf.research import store as st
 from cf.research import watchlist as wl
 from datetime import datetime, timedelta, timezone
 
-from research_synth import add_member, add_videos, iso, video_item
-from test_research_card_analysis import analysis
-from test_research_ideas import A, V1, V2, V3, add_card, fields
+from research_synth import V1, V2, V3, add_card, add_member, add_videos, analysis, fields, iso, video_item
+from research_synth import CHANNEL_A as A
 
 
 def ago(days: float = 0, hours: float = 0) -> str:

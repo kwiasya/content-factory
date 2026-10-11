@@ -1,15 +1,12 @@
 """Brief from a shortlisted Idea: file content from the template, path rules, refusals. Temp footage root."""
 
 import os
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from cf.research import brief, ideas
-from cf.research import watchlist as wl
-from test_research_card_analysis import analysis
-from test_research_ideas import V1, V2, IdeasCase, add_card
+from research_synth import V1, V2, IdeasCase, add_card, analysis
 
 SLUG = "lisbons-oldest-district-at-golden-hour-no-narration"
 

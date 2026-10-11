@@ -13,7 +13,7 @@ from unittest import mock
 from cf.research import cli, feed, youtube
 from cf.research import store as st
 from cf.research import watchlist as wl
-from research_synth import FakeYouTube, add_member, add_videos, channel_payload, iso, video_item
+from research_synth import FakeYouTube, add_member, channel_payload, iso, video_item
 
 CH = "UCaaaaaaaaaaaaaaaaaaaaaa"
 LENS = "UCq1W2e3R4t5Y6u7I8o9P0aS"

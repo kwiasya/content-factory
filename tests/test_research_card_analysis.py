@@ -12,44 +12,7 @@ from unittest import mock
 from cf.research import card
 from cf.research import store as st
 from cf.research import taxonomy as tx
-
-TRANSCRIPT = ("So this is Alfama, the oldest part of Lisbon. Watch the stairs. "
-              "Okay, sunset time.")
-MEASURED = {"duration_s": 95.0, "spoken_hook": "So this is Alfama, the oldest part of Lisbon."}
-
-
-def analysis(**over) -> dict:
-    a = {
-        "summary": "A slow evening walk through Alfama that ends on the river at sunset.",
-        "idea_analysis": {
-            "topic": "Walking Lisbon's oldest district",
-            "idea_seed": "The old town is best seen on foot at golden hour",
-            "unique_angle": "No narration after the first line; the stairs carry the story",
-            "common_belief": "Alfama is a tourist trap",
-            "contrarian_reality": "Ten minutes off the tram line it is empty",
-            "supporting_evidence": "Empty alleys from 0:40 on; the sunset viewpoint at 1:30",
-        },
-        "hook": {
-            "category": "visual_payoff",
-            "formula": "Place name + superlative, said over the best view",
-            "spoken_hook": "So this is Alfama, the oldest part of Lisbon",
-            "alignment": "The promise of the oldest part pays off in the stairs and alleys",
-        },
-        "storytelling_format": {
-            "category": "pov",
-            "description": "First-person walk from the top of the hill to the river",
-            "analysis": "The descent gives a natural arc that ends at the payoff",
-        },
-        "visual_layout": {"category": "pov_walk", "sub_category": "vlog_pov"},
-    }
-    for path, value in over.items():
-        node = a
-        *head, last = path.split("__")
-        for k in head:
-            node = node[k]
-        node[last] = value
-    return a
-
+from research_synth import MEASURED, TRANSCRIPT, analysis
 
 def full_card(a: dict | None = None) -> dict:
     return {"schema": card.SCHEMA, "measured": copy.deepcopy(MEASURED), "analysis": a or analysis()}

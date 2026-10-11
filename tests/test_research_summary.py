@@ -1,84 +1,9 @@
 """Hooks, formats and topics summaries of a Watchlist on synthetic cards and snapshots."""
 
-import json
-import tempfile
-import unittest
-from pathlib import Path
 
-from cf.research import card
-from cf.research import store as st
 from cf.research import summary
 from cf.research import watchlist as wl
-from research_synth import NOW, add_member, add_videos, ago, video_item
-from test_research_card_analysis import analysis
-
-A = "UCaaaaaaaaaaaaaaaaaaaaaa"  # Reference channel with a baseline of 1 000 views per short
-B = "UCbbbbbbbbbbbbbbbbbbbbbb"  # Reference channel without a baseline: no Outlier score
-C = "UCcccccccccccccccccccccc"  # another Watchlist's channel
-
-
-def put_card(store, external_id: str, a: dict | None, spoken_hook: str | None = "measured words") -> None:
-    """A card as the store holds it; the analysis goes in unvalidated, as an old card might."""
-    vid = store.one("SELECT id FROM video WHERE external_id = ?", (external_id,))["id"]
-    card.save(store, vid, {"duration_s": 40.0, "spoken_hook": spoken_hook})
-    if a is not None:
-        store.conn.execute("UPDATE card SET analysis = ? WHERE video_id = ?", (json.dumps(a), vid))
-        store.conn.commit()
-
-
-def hook(category: str, formula: str = "a formula", spoken: str | None = "a spoken hook", **over) -> dict:
-    return analysis(hook__category=category, hook__formula=formula, hook__spoken_hook=spoken, **over)
-
-
-class SummaryCase(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        s = self.store = st.open_store(Path(self.tmp.name) / "f.db")
-        wl.create(s, "lisbon", format_id="walk-reel")
-        wl.create(s, "other", format_id="tech-explainer")
-        add_member(s, "lisbon", A, "@alpha")
-        add_member(s, "lisbon", B, "@beta")
-        add_member(s, "other", C, "@gamma")
-        add_videos(s, [video_item(f"baseline0{i:02d}", A, ago(days=20 + i), 40, 1000) for i in range(6)]
-                   + [video_item("oldHit00001", A, ago(days=20), 40, 1000),
-                      video_item("alfamaDawn1", A, ago(days=2), 40, 5000, title="Alfama at dawn"),
-                      video_item("gracaStair2", A, ago(days=2), 40, 3000, title="Graça stairs"),
-                      video_item("steepLisbn3", A, ago(days=1), 40, 9000, title="Why is Lisbon so steep?"),
-                      video_item("sunsetSoon4", A, ago(days=1), 40, 2000, title="Sunset soon"),
-                      video_item("waitForSun5", A, ago(days=1), 40, 1500, title="Wait for the sun"),
-                      video_item("uncardHit01", A, ago(days=1), 40, 6000, title="Uncarded hit"),
-                      video_item("uncardMeh02", A, ago(days=1), 40, 1500, title="Uncarded meh"),
-                      video_item("measuredOn3", A, ago(days=1), 40, 2500, title="Measured only"),
-                      video_item("fiveViewpt1", B, ago(days=1), 40, 70_000, title="Five viewpoints"),
-                      video_item("threeCafes2", B, ago(days=1), 40, 80_000, title="Three cafes"),
-                      video_item("elsewhere01", C, ago(days=1), 40, 1_000_000, title="Elsewhere")])
-        put_card(s, "oldHit00001", hook("contrast"))
-        put_card(s, "alfamaDawn1", hook("visual_payoff", "Place name + superlative", "So this is Alfama",
-                               idea_analysis__topic="Walking Lisbon's oldest district"))
-        put_card(s, "gracaStair2", hook("visual_payoff", "Stairs + count", "Two hundred steps",
-                               idea_analysis__topic="  walking   lisbon's OLDEST district ",
-                               storytelling_format__category="listicle"))
-        put_card(s, "steepLisbn3", hook("question", "Why is <place> <adjective>?", "Why is Lisbon so steep",
-                               idea_analysis__topic="Lisbon hills",
-                               visual_layout__category="talking_head"))
-        put_card(s, "sunsetSoon4", hook("proposed:sunset_tease", "Sunset in N minutes", "Sunset in ten minutes",
-                               idea_analysis__topic="Sunset spots"))
-        put_card(s, "waitForSun5", hook("sunset_tease", "Wait for it", None, idea_analysis__topic="sunset spots"))
-        put_card(s, "fiveViewpt1", hook("list", "N viewpoints", "Five viewpoints", idea_analysis__topic="Viewpoints",
-                               storytelling_format__category="listicle",
-                               visual_layout__category="proposed:map_overlay"))
-        put_card(s, "threeCafes2", hook("list", "N cafes", "Three cafes", idea_analysis__topic="Cafes",
-                               storytelling_format__category="listicle",
-                               visual_layout__category="map_overlay"))
-        put_card(s, "measuredOn3", None)
-        put_card(s, "elsewhere01", hook("contrast"))
-
-    def tearDown(self):
-        self.store.close()
-        self.tmp.cleanup()
-
-    def section(self, result, kind):
-        return next(sec for sec in result.sections if sec.kind == kind)
+from research_synth import NOW, SummaryCase, hook, put_card
 
 
 class HooksSummaryTest(SummaryCase):

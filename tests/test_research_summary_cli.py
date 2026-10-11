@@ -11,8 +11,7 @@ from pathlib import Path
 from cf.research import cli
 from cf.research import store as st
 from cf.research import watchlist as wl
-from research_synth import add_member, add_videos, iso, video_item
-from test_research_summary import hook, put_card
+from research_synth import add_member, add_videos, hook, iso, put_card, video_item
 
 A = "UCaaaaaaaaaaaaaaaaaaaaaa"
 

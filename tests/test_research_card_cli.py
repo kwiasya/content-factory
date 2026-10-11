@@ -11,8 +11,7 @@ from unittest import mock
 
 from cf.research import card, cli
 from cf.research import store as st
-
-from test_research_card_analysis import MEASURED, TRANSCRIPT, analysis
+from research_synth import MEASURED, TRANSCRIPT, analysis
 
 VID = "dQw4w9WgXcQ"
 

@@ -1,62 +1,9 @@
 """Ideas: field validation, sources, the status machine, notes, candidates. Temp store, no network."""
 
-import json
-import tempfile
 import unittest
-from pathlib import Path
 
 from cf.research import ideas
-from cf.research import store as st
-from cf.research import watchlist as wl
-from research_synth import NOW, add_member, add_videos, ago, video_item
-
-from test_research_card_analysis import analysis
-
-A = "UCaaaaaaaaaaaaaaaaaaaaaa"
-V1, V2, V3 = "alfamaDusk1", "portoStair2", "sintraFog03"
-
-
-def fields(**over) -> dict:
-    f = {
-        "title": "Lisbon's oldest district at golden hour, no narration",
-        "summary": "A silent descent through Alfama that ends on the river at sunset.",
-        "content_positioning": "The empty side of a district everyone calls a tourist trap",
-        "storytelling_format": {"category": "pov", "why": "The descent is the arc; the river is the payoff"},
-        "contrast_mechanism": {"common_belief": "Alfama is a tourist trap",
-                               "contrarian_reality": "Ten minutes off the tram line it is empty"},
-        "hook_alignment": "Open on the best view and name the place; the stairs keep the promise",
-        "personalizations": ["Do it in Tbilisi's old town", "Shoot at dawn instead of dusk",
-                             "Say the hook in Russian over the first view"],
-    }
-    f.update(over)
-    return f
-
-
-def add_card(store, external_id: str, a: dict | None = None) -> None:
-    vid = store.one("SELECT id FROM video WHERE external_id = ?", (external_id,))["id"]
-    with store.transaction() as c:
-        c.execute("INSERT INTO card (video_id, schema, measured, analysis, written_at) "
-                  "VALUES (?, 'cf-reference-card/1', '{}', ?, ?)",
-                  (vid, None if a is None else json.dumps(a), ago(hours=1)))
-
-
-class IdeasCase(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        s = self.store = st.open_store(Path(self.tmp.name) / "f.db")
-        self.addCleanup(s.close)
-        wl.create(s, "lisbon", format_id="walk_reel", author_channel="travelwalks")
-        wl.create(s, "other", format_id="travel_long")
-        add_member(s, "lisbon", A, "@alpha")
-        add_videos(s, [video_item(f"base{i:07d}", A, ago(days=10 + i), 40, 1000) for i in range(5)]
-                   + [video_item(V1, A, ago(days=2), 40, 9000, title="Alfama at dusk"),
-                      video_item(V2, A, ago(days=3), 40, 5000, title="Porto stairs"),
-                      video_item(V3, A, ago(days=4), 40, 3000, title="Sintra fog")])
-
-    def add(self, sources=(V1,), wlname="lisbon", **over):
-        return ideas.add(self.store, wlname, list(sources), fields(**over))
-
+from research_synth import NOW, V1, V2, V3, IdeasCase, add_card, analysis, fields
 
 class ValidationTest(IdeasCase):
     def problems(self, f: dict) -> list[str]:

@@ -1,15 +1,12 @@
 """The Hook library: hooks saved from cards per Format, listed and exported to Markdown."""
 
-import tempfile
-import unittest
 from datetime import timedelta
 from pathlib import Path
 
 from cf.research import card
 from cf.research import hooks
 from cf.research import watchlist as wl
-from research_synth import NOW, add_member, add_videos, ago, video_item
-from test_research_summary import SummaryCase, hook, put_card
+from research_synth import NOW, SummaryCase, hook, put_card
 
 LIBRARY = """\
 # Hook library: walk-reel
