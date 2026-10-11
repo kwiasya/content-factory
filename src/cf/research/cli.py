@@ -307,10 +307,16 @@ def cmd_scout(args, store) -> int:
                            c.backfilled) for c in r.channels]) if r.channels else "Reference channel нет."
         qs = md_table(["Запрос", "Страниц", "Видео"], [(q.query, q.pages, q.results) for q in r.queries]) \
             if r.queries else "Поисковых запросов не было."
+        errors = [f"Ошибка канала {c.handle or c.external_id}: {c.error}" for c in r.channels if c.error]
+        errors += [f"Ошибка запроса «{q.query}»: {q.error}" for q in r.queries if q.error]
+        if r.candidates_error:
+            errors.append(f"Ошибка каналов-кандидатов: {r.candidates_error}")
+        failed = ("\n\n" + "\n".join(errors)) if errors else ""
         return (f"Scout {r.watchlist} ({r.taken_at})\n\n{chans}\n\n{qs}\n\n"
                 f"Кандидаты (каналы из поиска вне Watchlist):\n\n{_candidates_table(r.candidates)}\n\n"
-                f"Вызовы API: {_calls_text(r.calls)}{_stopped_text(r.stopped)}")
-    return emit(args, r.to_dict(), human)
+                f"Вызовы API: {_calls_text(r.calls)}{_stopped_text(r.stopped)}{failed}")
+    emit(args, r.to_dict(), human)
+    return 1 if r.failed() else 0
 
 
 def register_scout(sub, common) -> None:

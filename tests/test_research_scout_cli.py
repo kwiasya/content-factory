@@ -17,6 +17,7 @@ from research_synth import FakeYouTube, add_member, channel_payload, iso, video_
 
 CH = "UCaaaaaaaaaaaaaaaaaaaaaa"
 LENS = "UCq1W2e3R4t5Y6u7I8o9P0aS"
+DEAD = "UCdddddddddddddddddddddd"
 
 
 def real_ago(days=0, hours=0):
@@ -99,6 +100,32 @@ class ScoutCliTest(unittest.TestCase):
             code, _, err = self.run_cli("scout", "lisbon")
         self.assertEqual(code, 1)
         self.assertIn("quota", err)
+
+    def test_a_failing_channel_gets_one_line_and_the_run_still_succeeds(self):
+        with st.open_store(self.db) as s:
+            add_member(s, "lisbon", DEAD, "@dead")
+        healthy = self.yt
+
+        def transport(method, params):
+            if method == "playlistItems.list" and params["playlistId"] == "UU" + DEAD[2:]:
+                raise youtube.YouTubeError("playlistItems.list: HTTP 404: gone (playlistNotFound)")
+            return healthy(method, params)
+        self.yt = transport
+        code, out, _ = self.run_cli("scout", "lisbon")
+        self.assertEqual(code, 0)
+        [line] = [x for x in out.splitlines() if "playlistNotFound" in x]
+        self.assertIn("@dead", line)
+        self.assertIn("| @alpha |", out)
+        r = self.json_of("scout", "lisbon")
+        self.assertEqual([c["error"] is not None for c in r["channels"]], [False, True])
+
+    def test_a_run_where_every_channel_and_query_failed_exits_1(self):
+        def transport(method, params):
+            raise youtube.YouTubeError(f"{method}: HTTP 403: forbidden (forbidden)")
+        self.yt = transport
+        code, out, err = self.run_cli("scout", "lisbon")
+        self.assertEqual(code, 1)
+        self.assertIn("forbidden", out + err)
 
     def test_unknown_watchlist(self):
         code, out, err = self.run_cli("feed", "nope", "--json")

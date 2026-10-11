@@ -27,7 +27,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from cf.research import ingest, quota, youtube
+from cf.research import env, ingest, quota, youtube
 from cf.research.kinds import KINDS
 from cf.research import watchlist as watchlists
 from cf.research.store import Store, now_iso
@@ -91,7 +91,8 @@ class ChannelScout:
 
     ``mode`` is ``backfill`` until the first ingest has reached its target
     (``backfilled``), then ``new``. ``shorts``/``longs`` count what the store now
-    knows of the channel.
+    knows of the channel. ``error`` is the API error that ended this channel's
+    paging (what was read before it is kept), None when it went through.
     """
     external_id: str
     handle: str | None
@@ -102,6 +103,7 @@ class ChannelScout:
     longs: int
     history_end: bool
     backfilled: bool
+    error: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -109,10 +111,11 @@ class ChannelScout:
 
 @dataclass(frozen=True)
 class QueryScout:
-    """One search query this run: pages read and distinct videos found."""
+    """One search query this run: pages read, distinct videos found, the API error that ended it."""
     query: str
     pages: int
     results: int
+    error: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -127,6 +130,12 @@ class ScoutResult:
     candidates: list[Candidate] = field(default_factory=list)
     calls: dict[str, int] = field(default_factory=dict)
     stopped: str | None = None  # why the run stopped early (quota), None when it finished
+    candidates_error: str | None = None  # the API error of channels.list for candidate channels
+
+    def failed(self) -> bool:
+        """Every channel and query of the run (at least one) ended on an API error."""
+        parts = [c.error for c in self.channels] + [q.error for q in self.queries]
+        return bool(parts) and all(parts)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -139,10 +148,20 @@ class _Run:
         self.store, self.transport, self.taken_at = store, transport, taken_at
         self.calls: Counter = Counter()
 
+    def call(self, method: str, fn, *args, **kwargs) -> dict:
+        """``fn`` (a ``youtube`` function for ``method``), counted in ``calls`` once charged:
+        an API error after the charge counts too, a quota refusal does not."""
+        try:
+            out = fn(self.store, *args, transport=self.transport, **kwargs)
+        except youtube.YouTubeError:
+            self.calls[method] += 1
+            raise
+        self.calls[method] += 1
+        return out
+
     def videos(self, ids: list[str]) -> dict:
         """``videos.list`` for ``ids``; every returned video is ingested and snapshotted."""
-        p = youtube.videos_list(self.store, ids, transport=self.transport)
-        self.calls["videos.list"] += 1
+        p = self.call("videos.list", youtube.videos_list, ids)
         ingest.ingest_videos(self.store, p, fetched_at=self.taken_at)
         ingest.ingest_snapshots(self.store, p, taken_at=self.taken_at)
         return p
@@ -167,19 +186,27 @@ def _uploads(run: _Run, ch: dict, progress: list) -> ChannelScout:
     playlist = ch["uploads_playlist_id"] or "UU" + ch["external_id"][2:]
     backfill = ch["backfilled_at"] is None
     mark = ch["uploads_through"]  # every upload published up to here is in the store
-    newest = None
-    state = {"pages": 0, "new": 0, "end": False, "done": not backfill}
+    state = {"pages": 0, "new": 0, "end": False, "done": not backfill, "error": None}
 
     def report() -> ChannelScout:
         counts = run.kind_counts(ch["id"])
         return ChannelScout(ch["external_id"], ch["handle"], "backfill" if backfill else "new", state["pages"],
-                            state["new"], counts["short"], counts["long"], state["end"], state["done"])
+                            state["new"], counts["short"], counts["long"], state["end"], state["done"],
+                            state["error"])
 
     progress.append(report)
+    try:
+        _page_uploads(run, ch, playlist, backfill, mark, state)
+    except youtube.YouTubeError as exc:  # the channel is gone, private, or the API failed: the rest goes on
+        state["error"] = str(exc)
+    return report()
+
+
+def _page_uploads(run: _Run, ch: dict, playlist: str, backfill: bool, mark: str | None, state: dict) -> None:
+    newest = None
     token = None
     while True:
-        page = youtube.playlist_items_list(run.store, playlist, page_token=token, transport=run.transport)
-        run.calls["playlistItems.list"] += 1
+        page = run.call("playlistItems.list", youtube.playlist_items_list, playlist, page_token=token)
         state["pages"] += 1
         items = [it.get("contentDetails") or {} for it in page.get("items") or []]
         items = [it for it in items if it.get("videoId") and it.get("videoPublishedAt")]  # private/deleted: no date
@@ -210,20 +237,26 @@ def _uploads(run: _Run, ch: dict, progress: list) -> ChannelScout:
         c.execute("UPDATE channel SET backfilled_at = COALESCE(backfilled_at, ?), uploads_through = ? WHERE id = ?",
                   (run.taken_at, through, ch["id"]))
     state["done"] = True
-    return report()
 
 
 def _search(run: _Run, w: dict, query: str, *, published_after: str, pages: int,
             video_duration: str | None, progress: list) -> None:
     found: list[str] = []
-    state = {"pages": 0}
-    progress.append(lambda: QueryScout(query, state["pages"], len(found)))
+    state = {"pages": 0, "error": None}
+    progress.append(lambda: QueryScout(query, state["pages"], len(found), state["error"]))
+    try:
+        _page_search(run, w, query, published_after, pages, video_duration, found, state)
+    except youtube.YouTubeError as exc:
+        state["error"] = str(exc)
+
+
+def _page_search(run: _Run, w: dict, query: str, published_after: str, pages: int,
+                 video_duration: str | None, found: list[str], state: dict) -> None:
     token = None
     for _ in range(pages):
-        p = youtube.search_list(run.store, query, published_after=published_after, order="viewCount",
-                                relevance_language=w["language"], region_code=w["region"],
-                                video_duration=video_duration, page_token=token, transport=run.transport)
-        run.calls["search.list"] += 1
+        p = run.call("search.list", youtube.search_list, query, published_after=published_after,
+                     order="viewCount", relevance_language=w["language"], region_code=w["region"],
+                     video_duration=video_duration, page_token=token)
         state["pages"] += 1
         ids = ingest.ingest_search(run.store, p, watchlist=w["name"], query=query, found_at=run.taken_at)
         found.extend(i for i in ids if i not in found)
@@ -242,8 +275,7 @@ def _fill_channels(run: _Run, wid: int) -> None:
         "ORDER BY c.external_id", (wid,))
     ids = [r["external_id"] for r in rows]
     for i in range(0, len(ids), youtube.MAX_IDS):
-        p = youtube.channels_list(run.store, ids=ids[i:i + youtube.MAX_IDS], transport=run.transport)
-        run.calls["channels.list"] += 1
+        p = run.call("channels.list", youtube.channels_list, ids=ids[i:i + youtube.MAX_IDS])
         ingest.ingest_channels(run.store, p, fetched_at=run.taken_at)
 
 
@@ -257,7 +289,9 @@ def scout(store: Store, name: str, *, search: bool = True, search_days: float = 
     and region; ``video_duration`` is the API's any/short/medium/long filter.
     Raises ``QuotaExceeded`` before any call when even one page per channel and
     query does not fit today's quota; a refusal later ends the run with
-    ``stopped`` set and everything read so far kept.
+    ``stopped`` set and everything read so far kept. An API error on one channel
+    or query (a deleted channel, a bad filter) is recorded on its ``error`` and the
+    run goes on; the call stays charged. A missing API key is refused up front.
     """
     w = watchlists.row(store, name)
     now = now or datetime.now(timezone.utc)
@@ -271,9 +305,11 @@ def scout(store: Store, name: str, *, search: bool = True, search_days: float = 
     plan = {"playlistItems.list": len(chans), "videos.list": len(chans) + len(queries),
             "search.list": len(queries), "channels.list": 1 if queries else 0}
     quota.check(store, {m: n for m, n in plan.items() if n})
+    if transport is None and not env.api_key():
+        raise youtube.YouTubeError(env.KEY_HELP)
     ch_progress: list = []
     q_progress: list = []
-    stopped = None
+    stopped = cand_error = None
     try:
         for ch in chans:
             _uploads(run, ch, ch_progress)
@@ -282,11 +318,14 @@ def scout(store: Store, name: str, *, search: bool = True, search_days: float = 
             _search(run, w, q, published_after=after, pages=search_pages,
                     video_duration=video_duration, progress=q_progress)
         if queries:
-            _fill_channels(run, w["id"])
+            try:
+                _fill_channels(run, w["id"])
+            except youtube.YouTubeError as exc:
+                cand_error = str(exc)
     except quota.QuotaExceeded as exc:
         stopped = str(exc)
     return ScoutResult(name, run.taken_at, [r() for r in ch_progress], [r() for r in q_progress],
-                       candidates(store, name), dict(run.calls), stopped)
+                       candidates(store, name), dict(run.calls), stopped, cand_error)
 
 
 # --- snapshot ---------------------------------------------------------------

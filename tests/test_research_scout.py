@@ -10,7 +10,7 @@ from cf.research import store as st
 from datetime import timedelta
 from unittest import mock
 
-from cf.research import quota
+from cf.research import quota, youtube
 from research_synth import NOW, FakeYouTube, add_member, add_videos, ago, channel_payload, iso, video_item
 from cf.research import watchlist as wl
 
@@ -274,6 +274,52 @@ class ScoutQuotaTest(StoreCase):
         self.assertEqual((r.channels[0].mode, r.channels[0].new_videos, r.channels[0].backfilled),
                          ("backfill", 1, True))
         self.assertEqual(t.methods(), {"playlistItems.list": 2, "videos.list": 1})
+
+
+class ScoutErrorTest(StoreCase):
+    DEAD, ALIVE = "UCaaaaaaaaaaaaaaaaaa0005", "UCaaaaaaaaaaaaaaaaaa0006"
+
+    def setUp(self):
+        super().setUp()
+        wl.create(self.store, "w", format_id="walk_reel", queries=["broken", "lisbon walk"])
+        add_member(self.store, "w", self.DEAD, "@dead")
+        add_member(self.store, "w", self.ALIVE, "@alive")
+        self.yt = yt = FakeYouTube()
+        yt.uploads[self.ALIVE] = [video_item(f"alive{i:06d}", self.ALIVE, ago(days=i + 1), 30, 100) for i in range(3)]
+        yt.extra_videos["lens1"] = video_item("lens1", LENS, ago(days=2), 45, 70_000)
+        yt.searches["lisbon walk"] = [{"items": [{"id": {"kind": "youtube#video", "videoId": "lens1"},
+                                                  "snippet": {"channelId": LENS, "title": "lens1",
+                                                              "publishedAt": ago(days=2)}}]}]
+        yt.channels[LENS] = channel_payload(LENS, "@lisbonlens")["items"][0]
+
+    def transport(self, method, params):
+        if method == "playlistItems.list" and params["playlistId"] == "UU" + self.DEAD[2:]:
+            self.yt.calls.append((method, dict(params)))
+            raise youtube.YouTubeError("playlistItems.list: HTTP 404: playlist not found (playlistNotFound)")
+        if method == "search.list" and params["q"] == "broken":
+            self.yt.calls.append((method, dict(params)))
+            raise youtube.YouTubeError("search.list: HTTP 400: bad request (invalidSearchFilter)")
+        return self.yt(method, params)
+
+    def test_a_failing_channel_or_query_is_reported_and_the_rest_of_the_run_goes_on(self):
+        r = scout.scout(self.store, "w", transport=self.transport, now=NOW)
+        self.assertIsNone(r.stopped)
+        dead, alive = r.channels
+        self.assertIn("playlistNotFound", dead.error)
+        self.assertEqual((dead.handle, dead.pages, dead.new_videos, dead.backfilled), ("@dead", 0, 0, False))
+        self.assertEqual((alive.error, alive.new_videos, alive.backfilled), (None, 3, True))
+        broken, ok = r.queries
+        self.assertIn("invalidSearchFilter", broken.error)
+        self.assertEqual((ok.query, ok.error, ok.results), ("lisbon walk", None, 1))
+        self.assertEqual([c.handle for c in r.candidates], ["@lisbonlens"])
+
+    def test_the_failed_calls_stay_charged(self):
+        before = quota.usage(self.store).by_method
+        scout.scout(self.store, "w", transport=self.transport, now=NOW)
+        calls = {m.method: m.calls for m in quota.usage(self.store).by_method}
+        prior = {m.method: m.calls for m in before}
+        self.assertEqual(calls["playlistItems.list"] - prior.get("playlistItems.list", 0), 2)
+        self.assertEqual(calls["search.list"], 2)
 
 
 class ScoutSearchTest(StoreCase):
