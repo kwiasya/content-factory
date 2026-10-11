@@ -10,3 +10,6 @@ overlays/out/
 
 # Author context: personal, lives on this Mac only (/author-setup creates it)
 author/
+
+# Secrets (YouTube Data API key); see .env.example
+.env

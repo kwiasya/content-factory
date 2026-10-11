@@ -1,4 +1,4 @@
-"""Thin YouTube Data API v3 adapter: API key from ``YOUTUBE_API_KEY``, urllib, no logic.
+"""Thin YouTube Data API v3 adapter: API key from ``YOUTUBE_API_KEY`` or ``.env``, urllib, no logic.
 
 Every public function takes the ``Store`` (quota is charged through ``quota.charge``
 *before* the call, so a refused call is never made) and returns the raw JSON
@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 from typing import Callable, Iterable
 
-from cf.research import quota
+from cf.research import env, quota
 from cf.research.store import Store
 
 BASE_URL = "https://www.googleapis.com/youtube/v3/"
@@ -35,10 +35,9 @@ class YouTubeError(Exception):
 
 def http_transport(method: str, params: dict) -> dict:
     """GET ``BASE_URL/<resource>`` with the key from ``YOUTUBE_API_KEY``; return the JSON body."""
-    key = os.environ.get("YOUTUBE_API_KEY")
+    key = env.api_key()
     if not key:
-        raise YouTubeError("YOUTUBE_API_KEY is not set; create an API key for YouTube Data API v3 "
-                           "in Google Cloud Console and export it")
+        raise YouTubeError(env.KEY_HELP)
     resource = method.split(".")[0]
     query = urllib.parse.urlencode({**{k: v for k, v in params.items() if v is not None}, "key": key})
     try:
@@ -58,9 +57,8 @@ def http_transport(method: str, params: dict) -> dict:
 
 def _call(store: Store, method: str, params: dict, transport: Transport | None) -> dict:
     if transport is None:  # fail on a missing key before charging a unit
-        if not os.environ.get("YOUTUBE_API_KEY"):
-            raise YouTubeError("YOUTUBE_API_KEY is not set; create an API key for YouTube Data API v3 "
-                               "in Google Cloud Console and export it")
+        if not env.api_key():
+            raise YouTubeError(env.KEY_HELP)
         transport = http_transport
     quota.charge(store, method)
     return transport(method, params)

@@ -5,7 +5,7 @@ description: Refresh a Watchlist from YouTube (new uploads of its Reference chan
 
 # Scout References
 
-Turns a Watchlist into a fresh feed of Reference ranked by Outlier score (`GLOSSARY.md`, section Исследование): views from the latest snapshot ÷ the median of the same channel's last 30 videos of the same kind (short ≤ 180 s, long otherwise) that are at least 3 days old. No score (`—`) means the channel has fewer than 5 such videos yet. CLI: `.venv/bin/python -m cf.research scout|snapshot|feed --help`. Calls need `YOUTUBE_API_KEY` in the environment. Quota: uploads and snapshots cost 1 unit of 10 000 a day per call (50 videos per call); every search page costs 1 of 100 search calls a day. Check with `.venv/bin/python -m cf.research quota`.
+Turns a Watchlist into a fresh feed of Reference ranked by Outlier score (`GLOSSARY.md`, section Исследование): views from the latest snapshot ÷ the median of the same channel's last 30 videos of the same kind (short ≤ 180 s, long otherwise) that are at least 3 days old. No score (`—`) means the channel has fewer than 5 such videos yet. CLI: `.venv/bin/python -m cf.research scout|snapshot|feed --help`. Calls need `YOUTUBE_API_KEY`: exported, or in `.env` in the repo root (gitignored, see `.env.example`). Quota: uploads and snapshots cost 1 unit of 10 000 a day per call (50 videos per call); every search page costs 1 of 100 search calls a day. Check with `.venv/bin/python -m cf.research quota`.
 
 ## Steps
 
