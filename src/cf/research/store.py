@@ -230,17 +230,45 @@ class Store:
         return dict(row) if row is not None else None
 
     def migrate(self) -> None:
-        version = self.schema_version()
-        if version > SCHEMA_VERSION:
-            raise StoreError(f"database {self.path} is schema version {version}, newer than this "
-                             f"code ({SCHEMA_VERSION}); update the repo")
-        for v in range(version, SCHEMA_VERSION):
-            try:
-                self.conn.executescript(
-                    f"BEGIN;\n{MIGRATIONS[v]}\nPRAGMA user_version = {v + 1};\nCOMMIT;")
-            except sqlite3.Error as exc:
-                self.conn.rollback()
-                raise StoreError(f"migration to schema version {v + 1} failed: {exc}") from exc
+        """Bring the database to ``SCHEMA_VERSION``.
+
+        Runs under ``BEGIN IMMEDIATE`` (the write lock) and re-reads the version
+        inside it, so several processes opening a fresh file at once apply each
+        migration exactly once; the others wait (up to the connection timeout)
+        and find the work done.
+        """
+        if self.schema_version() == SCHEMA_VERSION:
+            return
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            version = self.schema_version()
+            if version > SCHEMA_VERSION:
+                raise StoreError(f"database {self.path} is schema version {version}, newer than this "
+                                 f"code ({SCHEMA_VERSION}); update the repo")
+            for v in range(version, SCHEMA_VERSION):
+                try:
+                    for stmt in _statements(MIGRATIONS[v]):
+                        self.conn.execute(stmt)
+                    self.conn.execute(f"PRAGMA user_version = {v + 1}")
+                except sqlite3.Error as exc:
+                    raise StoreError(f"migration to schema version {v + 1} failed: {exc}") from exc
+        except BaseException:
+            self.conn.rollback()
+            raise
+        self.conn.commit()
+
+
+def _statements(script: str) -> list[str]:
+    """The SQL statements of a migration script, one by one (``executescript`` would commit first)."""
+    out, buf = [], ""
+    for line in script.splitlines(keepends=True):
+        buf += line
+        if sqlite3.complete_statement(buf):
+            out.append(buf.strip())
+            buf = ""
+    if buf.strip():
+        raise StoreError(f"incomplete SQL statement in a migration: {buf.strip()[:60]}")
+    return out
 
 
 def open_store(path: str | Path | None = None, *, seed: bool = True) -> Store:

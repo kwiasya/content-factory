@@ -3,6 +3,7 @@
 import os
 import sqlite3
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -90,6 +91,30 @@ class MigrationTest(unittest.TestCase):
             self.assertEqual(s.one("SELECT watchlist_id, channel_id FROM watchlist_channel"),
                              {"watchlist_id": 1, "channel_id": 1})
 
+
+class ConcurrentOpenTest(unittest.TestCase):
+    def test_several_connections_opening_a_fresh_database_at_once_all_get_the_full_schema(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for trial in range(5):
+                path = Path(tmp) / f"f{trial}.db"
+                gate = threading.Barrier(4)
+                results: list = []
+
+                def opener():
+                    gate.wait()
+                    try:
+                        with st.open_store(path) as s:
+                            results.append((s.schema_version(), len(s.query("SELECT 1 FROM taxonomy"))))
+                    except Exception as exc:  # noqa: BLE001 - the test reports any failure
+                        results.append(repr(exc))
+                threads = [threading.Thread(target=opener) for _ in range(4)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+                self.assertEqual(len(set(results)), 1, results)
+                self.assertEqual(results[0][0], st.SCHEMA_VERSION)
+                self.assertGreater(results[0][1], 0)
 
 if __name__ == "__main__":
     unittest.main()
