@@ -3,6 +3,15 @@
 Usage:
   python -m cf.shotlog <proxy.mp4> [--manifest clip_manifest.json] [-o shotlog/<clip>.json]
   python -m cf.shotlog --all <walk_dir> [--force | --speech-only]
+  python -m cf.shotlog <proxy.mp4> --source <media_file> -o <out.json>
+
+The third form is for one file outside a Walk (e.g. a downloaded Reference): no
+clip_manifest.json; the clip header (fps, duration, rotation, color tags) comes from
+cf.probe.probe_file on the source, the clip id is the source's stem, and speech is read
+from the source's audio. A proxy counts as inside a Walk only when it sits in a
+directory named proxy/; outside a Walk there are no Walk speech levels and no
+overrides.json, and -o is required. From Python:
+analyze_proxy(proxy, source=media) -> dict, then write_json(data, out).
 
 Chain per clip (one clip at a time, models released between clips):
   cf.metrics.ffstats  exposure, blur, hard cuts       (one ffmpeg pass)
@@ -41,6 +50,7 @@ from pathlib import Path
 import numpy as np
 
 from cf import scoring
+from cf.probe import probe_file
 from cf.metrics import ffstats, motion, people, speech, speech_side, vision
 from cf.metrics.common import ProxyInfo, ffmpeg_bin, n_bins, probe_proxy, tool_version
 
@@ -79,8 +89,9 @@ def bit_depth(pix_fmt: str | None) -> int | None:
     return 8
 
 
-def clip_header(proxy: Path, info: ProxyInfo, entry: dict | None) -> dict:
-    cid = clip_id(proxy)
+def clip_header(proxy: Path, info: ProxyInfo, entry: dict | None, source: str = "manifest") -> dict:
+    """Clip header from a manifest-style entry (`source` names where it came from), else from the proxy."""
+    cid = Path(entry["file"]).stem if entry and source != "manifest" else clip_id(proxy)
     if entry:
         fps = entry.get("fps")
         dw, dh = entry.get("display_width"), entry.get("display_height")
@@ -106,7 +117,7 @@ def clip_header(proxy: Path, info: ProxyInfo, entry: dict | None) -> dict:
             },
             "orientation": "portrait" if (dw and dh and dh > dw) else "landscape" if (dw and dh) else None,
             "gps": entry.get("gps"),
-            "header_source": "manifest",
+            "header_source": source,
         }
     return {
         "id": cid,
@@ -404,13 +415,16 @@ def finalize(data: dict, params: scoring.Params = scoring.DEFAULT, override: dic
 
 def analyze_proxy(proxy: Path, manifest: dict | None = None, params: scoring.Params = scoring.DEFAULT,
                   transcriber: speech.Transcriber | None = None, other_levels: list[float] | None = None,
-                  override: dict | None = None) -> dict:
+                  override: dict | None = None, source: Path | None = None) -> dict:
     """Full analysis of one proxy. `other_levels`: speech levels of the Walk's other clips
-    (for the Walk loudness reference); `override`: this clip's overrides.json entry."""
+    (for the Walk loudness reference); `override`: this clip's overrides.json entry;
+    `source`: the media file the proxy was made from, probed for the header instead of a manifest."""
     proxy = proxy.resolve()
     info = probe_proxy(proxy)
-    entry = find_manifest_entry(manifest, clip_id(proxy))
-    header = clip_header(proxy, info, entry)
+    if source is not None:
+        header = clip_header(proxy, info, probe_file(Path(source)), "probe(source)")
+    else:
+        header = clip_header(proxy, info, find_manifest_entry(manifest, clip_id(proxy)))
     nb = n_bins(info.duration_s)
     timings = {}
 
@@ -682,7 +696,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("proxy", type=Path, nargs="?", help="proxy .mp4")
     ap.add_argument("--all", type=Path, metavar="WALK_DIR", help="process every <walk>/proxy/*.mp4 into <walk>/shotlog/")
     ap.add_argument("--manifest", type=Path, help="clip_manifest.json (default: ../clip_manifest.json next to proxy/)")
-    ap.add_argument("-o", "--output", type=Path, help="default: <walk>/shotlog/<clip>.json")
+    ap.add_argument("--source", type=Path, metavar="MEDIA",
+                    help="the file the proxy was made from; its probe replaces the manifest (one file outside a Walk)")
+    ap.add_argument("-o", "--output", type=Path, help="default: <walk>/shotlog/<clip>.json; required outside a Walk")
     ap.add_argument("--force", action="store_true", help="with --all: redo up-to-date logs")
     ap.add_argument("--speech-only", action="store_true",
                     help="with --all: redo only the speech part (Whisper, levels, faces, sides) of existing logs, "
@@ -700,13 +716,16 @@ def main(argv: list[str] | None = None) -> int:
     proxy = args.proxy
     if not proxy.exists():
         ap.error(f"no such file: {proxy}")
-    walk = proxy.resolve().parent.parent
-    manifest_path = args.manifest or walk / "clip_manifest.json"
-    manifest = load_manifest(manifest_path)
+    if args.source and not args.source.is_file():
+        ap.error(f"no such file: {args.source}")
+    walk = proxy.resolve().parent.parent if proxy.resolve().parent.name == "proxy" else None
+    if walk is None and not args.output:
+        ap.error(f"{proxy} is not in a Walk's proxy/ directory; give -o")
+    manifest = load_manifest(args.manifest or (walk / "clip_manifest.json" if walk else None))
     out = args.output or walk / "shotlog" / f"{clip_id(proxy)}.json"
     t0 = time.perf_counter()
-    data = analyze_proxy(proxy, manifest, other_levels=walk_levels(walk, clip_id(proxy)),
-                         override=load_overrides(walk).get(clip_id(proxy)))
+    data = analyze_proxy(proxy, manifest, other_levels=walk_levels(walk, clip_id(proxy)) if walk else [],
+                         override=load_overrides(walk).get(clip_id(proxy)), source=args.source)
     write_json(data, out)
     print(summary_line(data, time.perf_counter() - t0))
     for line in speech_lines(data):
