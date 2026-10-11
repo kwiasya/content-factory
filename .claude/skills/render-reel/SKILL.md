@@ -16,4 +16,6 @@ Export settings and their reasons: `docs/research/03-color-iphone-osmo/result-a.
 4. If only loudness fails, re-run with `--fix-loudness` (on `cf.render`, or on `cf.render_check <file>` to skip the re-render). It writes `out/<reel>.normalized.mp4`: two-pass `loudnorm` with the video stream copied, repeated on its own output (at most 3 rounds) when loudnorm falls back to dynamic mode. Then it re-checks that file. Upload the `.normalized.mp4` when it exists.
 5. Report the file path, duration, size, render time and the verification table. On this M2, a 16 s Reel at 4K renders in about 47 s with Super Scale 2x on the 1080p clips (27 s without it, 10 s at 1080×1920) and is about 91 MB.
 
+6. Publish for the author: set `title` in `script.json` if missing (place — what the video is, in Russian, e.g. "Майорка — отель и пляж"), then run `.venv/bin/python -m cf.publish <walk>/reels/<reel>/`. It puts the finished video in `~/Movies/Готовые ролики/` (one file per reel, nothing else in that folder) and the no-music version plus the caption text in its `_для публикации` subfolder. Tell the author the file name, not the internal path.
+
 Done when the verification table passes on the file in `out/` that will be uploaded.
