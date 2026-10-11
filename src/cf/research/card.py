@@ -221,8 +221,12 @@ def category_problem(store: Store, kind: str, raw: str) -> str | None:
 
 
 def video(store: Store, ref: int | str) -> dict:
-    """``{"id", "external_id"}`` of a video given by store id, YouTube id or URL."""
-    if isinstance(ref, int) or (isinstance(ref, str) and ref.isdigit() and len(ref) != 11):
+    """``{"id", "external_id"}`` of a video given by store id, YouTube id or URL.
+
+    Only an int (not a bool) or a str is a reference; anything else is a ``CardError``."""
+    if type(ref) is not int and not isinstance(ref, str):
+        raise CardError(f"{ref!r} is not a Reference: give a store id, YouTube id or URL")
+    if type(ref) is int or (ref.isdigit() and len(ref) != 11):
         row = store.one("SELECT id, external_id FROM video WHERE id = ?", (int(ref),))
     else:
         from cf.research.fetch import FetchError, parse_video_ref

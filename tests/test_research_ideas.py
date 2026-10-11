@@ -70,6 +70,16 @@ class AddTest(IdeasCase):
         self.assertIn("zzzzzzzzzzz", str(cm.exception))
         self.assertEqual(ideas.list(self.store, "lisbon"), [])
 
+    def test_a_source_that_is_neither_a_store_id_nor_a_youtube_ref_is_a_violation(self):
+        for bad in (True, {"id": V1}, 1.5, None, [V1]):
+            with self.subTest(bad=bad):
+                problems = ideas.check(self.store, [bad], fields())
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn("store id, YouTube id or URL", problems[0])
+                with self.assertRaises(ideas.IdeaError):
+                    self.add(sources=(bad,))
+        self.assertEqual(ideas.list(self.store, "lisbon"), [])
+
     def test_needs_at_least_one_source(self):
         with self.assertRaises(ideas.IdeaError):
             self.add(sources=())

@@ -85,6 +85,12 @@ class IdeasCliTest(unittest.TestCase):
         self.assertIn("[1] personalizations: must be a list of exactly 3 non-empty strings", out)
         self.assertEqual(self.json_of("ideas", "list", "lisbon"), [])
 
+    def test_add_with_a_source_object_prints_the_violation(self):
+        code, out, err = self.run_cli("ideas", "add", "lisbon", self.write({"sources": [{"url": V1}], **fields()}))
+        self.assertEqual(code, 1)
+        self.assertIn("store id, YouTube id or URL", out + err)
+        self.assertNotIn("Traceback", out + err)
+
     def test_add_without_sources(self):
         code, out, err = self.run_cli("ideas", "add", "lisbon", self.write(fields()))
         self.assertEqual(code, 1)
