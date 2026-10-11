@@ -1,8 +1,9 @@
 """Research CLI: ``python -m cf.research <group> <cmd> [--json] [--db PATH]``.
 
 Groups so far: ``watchlist`` (add, list, show, remove, add-channel,
-remove-channel, add-query), ``taxonomy list``, ``quota``, ``scout``,
-``snapshot``, ``feed``, ``fetch`` (one Reference, deep). Every command takes
+remove-channel, add-query), ``taxonomy`` (list, approve, reject), ``quota``,
+``scout``, ``snapshot``, ``feed``, ``fetch`` (one Reference, deep), ``card``
+(validate, save, show). Every command takes
 ``--json`` (machine output on stdout) and ``--db`` (default ``CF_FACTORY_DB`` or
 ``<footage root>/factory.db``). Human output is a Markdown table in Russian.
 Errors: one line on stderr, exit 1.
@@ -19,16 +20,17 @@ import contextlib
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cf.research import feed, fetch, quota, scout, taxonomy, watchlist, youtube
+from cf.research import card, feed, fetch, quota, scout, taxonomy, watchlist, youtube
 from cf.research.kinds import KINDS
 from cf.research.store import StoreError, open_store
 
 # Errors a command reports as one line and exit 1.
 USER_ERRORS: tuple[type[Exception], ...] = (
     watchlist.WatchlistError, taxonomy.TaxonomyError, quota.QuotaExceeded,
-    youtube.YouTubeError, StoreError, fetch.FetchError,
+    youtube.YouTubeError, StoreError, fetch.FetchError, card.CardError,
 )
 
 
@@ -158,6 +160,26 @@ def cmd_tx_list(args, store) -> int:
         [(v.kind, v.value, v.label, v.status, v.source, v.note) for v in vals]))
 
 
+def _tx_change(args, change: taxonomy.TaxonomyChange, verb: str) -> int:
+    def human() -> str:
+        v = change.value
+        head = f"{v.kind} {v.value}: {verb}."
+        if not change.cards:
+            return head
+        what = "Префикс proposed: снят в карточках" if v.status == "approved" else \
+            "Эти карточки теперь не проходят валидацию, перепишите их"
+        return f"{head}\n{what}: {', '.join(change.cards)}"
+    return emit(args, change.to_dict(), human)
+
+
+def cmd_tx_approve(args, store) -> int:
+    return _tx_change(args, taxonomy.approve(store, args.kind, args.value), "одобрено")
+
+
+def cmd_tx_reject(args, store) -> int:
+    return _tx_change(args, taxonomy.reject(store, args.kind, args.value), "отклонено")
+
+
 def register_taxonomy(sub, common) -> None:
     g = sub.add_parser("taxonomy", help="controlled vocabulary for Reference cards")
     gs = g.add_subparsers(dest="cmd", required=True)
@@ -165,6 +187,12 @@ def register_taxonomy(sub, common) -> None:
     p.add_argument("--kind", choices=taxonomy.KINDS)
     p.add_argument("--status", choices=taxonomy.STATUSES)
     p.set_defaults(func=cmd_tx_list)
+    for name, func, text in (("approve", cmd_tx_approve, "make a value valid for cards (drops proposed: in cards)"),
+                             ("reject", cmd_tx_reject, "make a value invalid for cards; it stays rejected")):
+        p = gs.add_parser(name, parents=[common], help=text)
+        p.add_argument("kind", choices=taxonomy.KINDS)
+        p.add_argument("value")
+        p.set_defaults(func=func)
 
 
 # --- quota --------------------------------------------------------------------
@@ -338,8 +366,145 @@ def register_feed(sub, common) -> None:
     p.set_defaults(func=cmd_feed)
 
 
+# --- card ---------------------------------------------------------------------
+
+def _violations(args, target: str, problems: list[str]) -> int:
+    """Print violations like cf.script_schema (stdout, one per line) and return 1."""
+    if args.json:
+        print(json.dumps({"target": target, "ok": False, "violations": problems}, ensure_ascii=False, indent=2))
+    else:
+        print(f"INVALID {target} ({len(problems)} violation{'s' if len(problems) != 1 else ''})")
+        for p in problems:
+            print(f"- {p}")
+    return 1
+
+
+def _read_json(path: str) -> dict:
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise card.CardError(f"{path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise card.CardError(f"{path}: expected a JSON object")
+    return data
+
+
+def _is_card(data: dict) -> bool:
+    return "schema" in data and "analysis" in data
+
+
+def _stored(store, ref: str) -> tuple[dict, dict]:
+    v = card.video(store, ref)
+    c = card.load(store, v["id"])
+    if c is None:
+        raise card.CardError(f"Reference {v['external_id']} has no card yet; run fetch first")
+    return v, c
+
+
+def _pending(store, analysis: dict | None) -> list[dict]:
+    """Category values of an analysis still awaiting the Author's approval."""
+    out = []
+    for path, kind in card.category_paths():
+        raw = card.field(analysis or {}, path)
+        if isinstance(raw, str):
+            value = card.split_proposed(raw)[0]
+            t = taxonomy.get(store, kind, value)
+            if t is not None and t.status == "proposed" and {"kind": kind, "value": value} not in out:
+                out.append({"kind": kind, "value": value})
+    return out
+
+
+def cmd_card_validate(args, store) -> int:
+    target = args.target
+    transcript = None
+    if os.path.isfile(target):
+        data = _read_json(target)
+        if _is_card(data):
+            c = data
+            sibling = os.path.join(os.path.dirname(os.path.abspath(target)), "transcript.json")
+            if os.path.isfile(sibling):
+                transcript = _read_json(sibling)
+        elif args.video is None:
+            return _violations(args, target, ["an analysis without measured needs --video <id|url> "
+                                              "(or pass the whole card.json)"])
+        else:
+            c = {**_stored(store, args.video)[1], "analysis": data}
+        if transcript is None and args.video is not None:
+            transcript = card.read_transcript(card.video(store, args.video)["external_id"])
+    else:
+        v, c = _stored(store, target)
+        transcript = card.read_transcript(v["external_id"])
+    problems = card.validate(c, store, transcript=transcript)
+    if problems:
+        return _violations(args, target, problems)
+    a = c["analysis"]
+    pending = _pending(store, a)
+    return emit(args, {"target": target, "ok": True, "violations": [], "proposed": pending}, lambda: (
+        f"OK {target}: hook {a['hook']['category']}, format {a['storytelling_format']['category']}, "
+        f"layout {a['visual_layout']['category']} / {a['visual_layout']['sub_category']}"
+        + (f"; ждут одобрения: {', '.join(p['kind'] + ' ' + p['value'] for p in pending)}" if pending else "")))
+
+
+def _card_human(title: str | None, ext: str, c: dict, pending: list[dict]) -> str:
+    m, a = c["measured"], c["analysis"]
+    out = [f"Карточка {ext}: {title or ''}".rstrip(), "",
+           md_table(["Измерение", "Значение"], [
+               ("Длительность, с", m.get("duration_s")), ("Склеек в минуту", m.get("cuts_per_min")),
+               ("Первый шот, с", m.get("first_shot_s")), ("Начало речи, с", m.get("speech_onset_s")),
+               ("Spoken hook (первые 3 с)", m.get("spoken_hook"))])]
+    if a is None:
+        out += ["", "Анализа пока нет."]
+    else:
+        out += ["", md_table(["Поле", "Значение"],
+                             [(path, card.field(a, path)) for path in card.field_paths()])]
+    if pending:
+        out += ["", "Ждут одобрения Author (taxonomy approve|reject):"]
+        out += [f"- {p['kind']} {p['value']}" for p in pending]
+    return "\n".join(out)
+
+
+def cmd_card_show(args, store) -> int:
+    v, c = _stored(store, args.video)
+    title = (store.one("SELECT title FROM video WHERE id = ?", (v["id"],)) or {}).get("title")
+    return emit(args, c, lambda: _card_human(title, v["external_id"], c, _pending(store, c["analysis"])))
+
+
+def cmd_card_save(args, store) -> int:
+    data = _read_json(args.analysis)
+    analysis = data["analysis"] if _is_card(data) else data
+    try:
+        saved = card.save_analysis(store, args.video, analysis)
+    except card.CardError as exc:
+        if not exc.violations:
+            raise
+        return _violations(args, args.analysis, exc.violations)
+    v = card.video(store, args.video)
+    pending = _pending(store, saved["analysis"])
+    title = (store.one("SELECT title FROM video WHERE id = ?", (v["id"],)) or {}).get("title")
+    return emit(args, {"video_id": v["external_id"], "card": saved, "proposed": pending},
+                lambda: "Сохранено.\n\n" + _card_human(title, v["external_id"], saved, pending))
+
+
+def register_card(sub, common) -> None:
+    g = sub.add_parser("card", help="Reference cards: validate, save and show the analysis section")
+    gs = g.add_subparsers(dest="cmd", required=True)
+    p = gs.add_parser("validate", parents=[common],
+                      help="check a card (stored, card.json, or an analysis file with --video); violations exit 1")
+    p.add_argument("target", help="card.json, analysis.json (with --video), or a YouTube id/URL of a stored card")
+    p.add_argument("--video", help="YouTube id or URL whose measured card and transcript to check against")
+    p.set_defaults(func=cmd_card_validate)
+    p = gs.add_parser("save", parents=[common],
+                      help="validate and store the analysis; proposed: values enter the taxonomy as proposed")
+    p.add_argument("video", help="YouTube id or URL (fetched already)")
+    p.add_argument("analysis", help="analysis.json (the analysis object, or a whole card)")
+    p.set_defaults(func=cmd_card_save)
+    p = gs.add_parser("show", parents=[common], help="one card: measured and analysis")
+    p.add_argument("video", help="YouTube id or URL")
+    p.set_defaults(func=cmd_card_show)
+
+
 GROUPS: list[Callable] = [register_watchlist, register_taxonomy, register_quota,
-                          register_scout, register_snapshot, register_feed, register_fetch]
+                          register_scout, register_snapshot, register_feed, register_fetch, register_card]
 
 
 def build_parser() -> argparse.ArgumentParser:
