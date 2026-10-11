@@ -161,7 +161,20 @@ CREATE TABLE quota (
 );
 """
 
-MIGRATIONS: list[str] = [V1]  # MIGRATIONS[i] takes the store from version i to i + 1
+# Version 2 (#4 scout): a channel remembers when its first uploads backfill finished, and a
+# Watchlist remembers which videos its search queries found (their channels are candidates).
+V2 = """
+ALTER TABLE channel ADD COLUMN backfilled_at TEXT;
+CREATE TABLE search_hit (
+    watchlist_id INTEGER NOT NULL REFERENCES watchlist (id) ON DELETE CASCADE,
+    video_id     INTEGER NOT NULL REFERENCES video (id) ON DELETE CASCADE,
+    query        TEXT NOT NULL,
+    found_at     TEXT NOT NULL,
+    PRIMARY KEY (watchlist_id, video_id, query)
+);
+"""
+
+MIGRATIONS: list[str] = [V1, V2]  # MIGRATIONS[i] takes the store from version i to i + 1
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

@@ -1,0 +1,25 @@
+{
+  "kind": "youtube#videoListResponse",
+  "etag": "g3H4i5J6",
+  "pageInfo": {"totalResults": 1, "resultsPerPage": 1},
+  "items": [
+    {
+      "kind": "youtube#video",
+      "etag": "k7L8m9N0",
+      "id": "Lm4nOp5qRs6",
+      "snippet": {
+        "publishedAt": "2026-10-02T18:05:00Z",
+        "channelId": "UCq1W2e3R4t5Y6u7I8o9P0aS",
+        "title": "Lisbon's 7 hills & the tram you should skip",
+        "description": "Tram 28 vs walking & why.",
+        "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/Lm4nOp5qRs6/hqdefault.jpg", "width": 480, "height": 360}},
+        "channelTitle": "Lisbon Lens",
+        "tags": ["lisbon", "tram 28"],
+        "categoryId": "19",
+        "liveBroadcastContent": "none"
+      },
+      "contentDetails": {"duration": "PT45S", "dimension": "2d", "definition": "hd", "caption": "false", "licensedContent": false, "contentRating": {}, "projection": "rectangular"},
+      "statistics": {"viewCount": "2400511", "likeCount": "120004", "favoriteCount": "0", "commentCount": "1520"}
+    }
+  ]
+}
