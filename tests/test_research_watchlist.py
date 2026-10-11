@@ -76,6 +76,13 @@ class WatchlistTest(unittest.TestCase):
             with self.subTest(name=bad), self.assertRaises(wl.WatchlistError):
                 self.make(bad)
 
+    def test_names_starting_with_an_underscore_are_reserved(self):
+        for bad in ("_adhoc", "_mine"):
+            with self.subTest(name=bad), self.assertRaises(wl.WatchlistError) as cm:
+                self.make(bad)
+            self.assertIn("reserved", str(cm.exception))
+        self.assertEqual(self.make("trip_2026").name, "trip_2026")
+
     def test_format_is_required(self):
         with self.assertRaises(wl.WatchlistError):
             self.make(format_id="")

@@ -148,11 +148,15 @@ def _watchlist(store: Store, r: dict) -> Watchlist:
 def create(store: Store, name: str, *, format_id: str, author_channel: str | None = None,
            language: str = "en", region: str | None = None,
            queries: list[str] | None = None) -> Watchlist:
-    """Create a Watchlist. ``name`` doubles as a folder name under ``references/``;
+    """Create a Watchlist. ``name`` doubles as a folder name under ``references/`` (names
+    starting with ``_`` are reserved for folders like ``_adhoc``);
     ``author_channel`` names the Author's Channel it serves (Brief folder)."""
+    if name and name.startswith("_"):
+        raise WatchlistError(f"Watchlist name {name!r}: names starting with '_' are reserved "
+                             f"(references/_adhoc holds References fetched without a Watchlist)")
     if not name or not NAME_RE.fullmatch(name):
         raise WatchlistError(f"Watchlist name {name!r}: use letters, digits, '-', '_' or '.', "
-                             f"no spaces or slashes, not starting with '.'")
+                             f"no spaces or slashes, not starting with '.' or '_'")
     if not (format_id or "").strip():
         raise WatchlistError("a Watchlist needs a Format id (e.g. walk-reel, tech-explainer)")
     why = formats.problem(format_id.strip())

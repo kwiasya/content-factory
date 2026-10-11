@@ -11,7 +11,7 @@ A Watchlist scopes all research for one niche and one Format (`GLOSSARY.md`, sec
 
 1. Read `author/how-you-work.md`, then `author/who-i-am.md` for the author's Channels and priorities. If `author/` is missing or a heading this step needs is empty (the Channel in `who-i-am.md`, the rules in `how-you-work.md`), `/author-setup` has not run yet: run it for that part, then continue.
 2. Collect what the author has not already said, in one batch:
-   - **name**: short, folder-safe (`claude-jobs`, `vienna-long`); it becomes `references/<name>/`.
+   - **name**: short, folder-safe (`claude-jobs`, `vienna-long`), not starting with `_` (reserved: `references/_adhoc/` holds References fetched without a Watchlist); it becomes `references/<name>/`.
    - **Format** id (`walk-reel`, `tech-explainer`, `travel-long`: the folder name under `formats/`, where the Format's Hook library lands) and the author's **Channel** it serves (the Author's Channel, stored as `author_channel`: a short folder name such as `travelwalks`, where its Briefs land under `channels/<channel>/briefs/`; not a Reference channel).
    - **language** (ISO 639-1, default `en`) and **region** (ISO 3166-1, e.g. `US`), when it matters.
    - **seed Reference channels**: handles or URLs, aiming at 15–20 for the niche; 5 is enough to start.
