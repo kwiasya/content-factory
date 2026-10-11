@@ -14,7 +14,7 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from urllib.parse import unquote, urlsplit
 
-from cf.research import ingest, youtube
+from cf.research import formats, ingest, youtube
 from cf.research.store import Store, dumps, now_iso
 
 
@@ -153,6 +153,9 @@ def create(store: Store, name: str, *, format_id: str, channel_id: str | None = 
                              f"no spaces or slashes, not starting with '.'")
     if not (format_id or "").strip():
         raise WatchlistError("a Watchlist needs a Format id (e.g. walk-reel, tech-explainer)")
+    why = formats.problem(format_id.strip())
+    if why:
+        raise WatchlistError(why)
     qs: list[str] = []
     for q in queries or []:
         q = " ".join(q.split())

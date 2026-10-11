@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from cf.research import hooks
 from cf.research import quota
 from cf.research import store as st
 from cf.research import watchlist as wl
@@ -78,6 +79,16 @@ class WatchlistTest(unittest.TestCase):
     def test_format_is_required(self):
         with self.assertRaises(wl.WatchlistError):
             self.make(format_id="")
+
+    def test_format_id_follows_the_hook_library_rule(self):
+        for bad in ("Walk Reel", "walk/reel", "-walk", "WalkReel"):
+            with self.subTest(format_id=bad), self.assertRaises(wl.WatchlistError) as cm:
+                self.make(format_id=bad)
+            self.assertIn("lower case letters, digits, - or _", str(cm.exception))
+            self.assertIn("walk-reel", str(cm.exception))
+            with self.subTest(format_id=bad), self.assertRaises(hooks.HookError):
+                hooks.check_format(bad)
+        self.assertEqual(self.make(format_id="walk-reel").format_id, "walk-reel")
 
     def test_remove(self):
         self.make()

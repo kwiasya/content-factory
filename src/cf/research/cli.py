@@ -122,7 +122,7 @@ def register_watchlist(sub, common) -> None:
     gs = g.add_subparsers(dest="cmd", required=True)
     p = gs.add_parser("add", parents=[common], help="create a Watchlist")
     p.add_argument("name")
-    p.add_argument("--format", required=True, help="Format id, e.g. walk-reel, tech-explainer, travel-long")
+    p.add_argument("--format", required=True, help="Format id: lower case letters, digits, - or _ (e.g. walk-reel, tech-explainer)")
     p.add_argument("--channel", help="the Author's Channel id this Watchlist serves")
     p.add_argument("--language", default="en")
     p.add_argument("--region", help="ISO 3166-1 alpha-2, e.g. US")

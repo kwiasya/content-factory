@@ -13,17 +13,15 @@ state gives the same bytes, and every export overwrites it.
 
 from __future__ import annotations
 
-import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cf.research import card, outlier, taxonomy
+from cf.research import card, formats, outlier, taxonomy
 from cf.research.feed import outlier_text
 from cf.research.store import Store
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-FORMAT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 EXPORT_COMMAND = "python -m cf.research hooks export"
 SAVE_COMMAND = "python -m cf.research hooks save"
 
@@ -52,9 +50,10 @@ class Hook:
 
 
 def check_format(format_id: str) -> str:
-    """``format_id`` if it can name a folder under ``formats/``; else HookError."""
-    if not isinstance(format_id, str) or not FORMAT_ID_RE.match(format_id):
-        raise HookError(f"Format id {format_id!r} must be lower case letters, digits, - or _ (e.g. walk-reel)")
+    """``format_id`` if it can name a folder under ``formats/`` (``formats.problem``); else HookError."""
+    why = formats.problem(format_id)
+    if why:
+        raise HookError(why)
     return format_id
 
 
