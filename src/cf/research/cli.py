@@ -1,6 +1,6 @@
 """Research CLI: ``python -m cf.research <group> <cmd> [--json] [--db PATH]``.
 
-Groups so far: ``watchlist`` (add, list, show, remove, add-channel,
+Groups: ``watchlist`` (add, list, show, remove, add-channel,
 remove-channel, add-query), ``taxonomy`` (list, approve, reject), ``quota``,
 ``scout``, ``snapshot``, ``feed``, ``fetch`` (one Reference, deep), ``card``
 (validate, save, show), ``ideas`` (add, list, show, shortlist, discard,
@@ -10,9 +10,8 @@ restore, note, brief, candidates), ``summary`` (hooks, formats, topics), ``hooks
 ``<footage root>/factory.db``). Human output is a Markdown table in Russian.
 Errors: one line on stderr, exit 1.
 
-Later tickets register their group with a ``register_<group>(sub, common)``
-function added to ``GROUPS``; a handler takes ``(args, store)`` and returns the
-exit code.
+To add a group: write ``register_<group>(sub, common)``, append it to ``GROUPS``; each
+handler takes ``(args, store)`` and returns the exit code.
 """
 
 from __future__ import annotations
