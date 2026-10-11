@@ -10,6 +10,8 @@ the canvas height ("fit height"), and the window slides along the source:
   to follow the subject. It only works after the fit-height zoom is set; on a fit-width
   (letterboxed) item it completes and changes nothing (probe, 2026-10-11).
 - ``center``: the middle of the source, ``Pan`` 0.
+  ``hold_s`` (follow only) lists source times whose whole person box the window must hold
+  (the smile at the lens at the end of a hook), even when that costs other frames.
 - ``pan``: a fixed window at ``x`` (-1 = left edge of the source, 1 = right edge).
   ``x_end`` is recorded but not animated: the scripting API cannot keyframe Inspector
   properties (no keyframe call in the 21.1.1 stub), so cf.build applies a static pan at ``x``.
@@ -48,9 +50,11 @@ class Reframe:
     x: float | None = None
     x_end: float | None = None
     zoom: float = 1.0
+    hold_s: tuple[float, ...] = ()  # follow only: source times whose whole person box the window must hold
 
     def to_dict(self) -> dict:
-        return {k: v for k, v in asdict(self).items() if v is not None}
+        return {k: (list(v) if isinstance(v, tuple) else v) for k, v in asdict(self).items()
+                if v is not None and v != ()}
 
 
 def aspect_relation(src_w: float, src_h: float, canvas_w: float, canvas_h: float) -> str:
@@ -189,7 +193,7 @@ def from_shot(raw: object, where: str = "reframe") -> Reframe | None:
         return None
     if not isinstance(raw, dict):
         raise ValueError(f"{where}: must be an object or null")
-    unknown = sorted(set(raw) - {"mode", "x", "x_end", "zoom"})
+    unknown = sorted(set(raw) - {"mode", "x", "x_end", "zoom", "hold_s"})
     if unknown:
         raise ValueError(f"{where}: unknown keys {unknown}")
     mode = raw.get("mode")
@@ -201,7 +205,13 @@ def from_shot(raw: object, where: str = "reframe") -> Reframe | None:
         if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))):
             raise ValueError(f"{where}: {k!r} must be a number, got {v!r}")
         vals[k] = None if v is None else float(v)
-    return Reframe(mode=mode, x=vals["x"], x_end=vals["x_end"], zoom=1.0 if vals["zoom"] is None else vals["zoom"])
+    hold = raw.get("hold_s")
+    if hold is None:
+        hold = []
+    if not isinstance(hold, list) or any(isinstance(h, bool) or not isinstance(h, (int, float)) for h in hold):
+        raise ValueError(f"{where}: 'hold_s' must be a list of source seconds, got {hold!r}")
+    return Reframe(mode=mode, x=vals["x"], x_end=vals["x_end"], zoom=1.0 if vals["zoom"] is None else vals["zoom"],
+                   hold_s=tuple(float(h) for h in hold))
 
 
 def problems(reframe: Reframe | None, src_w: float | None, src_h: float | None,
@@ -233,6 +243,8 @@ def problems(reframe: Reframe | None, src_w: float | None, src_h: float | None,
             v.append(f"reframe.{k} {val:g} must be in -1..1")
     if reframe.zoom < 1.0:
         v.append(f"reframe.zoom {reframe.zoom:g} must be >= 1")
+    if reframe.hold_s and reframe.mode != "follow":
+        v.append(f"reframe.hold_s is only for mode 'follow' (mode is {reframe.mode!r})")
     if src_w and src_h:
         rel = aspect_relation(src_w, src_h, canvas_w, canvas_h)
         if rel == "same":

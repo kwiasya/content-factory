@@ -30,6 +30,25 @@ class ChooseWindowTest(unittest.TestCase):
         self.assertAlmostEqual(r.left + r.width / 2, 0.70, delta=0.01)
         self.assertGreater(r.x, 0)
 
+    def test_hold_s_keeps_the_end_of_a_crossing_in_the_window(self):
+        # Mallorca hook: she walks from 0.55 to 0.25 and smiles at the lens at the end. Without a
+        # hold the window keeps the long early stretch; hold_s at the last frame keeps the smile.
+        b = boxes(0.56, 0.55, 0.55, 0.54, 0.53, 0.52, 0.50, 0.45, 0.38, 0.30, width=0.16)
+        free = choose_window(b, W)
+        self.assertNotIn(1.8, free.covered_times)
+        held = choose_window(b, W, hold_s=(1.8,))
+        self.assertEqual((held.held, held.fallback), ([1.8], None))
+        self.assertIn(1.8, held.covered_times)
+        self.assertLess(held.coverage_pct, free.coverage_pct)
+        self.assertLessEqual(held.left, 0.30 - 0.08 + 1e-9)
+
+    def test_hold_s_that_cannot_fit_is_dropped(self):
+        b = boxes(0.1, 0.9, width=0.1)  # 0.8 apart: no window holds both
+        r = choose_window(b, W, hold_s=(0.0, 0.2))
+        self.assertEqual((r.fallback, r.held), ("hold", []))
+        r = choose_window(b, W, hold_s=(5.0,))  # no frame sampled near 5 s
+        self.assertEqual(r.fallback, "hold")
+
     def test_window_never_leaves_the_source(self):
         r = choose_window(boxes(0.02, 0.03, 0.04, width=0.04), W)
         self.assertEqual(r.left, 0.0)

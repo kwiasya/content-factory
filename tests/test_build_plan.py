@@ -5,6 +5,7 @@ from pathlib import Path
 
 from cf.build import (BuildError, append_infos, beat_marker_plan, loop_seam, plan_shots, plan_track,
                       source_end, still_stats, timecode)
+from cf import frames
 from cf.script_schema import from_dict
 
 START = 108000  # 01:00:00:00 at 30 fps (read from GetStartFrame() in a real build)
@@ -14,6 +15,7 @@ MANIFEST = {
         {"file": "A60.MOV", "fps": 60.0, "duration_s": 13.1, "nb_frames": 786, "path": "/raw/A60.MOV"},
         {"file": "B24.MOV", "fps": 24.0, "duration_s": 29.2, "nb_frames": 701, "path": "/raw/B24.MOV"},
         {"file": "C30.mov", "fps": 30.0, "duration_s": 33.6, "nb_frames": 1008, "path": "/raw/C30.mov"},
+        {"file": "D2997.mp4", "fps": 29.97003, "duration_s": 383.783, "nb_frames": 11497, "path": "/raw/D2997.mp4"},
         {"file": "D5994.MOV", "fps": 59.94006, "duration_s": 16.84, "nb_frames": 1009, "path": "/raw/D5994.MOV"},
     ],
 }
@@ -185,17 +187,56 @@ class LoopSeamTest(unittest.TestCase):
                 shot("A60.MOV", 7.8333, 9.3, role="loop")]
 
     def test_run_up_ends_on_the_hooks_first_source_frame(self):
-        plan, _ = plan_shots(script(self.shots()), MANIFEST, START, 30, self.cuts(44))
+        plan, notes = plan_shots(script(self.shots(), ending="loop_seamless"), MANIFEST, START, 30, self.cuts(44))
         seam = loop_seam(plan)
-        self.assertEqual((plan[-1].src_start, seam["last_src_end"], seam["first_src_start"]), (470, 558, 558))
+        self.assertEqual((plan[-1].src_start, seam["next_frame"], seam["first_src_start"]), (470, 558, 558))
+        self.assertEqual(seam["last_shown_frame"], 556)  # 60 fps on 30: every other source frame
         self.assertEqual(seam["gap_frames"], 0)
         self.assertTrue(seam["ok"])
+        self.assertFalse(any("in-point source frame" in n for n in notes))
 
-    def test_a_frame_too_many_in_cuts_json_breaks_the_seam(self):
+    def test_a_frame_too_many_moves_the_run_up_in_point(self):
+        # The plan derives the run-up's in-point from the seam, so one more timeline frame in
+        # cuts.json starts it two 60 fps source frames earlier instead of breaking the seam.
+        plan, notes = plan_shots(script(self.shots(), ending="loop_seamless"), MANIFEST, START, 30, self.cuts(45))
+        self.assertEqual(plan[-1].src_start, 468)
+        self.assertEqual(loop_seam(plan)["gap_frames"], 0)
+        self.assertTrue(any("in-point source frame 470 -> 468" in n for n in notes))
+        # Without loop_seamless nothing is derived, and loop_seam reports the skip.
         plan, _ = plan_shots(script(self.shots()), MANIFEST, START, 30, self.cuts(45))
+        self.assertEqual(loop_seam(plan)["gap_frames"], -2)  # the run-up would repeat 2 source frames
+
+    def test_2997_seam_from_frames_not_seconds(self):
+        # Mallorca reel-01 v1: DJI 30000/1001 on 30 fps. The run-up A 119.1857-120.487 (39 frames)
+        # into the hook at frame 3611 started at 3572 by the seconds; Resolve then showed 3609 on its
+        # last frame and 3611 next: frame 3610 skipped (probe, stills vs source). From frames it
+        # starts at 3573 and its last frame shows 3610.
+        hook = shot("D2997.mp4", 120.487, 122.8894, role="hook")
+        run = shot("D2997.mp4", 119.1857, 120.487, role="loop")
+        s = script([hook, shot("C30.mov", 2.0, 4.0), run])
+        plan, _ = plan_shots(s, MANIFEST, START, 30, clip_fps={"D2997.mp4": 29.97})
+        self.assertEqual((plan[0].src_start, plan[-1].src_start, plan[-1].duration), (3611, 3572, 39))
         seam = loop_seam(plan)
-        self.assertEqual(seam["gap_frames"], 2)  # one timeline frame = two 60 fps source frames
+        self.assertEqual((seam["last_shown_frame"], seam["next_frame"], seam["gap_frames"]), (3609, 3610, 1))
         self.assertFalse(seam["ok"])
+        s.ending = "loop_seamless"
+        plan, notes = plan_shots(s, MANIFEST, START, 30, clip_fps={"D2997.mp4": 29.97})
+        seam = loop_seam(plan)
+        self.assertEqual((plan[-1].src_start, seam["last_shown_frame"], seam["gap_frames"]), (3573, 3610, 0))
+        self.assertTrue(seam["ok"])
+        self.assertTrue(any("3572 -> 3573" in n for n in notes))
+
+    def test_display_model_matches_the_probe(self):
+        # Stills from smoke-2997: S=3572 showed 3605..3609 on j=34..38; S=3611 showed 3611, 3612,
+        # 3613, 3613 on j=0..3.
+        self.assertEqual([frames.shown(3572, j, 29.97, 30) for j in range(34, 39)], [3605, 3606, 3607, 3608, 3609])
+        self.assertEqual([frames.shown(3611, j, 29.97, 30) for j in range(4)], [3611, 3612, 3613, 3613])
+        self.assertEqual(frames.start_from_left_offset(3575.5719999999565, 29.97, 30), 3572)
+        self.assertEqual(frames.start_from_left_offset(3614.611000000041, 29.97, 30), 3611)
+        self.assertEqual(frames.run_up_start(3611, 39, 29.97, 30), 3573)
+        self.assertEqual(frames.run_up_start(558, 44, 60, 30), 470)
+        self.assertEqual(frames.run_up_start(100, 30, 30, 30), 70)
+        self.assertEqual(frames.exact_fps(29.97), frames.exact_fps(29.97003))
 
 
 class TrackPlanTest(unittest.TestCase):

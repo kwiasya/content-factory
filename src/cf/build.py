@@ -57,6 +57,7 @@ from pathlib import Path
 from typing import Any
 
 from cf import follow as fw
+from cf import frames
 from cf import reframe as rf
 from cf.canvas import Canvas, from_style, scaled_safe_zone, upscale_plan
 from cf.script_schema import Script, load, load_json, manifest_clips, validate
@@ -152,20 +153,15 @@ def source_end(src_start: int, duration: int, clip_fps: float, timeline_fps: flo
     ``endFrame``. An exact integer span stays an int; a fractional one gets +0.001 so
     float error cannot floor it one frame short.
     """
-    span = Fraction(duration) * _frac(speed) * _frac(clip_fps) / _frac(timeline_fps)
+    span = Fraction(duration) * _frac(speed) * frames.exact_fps(clip_fps) / frames.exact_fps(timeline_fps)
     if span.denominator == 1:
         return src_start + int(span)
     return round(src_start + float(span) + 0.001, 4)
 
 
-# Script times are written with 4 decimals, so a time within 1/100 of a frame of a frame
-# boundary counts as on it (1/3 ms at 30 fps): 6.8667 s at 60 fps is frame 412, not 413.
-FRAME_EPS = 0.01
-
-
-def snap_frames(seconds: float, fps: float) -> int:
-    """Whole timeline frames that fit in ``seconds`` (floor, within FRAME_EPS)."""
-    return max(0, math.floor(seconds * fps + FRAME_EPS))
+# FRAME_EPS, snap_frames and the source-frame model live in cf.frames (shared with the validator).
+FRAME_EPS = frames.FRAME_EPS
+snap_frames = frames.snap_frames
 
 
 def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30,
@@ -212,8 +208,9 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
         out_s = float(cut["src_out_s"]) if cut is not None and cut.get("src_out_s") is not None else s.out_s
         if cut is not None and abs(in_s - s.in_s) > 1.0 / cfps + 1e-6:
             notes.append(f"{s.id}: cuts.json src_in_s {in_s:g} differs from the script's in_s {s.in_s:g}")
-        src_start = math.ceil(in_s * cfps - FRAME_EPS)
-        fit = snap_frames((out_s * cfps - src_start) / cfps / s.speed, fps)
+        src_start = frames.first_frame(in_s, cfps)
+        efps = float(frames.exact_fps(cfps))
+        fit = snap_frames((out_s * efps - src_start) / efps / s.speed, fps)
         if cut is not None:
             off = int(cut["record_frame_offset"])
             dur = int(cut["duration_frames"])
@@ -232,27 +229,43 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
             src_end_after_speed=source_end(src_start, dur, cfps, fps, s.speed),
             fade_in=round(s.fade_in_s * fps), fade_out=round(s.fade_out_s * fps),
         ))
-        frames = c.get("nb_frames")
-        if frames and out[-1].src_end_after_speed > int(frames) + 1:
+        nb = c.get("nb_frames")
+        if nb and out[-1].src_end_after_speed > int(nb) + 1:
             notes.append(f"{s.id}: source range ends at {out[-1].src_end_after_speed:g}, "
-                         f"past the clip's {frames} frames")
+                         f"past the clip's {nb} frames")
     for a, b in zip(out, out[1:]):
         if b.record_offset < a.record_offset + a.duration:
             raise BuildError(f"shots {a.id} and {b.id} overlap on V1")
+    if script.ending == "loop_seamless" and len(out) > 1:
+        first, last = out[0], out[-1]
+        if first.clip == last.clip and abs(first.speed - 1) < 1e-9 and abs(last.speed - 1) < 1e-9:
+            # The seam is derived from frames: the run-up starts where its next frame is the
+            # hook's first one, as Resolve places source frames (cf.frames; at 29.97 on 30 this
+            # is one source frame later than the seconds say).
+            want = frames.run_up_start(first.src_start, last.duration, last.clip_fps, fps)
+            if want != last.src_start:
+                notes.append(f"{last.id}: in-point source frame {last.src_start} -> {want}, so its next frame is "
+                             f"{first.id}'s first ({first.src_start}) at {last.clip_fps:g} fps on {fps:g}")
+                last.src_start = want
+                last.src_end = source_end(want, last.duration, last.clip_fps, fps)
+                last.src_end_after_speed = last.src_end
     return out, notes
 
 
-def loop_seam(shots: list[PlannedShot]) -> dict:
-    """The seam of a ``loop_seamless`` Reel in source frames of the shared clip.
+def loop_seam(shots: list[PlannedShot], fps: float = 30) -> dict:
+    """The seam of a ``loop_seamless`` Reel in source frames of the shared clip (cf.frames model).
 
-    ``gap`` is the last shot's exclusive source end minus the first shot's source start:
-    0 means the loop shows the next source frame; within half a source frame counts as on it.
+    ``gap_frames`` = the first shot's first source frame minus the frame the last shot would show
+    one timeline frame after its end: 0 is seamless, 1 skips a frame, -1 repeats one.
     """
     first, last = shots[0], shots[-1]
-    gap = round(float(last.src_end_after_speed) - first.src_start, 4)
-    return {"clip": first.clip, "same_clip": first.clip == last.clip, "last_src_end": last.src_end_after_speed,
-            "first_src_start": first.src_start, "gap_frames": gap,
-            "ok": first.clip == last.clip and abs(gap) <= 0.5 + 1e-3}
+    nxt = frames.next_frame(last.src_start, last.duration, last.clip_fps, fps)
+    gap = first.src_start - nxt
+    return {"clip": first.clip, "same_clip": first.clip == last.clip, "last_src_start": last.src_start,
+            "last_frames": last.duration,
+            "last_shown_frame": frames.shown(last.src_start, last.duration - 1, last.clip_fps, fps),
+            "next_frame": nxt, "first_src_start": first.src_start, "gap_frames": gap,
+            "ok": first.clip == last.clip and gap == 0}
 
 
 def append_infos(shots: list[PlannedShot], items: dict[str, Any], media_type: int,
@@ -885,7 +898,12 @@ class Builder:
             w = fw.window_fraction(w_px, h_px, self.width, self.height, eff[s0.id][0].zoom)
             # In source-time order: the seam pair is [last, first], and the last shot runs up to the first.
             union = [b for g in group for b in boxes[g]]
-            res = fw.choose_window(union, w)
+            hold = tuple(h for g in group for h in (eff[g][0].hold_s or ()))
+            res = fw.choose_window(union, w, hold)
+            if hold:
+                r.notes.append(f"{'+'.join(group)}: follow window must hold the person at {list(hold)} s: "
+                               + (f"held {res.held}" if res.fallback != "hold" else
+                                  "impossible (no window holds all of them, or no frame sampled there); hold dropped"))
             for g in group:
                 self.follow_x[g] = res.x
                 cov, n = fw.coverage(boxes[g], res.left, w)
@@ -1196,24 +1214,32 @@ class Builder:
                 else:
                     row.update(name=d.call(it.GetName), start=int(d.call(it.GetStart)),
                                end=int(d.call(it.GetEnd)), duration=int(d.call(it.GetDuration)),
-                               src_start=d.call(it.GetSourceStartFrame), src_end=d.call(it.GetSourceEndFrame))
+                               src_start=d.call(it.GetSourceStartFrame), src_end=d.call(it.GetSourceEndFrame),
+                               left_offset=d.call(it.GetLeftOffset, True))
+                    # GetSourceStartFrame floors a float (3572 reads 3571 at 29.97 on 30); the left
+                    # offset gives the true in-point (cf.frames).
+                    row["src_start_exact"] = frames.start_from_left_offset(float(row["left_offset"]), s.clip_fps,
+                                                                           self.fps)
                     row["ok"] = (row["name"] == s.clip and row["start"] == s.record_frame
                                  and row["end"] == s.record_end and row["duration"] == s.duration
-                                 and abs(float(row["src_start"]) - s.src_start) <= 1
+                                 and row["src_start_exact"] == s.src_start
                                  and abs(float(row["src_end"]) - s.src_end_after_speed) <= 1.5)
                 row["offset"] = s.record_offset
                 rows.append(row)
                 if not row["ok"]:
                     r.mismatches.append(f"{kind} {s.id}: {row}")
         if self.script.ending == "loop_seamless" and len(self.plan) > 1:
-            seam = loop_seam(self.plan)
+            seam = loop_seam(self.plan, self.fps)
             first, last = r.shots[0], r.shots[-1]
-            if first.get("src_start") is not None and last.get("src_end") is not None:
-                seam["read_back_gap_frames"] = round(float(last["src_end"]) - float(first["src_start"]), 4)
+            p_last = self.plan[-1]
+            if first.get("src_start_exact") is not None and last.get("src_start_exact") is not None:
+                nxt = frames.next_frame(last["src_start_exact"], last["duration"], p_last.clip_fps, self.fps)
+                seam["read_back"] = {"last_src_start": last["src_start_exact"], "last_frames": last["duration"],
+                                     "next_frame": nxt, "first_src_start": first["src_start_exact"]}
+                seam["read_back_gap_frames"] = first["src_start_exact"] - nxt
             r.timeline["loop_seam"] = seam
-            r.check("loop seam: last shot's source end = first shot's source start (plan, read-back)",
-                    [0, 0], [seam["gap_frames"], seam.get("read_back_gap_frames")],
-                    ok=seam["ok"] and abs(seam.get("read_back_gap_frames", 99)) <= 0.5 + 1e-3)
+            r.check("loop seam: the last shot's next source frame = the first shot's first (plan, read-back)",
+                    [0, 0], [seam["gap_frames"], seam.get("read_back_gap_frames")])
         r.timeline["end_frame"] = int(d.call(tl.GetEndFrame))
         r.timeline["duration_frames"] = r.timeline["end_frame"] - start
         r.timeline["expected_duration_frames"] = self.plan[-1].record_end - start

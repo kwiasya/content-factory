@@ -57,7 +57,8 @@ class FollowResult:
     detected: int               # frames with the subject
     covered: int                # frames whose whole box is inside the window
     coverage_pct: float         # covered / detected (0 when nothing detected)
-    fallback: str | None = None  # 'overlap' (no box fits) or 'no_person' (centre)
+    fallback: str | None = None  # 'overlap' (no box fits), 'no_person' (centre), 'hold' (hold_s cannot all fit)
+    held: list[float] = field(default_factory=list)  # hold_s frames (source times) the window holds
     covered_times: list[float] = field(default_factory=list)
     missed_times: list[float] = field(default_factory=list)
 
@@ -92,16 +93,43 @@ def coverage(boxes: list[Box | None], left: float, w: float) -> tuple[int, int]:
     return sum(_fits(b, left, w) for b in det), len(det)
 
 
-def choose_window(boxes: list[Box | None], w: float) -> FollowResult:
+def hold_indices(det: list[Box], hold_s: tuple[float, ...] | list[float], fps: float = SAMPLE_FPS) -> list[int]:
+    """Indices into ``det`` of the sampled frames nearest each ``hold_s`` time (within 0.6 sample)."""
+    out = []
+    for h in hold_s:
+        if not det:
+            break
+        j = min(range(len(det)), key=lambda k: abs(det[k].t - h))
+        if abs(det[j].t - h) <= 0.6 / fps and j not in out:
+            out.append(j)
+    return out
+
+
+def choose_window(boxes: list[Box | None], w: float, hold_s: tuple[float, ...] | list[float] = (),
+                  fps: float = SAMPLE_FPS) -> FollowResult:
     """The static window (width ``w``, fraction of the source) that holds the subject longest.
 
     ``boxes`` is one entry per sampled frame in time order (None: no subject in that frame).
+    ``hold_s``: source times whose box the window must hold whole (e.g. the smile at the end of a
+    hook); the best window is then searched only among the left edges that hold them all. When
+    they cannot all fit (or no frame is sampled there), the hold is dropped and ``fallback`` is
+    ``'hold'``.
     """
     w = min(max(w, 1e-6), 1.0)
     hi = 1.0 - w
     frames = len(boxes)
     idx = [i for i, b in enumerate(boxes) if b is not None]
     det = [boxes[i] for i in idx]
+    lo_bound, hi_bound, hold_fallback = 0.0, hi, None
+    held_idx = hold_indices(det, hold_s, fps) if hold_s else []
+    if hold_s:
+        a = max([max(0.0, det[j].x2 - w) for j in held_idx], default=0.0)
+        c = min([min(hi, det[j].x1) for j in held_idx], default=hi)
+        if held_idx and len(held_idx) == len(hold_s) and a <= c + 1e-9:
+            lo_bound, hi_bound = a, c
+        else:
+            hold_fallback = "hold"
+            held_idx = []
     if not det:
         left = hi / 2
         return FollowResult(x=x_for_left(left, w), left=round(left, 5), width=round(w, 5), frames=frames,
@@ -111,7 +139,7 @@ def choose_window(boxes: list[Box | None], w: float) -> FollowResult:
     best_key: tuple | None = None
     best_set: tuple[int, ...] = ()
     for k in range(GRID + 1):
-        left = hi * k / GRID
+        left = lo_bound + (hi_bound - lo_bound) * k / GRID
         s = tuple(j for j, (a, c) in enumerate(ivals) if a - 1e-9 <= left <= c + 1e-9)
         key = (len(s), tuple(sorted(s, reverse=True)))  # more frames, then later frames
         if best_key is None or key > best_key:
@@ -119,16 +147,16 @@ def choose_window(boxes: list[Box | None], w: float) -> FollowResult:
     # Also try every interval endpoint (the grid may straddle a narrow intersection).
     for a, c in ivals:
         for left in (a, c):
-            if not 0.0 <= left <= hi:
+            if not lo_bound - 1e-9 <= left <= hi_bound + 1e-9:
                 continue
             s = tuple(j for j, (a2, c2) in enumerate(ivals) if a2 - 1e-9 <= left <= c2 + 1e-9)
             key = (len(s), tuple(sorted(s, reverse=True)))
             if key > best_key:
                 best_key, best_set = key, s
-    fallback = None
+    fallback = hold_fallback
     if best_set:
-        lo_l = max(ivals[j][0] for j in best_set)
-        hi_l = min(ivals[j][1] for j in best_set)
+        lo_l = max([ivals[j][0] for j in best_set] + [lo_bound])
+        hi_l = min([ivals[j][1] for j in best_set] + [hi_bound])
         left = (lo_l + hi_l) / 2
     else:
         # No box fits: the window with the most box inside (summed overlap fraction), ties to the end.
@@ -144,7 +172,8 @@ def choose_window(boxes: list[Box | None], w: float) -> FollowResult:
         left = best[1]
     left = min(max(left, 0.0), hi)
     cov = [j for j, b in enumerate(det) if _fits(b, left, w)]
-    return FollowResult(
+    held = [round(det[j].t, 2) for j in held_idx if _fits(det[j], left, w)]
+    return FollowResult(held=held,
         x=round(x_for_left(left, w), 4), left=round(left, 5), width=round(w, 5), frames=frames, detected=len(det),
         covered=len(cov), coverage_pct=round(100.0 * len(cov) / len(det), 1), fallback=fallback,
         covered_times=[round(det[j].t, 2) for j in cov],

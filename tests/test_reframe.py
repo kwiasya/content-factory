@@ -215,10 +215,21 @@ class ValidatorTest(unittest.TestCase):
         r = script([shot("DJI.mp4", 1, 3.5, reframe={"mode": "pan", "x": -1})]).shots[0].reframe
         self.assertEqual(r, Reframe("pan", x=-1.0, x_end=None, zoom=1.0))
 
+    def test_hold_s(self):
+        r = script([shot("DJI.mp4", 1, 3.5, reframe={"mode": "follow", "hold_s": [3.4]})]).shots[0].reframe
+        self.assertEqual((r.hold_s, r.to_dict()), ((3.4,), {"mode": "follow", "zoom": 1.0, "hold_s": [3.4]}))
+        self.assertEqual(self.problems({"mode": "follow", "hold_s": [3.4]}), [])
+        self.assertTrue(any("only for mode 'follow'" in p for p in self.problems({"mode": "center", "hold_s": [2]})))
+        with self.assertRaises(ScriptError):
+            script([shot("DJI.mp4", 1, 3.5, reframe={"mode": "follow", "hold_s": 3.4})])
+        sc = script([shot("DJI.mp4", 1, 3.5, reframe={"mode": "follow", "hold_s": [4.0]})])
+        self.assertTrue(any("hold_s 4 is outside the shot" in p for p in validate(sc, MANIFEST, STYLE)))
+
     def test_seamless_loop_window_must_not_jump(self):
         def loop(first_rf, last_rf):
             first = shot("DJI.mp4", 10, 12.5, role="hook", **({"reframe": first_rf} if first_rf else {}))
-            last = shot("DJI.mp4", 8, 10, role="loop", **({"reframe": last_rf} if last_rf else {}))
+            # 2 s (60 frames) into 10 s at 29.97 on 30: the run-up starts at source frame 241 (cf.frames).
+            last = shot("DJI.mp4", 8.0414, 10.0414, role="loop", **({"reframe": last_rf} if last_rf else {}))
             return [p for p in validate(script([first, shot("IPH.MOV", 1, 3.5), last], "loop_seamless"),
                                         MANIFEST, STYLE) if "seam" in p]
         self.assertEqual(loop(None, None), [])                                  # both default follow

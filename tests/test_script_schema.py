@@ -229,22 +229,32 @@ class LoopSeamlessTest(unittest.TestCase):
         d["shots"][-1]["clip"] = "B.MOV"
         self.assertSeam(d, "must be the first shot's clip 'A.MOV'")
 
-    def test_seam_within_half_a_frame_at_the_clip_fps(self):
+    def test_seam_in_frames_at_the_clip_fps(self):
         d = seamless()
-        d["shots"][-1]["out_s"] = 1.5 + 0.008  # under half a 60 fps frame (0.0083 s)
+        d["shots"][-1]["out_s"] = 1.5 + 0.02  # still 45 timeline frames: the next frame is 90 = 1.5 s
         self.assertEqual(self.found(d), [])
-        d["shots"][-1]["out_s"] = 1.5 + 0.009
-        self.assertSeam(d, "must equal the first shot's in_s 1.5")
-        self.assertSeam(d, "0.0083 s at 60 fps")
-        # Without a manifest the timeline fps (30) sets the tolerance.
-        self.assertEqual(self.found(d, manifest=None), [])
-        d["shots"][-1]["out_s"] = 1.5 + 0.02
-        self.assertSeam(d, "at 30 fps", manifest=None)
+        d["shots"][-1]["out_s"] = 1.5 + 0.034  # 46 frames: two 60 fps source frames repeat
+        self.assertSeam(d, "continue at frame 92 (repeats 2)")
+        self.assertSeam(d, "start it at frame -2 (in_s -0.0333, out_s 1.5000)")
+        # Without a manifest the clip runs at the timeline fps (30).
+        self.assertSeam(d, "continue at frame 46 (repeats 1)", manifest=None)
 
     def test_gap_or_overlap_at_the_seam(self):
         d = seamless()
         d["shots"][-1].update(in_s=0.0, out_s=1.4)
-        self.assertSeam(d, "out_s 1.4 must equal")
+        self.assertSeam(d, "must run into the first shot's first source frame 90")
+        self.assertSeam(d, "(skips 6)")
+
+    def test_2997_on_30_seam_is_one_source_frame_later_than_the_seconds(self):
+        # Mallorca reel-01 v1: the seconds matched (out_s == in_s) but Resolve skipped frame 3610.
+        man = {"walk": "w", "clips": [{"file": "A.MOV", "fps": 29.97003, "duration_s": 383.783}]}
+        d = seamless()
+        d["shots"][0].update(in_s=120.487, out_s=122.8894)
+        d["shots"][-1].update(in_s=119.1857, out_s=120.487)
+        self.assertSeam(d, "from frame 3572 (119.186 s) its 39 timeline frames at 30 fps continue at frame "
+                           "3610 (skips 1); start it at frame 3573 (in_s 119.2191", manifest=man)
+        d["shots"][-1].update(in_s=119.2191, out_s=120.5191)
+        self.assertEqual(self.found(d, manifest=man), [])
 
     def test_both_shots_at_speed_one(self):
         d = seamless()

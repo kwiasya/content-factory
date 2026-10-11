@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from cf import frames
 from cf import reframe as rf
 from cf.reframe import Reframe
 
@@ -286,6 +287,9 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
                 v.append(f"{w}: out_s={s.out_s:g} is past the end of {s.clip} ({float(c['duration_s']):g} s)")
         src_w, src_h = rf.display_size(clips.get(s.clip))
         v.extend(f"{w}: {p}" for p in rf.problems(s.reframe, src_w, src_h, canvas_w, canvas_h))
+        for h in (s.reframe.hold_s if s.reframe else ()):
+            if not s.in_s - EPS <= h <= s.out_s + EPS:
+                v.append(f"{w}: reframe.hold_s {h:g} is outside the shot ({s.in_s:g}-{s.out_s:g} s)")
         d = s.duration_s
         hi = payoff_max if s.role == "payoff" else SHOT_MAX_S
         if d < shot_min - EPS or d > hi + EPS:
@@ -336,8 +340,8 @@ def loop_seamless_problems(script: Script, clips: dict[str, dict], style: dict) 
 
     One continuous action from one Clip is split at a seam P: the last shot plays O->P and
     the first shot P->Q, both at speed 1.0, so when the Reel loops the last frame is
-    followed by the next source frame. Tolerance: half a frame at the Clip's fps (the
-    manifest's; without a manifest, the timeline's).
+    followed by the next source frame. Checked in frames as Resolve places them (``cf.frames``):
+    the Clip's fps from the manifest (else the timeline's), the timeline's from ``canvas.fps``.
     """
     v: list[str] = []
     if len(script.shots) < 2:
@@ -346,11 +350,23 @@ def loop_seamless_problems(script: Script, clips: dict[str, dict], style: dict) 
     w = f"ending loop_seamless ({last.id} -> {first.id})"
     if last.clip != first.clip:
         v.append(f"{w}: the last shot's clip {last.clip!r} must be the first shot's clip {first.clip!r}")
-    fps = float((clips.get(first.clip) or {}).get("fps") or (style.get("canvas") or {}).get("fps") or DEFAULT_FPS)
-    tol = 0.5 / fps
-    if abs(last.out_s - first.in_s) > tol + EPS:
-        v.append(f"{w}: the last shot's out_s {last.out_s:g} must equal the first shot's in_s {first.in_s:g} "
-                 f"(within half a frame, {tol:.4f} s at {fps:g} fps)")
+    tl_fps = float((style.get("canvas") or {}).get("fps") or DEFAULT_FPS)
+    fps = float((clips.get(first.clip) or {}).get("fps") or tl_fps)
+    # In frames, as Resolve places them (cf.frames): the run-up, continued one timeline frame,
+    # shows the hook's first source frame. At equal rates that is out_s == in_s; at 29.97 on 30
+    # the run-up starts one source frame later than the seconds say.
+    seam = frames.first_frame(first.in_s, fps)
+    start = frames.first_frame(last.in_s, fps)
+    n = frames.snap_frames((last.out_s - last.in_s) / (last.speed or 1.0), tl_fps)
+    nxt = frames.next_frame(start, n, fps, tl_fps)
+    if nxt != seam:
+        want = frames.run_up_start(seam, n, fps, tl_fps)
+        want_in = float(want / frames.exact_fps(fps))
+        v.append(f"{w}: the last shot must run into the first shot's first source frame {seam} "
+                 f"({first.in_s:g} s at {fps:g} fps): from frame {start} ({last.in_s:g} s) its {n} timeline "
+                 f"frames at {tl_fps:g} fps continue at frame {nxt} ({'skips' if nxt < seam else 'repeats'} "
+                 f"{abs(seam - nxt)}); start it at frame {want} (in_s {want_in:.4f}, out_s "
+                 f"{want_in + n / tl_fps:.4f})")
     for s in (first, last):
         if abs(s.speed - 1.0) > EPS:
             v.append(f"{w}: {s.id} speed must be 1.0, got {s.speed:g}")
