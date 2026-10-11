@@ -1,6 +1,5 @@
 """Hooks, formats and topics summaries of a Watchlist on synthetic cards and snapshots."""
 
-
 from cf.research import summary
 from cf.research import watchlist as wl
 from research_synth import NOW, SummaryCase, hook, put_card
