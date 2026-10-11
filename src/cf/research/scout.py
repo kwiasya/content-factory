@@ -19,8 +19,8 @@ from datetime import datetime, timedelta, timezone
 
 from cf.research import ingest, quota, youtube
 from cf.research.kinds import KINDS
-from cf.research.store import Store
-from cf.research.watchlist import WatchlistError
+from cf.research import watchlist as watchlists
+from cf.research.store import Store, now_iso
 
 BACKFILL_PER_KIND = 30
 DEFAULT_SEARCH_DAYS = 30
@@ -62,9 +62,7 @@ class Candidate:
 
 def candidates(store: Store, name: str) -> list[Candidate]:
     """Candidate channels of a Watchlist, most search hits first."""
-    w = store.one("SELECT id FROM watchlist WHERE name = ?", (name,))
-    if w is None:
-        raise WatchlistError(f"no Watchlist named {name!r}")
+    w = watchlists.row(store, name)
     rows = store.query(
         "SELECT c.external_id, c.handle, c.title, c.subscriber_count, COUNT(DISTINCT h.video_id) AS hits, "
         "json_group_array(DISTINCT h.query) AS queries FROM search_hit h JOIN video v ON v.id = h.video_id "
@@ -122,17 +120,6 @@ class ScoutResult:
 
     def to_dict(self) -> dict:
         return asdict(self)
-
-
-def _iso(t: datetime) -> str:
-    return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _watchlist(store: Store, name: str) -> dict:
-    w = store.one("SELECT * FROM watchlist WHERE name = ?", (name,))
-    if w is None:
-        raise WatchlistError(f"no Watchlist named {name!r}")
-    return w
 
 
 class _Run:
@@ -252,9 +239,9 @@ def scout(store: Store, name: str, *, search: bool = True, search_days: float = 
     query does not fit today's quota; a refusal later ends the run with
     ``stopped`` set and everything read so far kept.
     """
-    w = _watchlist(store, name)
+    w = watchlists.row(store, name)
     now = now or datetime.now(timezone.utc)
-    run = _Run(store, transport, _iso(now))
+    run = _Run(store, transport, now_iso(now))
     chans = store.query(
         "SELECT c.id, c.external_id, c.handle, c.uploads_playlist_id, c.backfilled_at FROM channel c "
         "JOIN watchlist_channel wc ON wc.channel_id = c.id WHERE wc.watchlist_id = ? "
@@ -270,7 +257,7 @@ def scout(store: Store, name: str, *, search: bool = True, search_days: float = 
     try:
         for ch in chans:
             _uploads(run, ch, ch_progress)
-        after = _iso(now - timedelta(days=search_days))
+        after = now_iso(now - timedelta(days=search_days))
         for q in queries:
             _search(run, w, q, published_after=after, pages=search_pages,
                     video_duration=video_duration, progress=q_progress)
@@ -304,8 +291,8 @@ def snapshot(store: Store, name: str, *, transport: youtube.Transport | None = N
 
     Raises ``QuotaExceeded`` before any call when the whole run does not fit today.
     """
-    w = _watchlist(store, name)
-    run = _Run(store, transport, _iso(now or datetime.now(timezone.utc)))
+    w = watchlists.row(store, name)
+    run = _Run(store, transport, now_iso(now))
     ids = [r["external_id"] for r in store.query(
         "SELECT v.external_id FROM video v WHERE v.platform = 'youtube' AND (v.channel_id IN "
         "(SELECT channel_id FROM watchlist_channel WHERE watchlist_id = :wid) OR v.id IN "

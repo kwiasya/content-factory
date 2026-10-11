@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 DEFAULT_FOOTAGE_ROOT = Path.home() / "Movies" / "content-factory"
+REPO_ROOT = Path(__file__).resolve().parents[3]  # the repo checkout (taxonomy seed, templates, formats/)
 
 
 class StoreError(Exception):
@@ -38,9 +39,9 @@ def default_db_path() -> Path:
     return Path(env).expanduser() if env else footage_root() / "factory.db"
 
 
-def now_iso() -> str:
-    """UTC timestamp, seconds, ISO 8601 with ``Z``."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def now_iso(now: datetime | None = None) -> str:
+    """``now`` (default: the current time) as a UTC timestamp, seconds, ISO 8601 with ``Z``."""
+    return (now or datetime.now(timezone.utc)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # Version 1: every table of the research spec (#1). Booleans are 0/1, JSON is text,

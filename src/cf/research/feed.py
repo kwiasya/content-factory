@@ -11,7 +11,8 @@ from datetime import datetime, timedelta, timezone
 
 from cf.research import outlier
 from cf.research.kinds import KINDS
-from cf.research.store import Store
+from cf.research import watchlist as watchlists
+from cf.research.store import Store, now_iso
 from cf.research.watchlist import WatchlistError
 
 DEFAULT_LOOKBACK_DAYS = 30
@@ -84,13 +85,11 @@ def feed(store: Store, name: str, *, lookback_days: float = DEFAULT_LOOKBACK_DAY
     score come after every scored one. ``min_outlier`` drops unscored rows,
     ``min_views`` rows without views, ``max_duration_s`` rows of unknown length.
     """
-    w = store.one("SELECT id FROM watchlist WHERE name = ?", (name,))
-    if w is None:
-        raise WatchlistError(f"no Watchlist named {name!r}")
+    w = watchlists.row(store, name)
     if kind is not None and kind not in KINDS:
         raise WatchlistError(f"kind must be one of {', '.join(KINDS)}, got {kind!r}")
     now = now or datetime.now(timezone.utc)
-    since = (now - timedelta(days=lookback_days)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    since = now_iso(now - timedelta(days=lookback_days))
     where = [_IN_WATCHLIST, "v.published_at >= :since"]
     params: dict = {"wid": w["id"], "since": since}
     if kind is not None:

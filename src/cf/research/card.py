@@ -126,7 +126,7 @@ def validate(card: dict, store: Store, *, transcript: str | dict | None = None) 
         out.append(f"{empty}: null while {other.split('.')[-1]} is set; give both or neither")
     for path, kind in category_paths():
         if leaves.get(path) is not None:
-            problem = _category_problem(store, kind, leaves[path])
+            problem = category_problem(store, kind, leaves[path])
             if problem:
                 out.append(f"{path}: {problem}")
     if "hook.spoken_hook" in leaves:
@@ -198,7 +198,8 @@ def _status(store: Store, kind: str, value: str) -> str | None:
     return None if t is None else t.status
 
 
-def _category_problem(store: Store, kind: str, raw: str) -> str | None:
+def category_problem(store: Store, kind: str, raw: str) -> str | None:
+    """Why ``raw`` (a value or ``proposed:<value>``) cannot stand in a field of taxonomy ``kind``; None when it can."""
     value, proposed = split_proposed(raw)
     status = _status(store, kind, value)
     if proposed:
@@ -214,11 +215,6 @@ def _category_problem(store: Store, kind: str, raw: str) -> str | None:
     if status == "rejected":
         return f"{value!r} was rejected as {kind}; pick an approved value"
     return f"{value!r} is not an approved {kind}; use one or write {PROPOSED}{value}"
-
-
-def category_problem(store: Store, kind: str, raw: str) -> str | None:
-    """Why ``raw`` (a value or ``proposed:<value>``) cannot stand in a field of taxonomy ``kind``; None when it can."""
-    return _category_problem(store, kind, raw)
 
 
 # --- saving the analysis ----------------------------------------------------------

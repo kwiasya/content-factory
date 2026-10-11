@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Iterable
 
-from cf.research.store import Store
+from cf.research.store import Store, now_iso
 
 BASELINE_SIZE = 30
 MIN_AGE_DAYS = 3
@@ -25,8 +25,7 @@ _LATEST_VIEWS = ("(SELECT s.views FROM snapshot s WHERE s.video_id = v.id "
 
 
 def _cutoff(now: datetime | None) -> str:
-    now = now or datetime.now(timezone.utc)
-    return (now - timedelta(days=MIN_AGE_DAYS)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return now_iso((now or datetime.now(timezone.utc)) - timedelta(days=MIN_AGE_DAYS))
 
 
 def scores(store: Store, video_ids: Iterable[int], *, now: datetime | None = None) -> dict[int, float | None]:

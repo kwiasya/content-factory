@@ -14,14 +14,13 @@ state gives the same bytes, and every export overwrites it.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from cf.research import card, formats, outlier, taxonomy
 from cf.research.feed import outlier_text
-from cf.research.store import Store
+from cf.research.store import REPO_ROOT, Store, now_iso
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 EXPORT_COMMAND = "python -m cf.research hooks export"
 SAVE_COMMAND = "python -m cf.research hooks save"
 
@@ -60,10 +59,6 @@ def check_format(format_id: str) -> str:
 def library_path(format_id: str) -> Path:
     """Where the Hook library of a Format lives in the repo: ``formats/<format_id>/hook-library.md``."""
     return REPO_ROOT / "formats" / check_format(format_id) / "hook-library.md"
-
-
-def _iso(now: datetime | None) -> str:
-    return (now or datetime.now(timezone.utc)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _approved(store: Store, category: str) -> bool:
@@ -107,7 +102,7 @@ def save(store: Store, format_id: str, video_id: str, *, now: datetime | None = 
         if row is None:
             hid = conn.execute("INSERT INTO hook (format_id, category, formula, text, source_video_id, saved_at) "
                                "VALUES (?, ?, ?, ?, ?, ?)",
-                               (format_id, category, formula, text, v["id"], _iso(now))).lastrowid
+                               (format_id, category, formula, text, v["id"], now_iso(now))).lastrowid
         else:
             hid = row[0]
             conn.execute("UPDATE hook SET category = ?, formula = ?, text = ? WHERE id = ?",

@@ -18,8 +18,7 @@ from string import Template
 
 from cf.research import feed, ideas, outlier
 from cf.research.ideas import IdeaError
-from cf.research.store import Store, footage_root, now_iso
-from cf.research.taxonomy import REPO_ROOT
+from cf.research.store import REPO_ROOT, Store, footage_root, now_iso
 from cf.research.watchlist import get as get_watchlist
 
 TEMPLATE_PATH = REPO_ROOT / "research" / "templates" / "brief.md"

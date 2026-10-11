@@ -16,9 +16,8 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from cf.research.store import Store, now_iso
+from cf.research.store import REPO_ROOT, Store, now_iso
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 SEED_PATH = REPO_ROOT / "research" / "taxonomy.json"
 SEED_SCHEMA = "cf-taxonomy-seed/1"
 KINDS = ("hook_category", "storytelling_format", "editing_style", "visual_layout")

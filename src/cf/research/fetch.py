@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs
 
 from cf.research import card, ingest, measure, quota, youtube
 from cf.research import watchlist as watchlists
@@ -38,7 +38,6 @@ from cf.research.kinds import video_kind
 from cf.research.store import Store, dumps, footage_root, now_iso
 
 VIDEO_ID_RE = re.compile(r"^[\w-]{11}$")
-YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}
 VIDEO_PATHS = {"shorts", "live", "embed", "v"}
 # Bulky or volatile info keys left out of ``video.raw`` (info.json on disk keeps everything).
 RAW_DROP = ("formats", "requested_formats", "requested_downloads", "thumbnails", "automatic_captions",
@@ -96,15 +95,14 @@ def parse_video_ref(text: str) -> str:
         return t
     if "/" not in t:
         raise FetchError(f"not a YouTube video id or URL: {text!r}")
-    parts = urlsplit(t if "://" in t else "https://" + t)
-    host = (parts.hostname or "").lower()
-    segs = [s for s in parts.path.split("/") if s]
+    link = ingest.youtube_link(t)
     vid = None
-    if host in {"youtu.be", "www.youtu.be"} and segs:
-        vid = segs[0]
-    elif host in YOUTUBE_HOSTS:
+    if link is not None and link.short_link and link.segments:
+        vid = link.segments[0]
+    elif link is not None:
+        segs = link.segments
         if segs[:1] == ["watch"]:
-            vid = (parse_qs(parts.query).get("v") or [None])[0]
+            vid = (parse_qs(link.query).get("v") or [None])[0]
         elif len(segs) > 1 and segs[0] in VIDEO_PATHS:
             vid = segs[1]
     if vid is None or not VIDEO_ID_RE.match(vid):
@@ -123,7 +121,7 @@ def published_at(info: dict) -> str | None:
     """ISO UTC publish time: ``timestamp`` (or ``release_timestamp``), else midnight of ``upload_date``."""
     ts = info.get("timestamp") or info.get("release_timestamp")
     if ts:
-        return datetime.fromtimestamp(int(ts), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return now_iso(datetime.fromtimestamp(int(ts), timezone.utc))
     d = info.get("upload_date")
     if d and re.fullmatch(r"\d{8}", d):
         return f"{d[:4]}-{d[4:6]}-{d[6:]}T00:00:00Z"
@@ -207,7 +205,7 @@ def record_info(store: Store, info: dict, *, transport: youtube.Transport | None
         own = 0
         if channel_id is not None:
             own = int(c.execute("SELECT own FROM channel WHERE id = ?", (channel_id,)).fetchone()[0])
-        vid = ingest._upsert_video(c, row, channel_id, own)
+        vid = ingest.upsert_video(c, row, channel_id, own)
         snap = snapshot_from_info(info)
         c.execute("INSERT INTO snapshot (video_id, taken_at, views, likes, comments) VALUES (?, ?, ?, ?, ?) "
                   "ON CONFLICT (video_id, taken_at) DO UPDATE SET views = excluded.views, "
@@ -258,7 +256,7 @@ def fetch(store: Store, ref: str, *, watchlist: str | None = None, force: bool =
     d = folder_for(vid, watchlist, root)
     d.mkdir(parents=True, exist_ok=True)
     media = d / f"{vid}.mp4"
-    url = f"https://www.youtube.com/watch?v={vid}"
+    url = ingest.video_url(vid)
     steps: dict[str, str] = {}
 
     if force or not media.exists():

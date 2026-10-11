@@ -25,7 +25,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from cf.research import card, feed, taxonomy
-from cf.research.store import Store
+from cf.research.store import Store, now_iso
 from cf.research.watchlist import get as get_watchlist
 
 # sections whose values are free text, grouped by ``topic_key`` rather than the taxonomy
@@ -207,7 +207,7 @@ def summarize(store: Store, name: str, what: str, *, days: float = DEFAULT_DAYS,
                 for r in sorted(rows, key=_by_outlier)
                 if r.outlier is not None and r.outlier >= min_outlier
                 and (r.external_id not in cards or cards[r.external_id]["analysis"] is None)]
-    since = (now - timedelta(days=days)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    since = now_iso(now - timedelta(days=days))
     return Summary(summary=what, watchlist=w.name, format_id=w.format_id, days=days, since=since,
                    references=len(rows), carded=len(carded), min_outlier=min_outlier, sections=sections,
                    uncarded=uncarded[:limit] if limit is not None else uncarded)

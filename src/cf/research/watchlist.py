@@ -12,7 +12,7 @@ import json
 import re
 import sqlite3
 from dataclasses import asdict, dataclass
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote
 
 from cf.research import formats, ingest, youtube
 from cf.research.store import Store, dumps, now_iso
@@ -33,7 +33,6 @@ class ChannelRef:
 
 CHANNEL_ID_RE = re.compile(r"^UC[\w-]{22}$")
 HANDLE_RE = re.compile(r"^[\w.-]{3,100}$")
-YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com"}
 VIDEO_PATHS = {"watch", "shorts", "live", "embed", "v"}
 NOT_CHANNEL_PATHS = {"playlist", "results", "feed", "hashtag", "post", "channel", "user", "c"}
 
@@ -55,13 +54,12 @@ def parse_channel_ref(text: str) -> ChannelRef:
     looks_like_url = "/" in t or "://" in t
     if not looks_like_url:
         return _handle(t, text)
-    parts = urlsplit(t if "://" in t else "https://" + t)
-    host = (parts.hostname or "").lower()
-    if host in {"youtu.be", "www.youtu.be"}:
-        raise WatchlistError(f"{text!r} is a video link, not a channel; paste the channel URL or @handle")
-    if host not in YOUTUBE_HOSTS:
+    link = ingest.youtube_link(t)
+    if link is None:
         raise WatchlistError(f"{text!r} is not a YouTube link")
-    segs = [s for s in parts.path.split("/") if s]
+    if link.short_link:
+        raise WatchlistError(f"{text!r} is a video link, not a channel; paste the channel URL or @handle")
+    segs = link.segments
     if not segs:
         raise WatchlistError(f"{text!r} has no channel in it")
     head = segs[0]
@@ -127,21 +125,23 @@ _CHANNEL_COLS = ("external_id, handle, title, subscriber_count, video_count, vie
                  "uploads_playlist_id, own, platform, country, fetched_at")
 
 
-def _channel(row: dict) -> ReferenceChannel:
-    return ReferenceChannel(**{**row, "own": bool(row["own"])})
+def _channel(r: dict) -> ReferenceChannel:
+    return ReferenceChannel(**{**r, "own": bool(r["own"])})
 
 
-def _row(store: Store, name: str) -> dict:
-    row = store.one("SELECT * FROM watchlist WHERE name = ?", (name,))
-    if row is None:
+def row(store: Store, name: str) -> dict:
+    """The store row of Watchlist ``name`` (``id``, ``name``, ``format_id``, ``author_channel``, …);
+    WatchlistError naming it when there is none."""
+    found = store.one("SELECT * FROM watchlist WHERE name = ?", (name,))
+    if found is None:
         raise WatchlistError(f"no Watchlist named {name!r}")
-    return row
+    return found
 
 
-def _watchlist(store: Store, row: dict) -> Watchlist:
-    n = store.one("SELECT COUNT(*) AS n FROM watchlist_channel WHERE watchlist_id = ?", (row["id"],))["n"]
-    return Watchlist(row["name"], row["format_id"], row["author_channel"], row["language"], row["region"],
-                     json.loads(row["queries"]), int(n), row["created_at"])
+def _watchlist(store: Store, r: dict) -> Watchlist:
+    n = store.one("SELECT COUNT(*) AS n FROM watchlist_channel WHERE watchlist_id = ?", (r["id"],))["n"]
+    return Watchlist(r["name"], r["format_id"], r["author_channel"], r["language"], r["region"],
+                     json.loads(r["queries"]), int(n), r["created_at"])
 
 
 def create(store: Store, name: str, *, format_id: str, author_channel: str | None = None,
@@ -174,7 +174,7 @@ def create(store: Store, name: str, *, format_id: str, author_channel: str | Non
 
 
 def get(store: Store, name: str) -> Watchlist:
-    return _watchlist(store, _row(store, name))
+    return _watchlist(store, row(store, name))
 
 
 def list_watchlists(store: Store) -> list[Watchlist]:
@@ -183,7 +183,7 @@ def list_watchlists(store: Store) -> list[Watchlist]:
 
 def remove(store: Store, name: str) -> None:
     """Delete the Watchlist and its memberships; channels and their videos stay in the store."""
-    wid = _row(store, name)["id"]
+    wid = row(store, name)["id"]
     with store.transaction() as c:
         c.execute("DELETE FROM watchlist WHERE id = ?", (wid,))
 
@@ -193,12 +193,12 @@ def add_query(store: Store, name: str, query: str) -> Watchlist:
     q = " ".join((query or "").split())
     if not q:
         raise WatchlistError("empty search query")
-    row = _row(store, name)
-    qs = json.loads(row["queries"])
+    w = row(store, name)
+    qs = json.loads(w["queries"])
     if q not in qs:
         qs.append(q)
         with store.transaction() as c:
-            c.execute("UPDATE watchlist SET queries = ? WHERE id = ?", (dumps(qs), row["id"]))
+            c.execute("UPDATE watchlist SET queries = ? WHERE id = ?", (dumps(qs), w["id"]))
     return get(store, name)
 
 
@@ -206,7 +206,7 @@ def add_query(store: Store, name: str, query: str) -> Watchlist:
 
 def channels(store: Store, name: str) -> list[ReferenceChannel]:
     """Reference channels of a Watchlist in the order they were added."""
-    wid = _row(store, name)["id"]
+    wid = row(store, name)["id"]
     rows = store.query(
         f"SELECT {', '.join('c.' + k.strip() for k in _CHANNEL_COLS.split(','))} FROM channel c "
         "JOIN watchlist_channel wc ON wc.channel_id = c.id WHERE wc.watchlist_id = ? "
@@ -222,11 +222,11 @@ def find_channel(store: Store, ref: ChannelRef) -> tuple[int, ReferenceChannel] 
         where, value = "handle = ?", _handle(ref.value, ref.value).value
     else:
         return None
-    row = store.one(f"SELECT id, {_CHANNEL_COLS} FROM channel WHERE platform = 'youtube' AND {where}", (value,))
-    if row is None:
+    found = store.one(f"SELECT id, {_CHANNEL_COLS} FROM channel WHERE platform = 'youtube' AND {where}", (value,))
+    if found is None:
         return None
-    cid = row.pop("id")
-    return cid, _channel(row)
+    cid = found.pop("id")
+    return cid, _channel(found)
 
 
 def add_channel(store: Store, name: str, ref: str, *, own: bool = False, refresh: bool = False,
@@ -237,7 +237,7 @@ def add_channel(store: Store, name: str, ref: str, *, own: bool = False, refresh
     ``refresh``; otherwise ``channels.list`` is called (1 quota unit) and ingested.
     ``own`` marks the channel as the Author's. Adding twice is harmless.
     """
-    wid = _row(store, name)["id"]
+    wid = row(store, name)["id"]
     parsed = parse_channel_ref(ref)
     found = None if refresh else find_channel(store, parsed)
     if found is None:
@@ -265,13 +265,12 @@ def add_channel(store: Store, name: str, ref: str, *, own: bool = False, refresh
             c.execute("UPDATE channel SET own = 1 WHERE id = ?", (cid,))
         c.execute("INSERT OR IGNORE INTO watchlist_channel (watchlist_id, channel_id, added_at) VALUES (?, ?, ?)",
                   (wid, cid, now_iso()))
-    row = store.one(f"SELECT {_CHANNEL_COLS} FROM channel WHERE id = ?", (cid,))
-    return _channel(row)
+    return _channel(store.one(f"SELECT {_CHANNEL_COLS} FROM channel WHERE id = ?", (cid,)))
 
 
 def remove_channel(store: Store, name: str, ref: str) -> ReferenceChannel:
     """Take a Reference channel out of a Watchlist (no API call); the channel stays in the store."""
-    wid = _row(store, name)["id"]
+    wid = row(store, name)["id"]
     parsed = parse_channel_ref(ref)
     found = find_channel(store, parsed)
     if found is not None:

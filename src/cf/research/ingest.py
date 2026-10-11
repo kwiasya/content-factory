@@ -8,11 +8,15 @@ layer tests feed with fixtures; the network never reaches past ``youtube``.
 from __future__ import annotations
 
 import html
+from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from cf.research.kinds import parse_iso_duration, video_kind
 from cf.research.store import Store, StoreError, dumps, now_iso
 
 WATCH_URL = "https://www.youtube.com/watch?v="
+YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}
+SHORT_LINK_HOSTS = {"youtu.be", "www.youtu.be"}
 
 
 def _int(value) -> int | None:
@@ -77,10 +81,33 @@ def ingest_channels(store: Store, payload: dict, *, own: bool | None = None,
     return ids
 
 
-# --- videos -----------------------------------------------------------------
+# --- YouTube links ------------------------------------------------------------
 
 def video_url(external_id: str) -> str:
+    """The watch URL of a YouTube video id."""
     return WATCH_URL + external_id
+
+
+@dataclass(frozen=True)
+class YouTubeLink:
+    """A link on a YouTube host: ``short_link`` for ``youtu.be/<id>``, the non-empty path segments
+    (still URL-encoded) and the query string."""
+    short_link: bool
+    segments: list[str]
+    query: str
+
+
+def youtube_link(text: str) -> YouTubeLink | None:
+    """Split a YouTube link (scheme optional); None when its host is not YouTube's."""
+    t = text.strip()
+    parts = urlsplit(t if "://" in t else "https://" + t)
+    host = (parts.hostname or "").lower()
+    if host not in YOUTUBE_HOSTS and host not in SHORT_LINK_HOSTS:
+        return None
+    return YouTubeLink(host in SHORT_LINK_HOSTS, [s for s in parts.path.split("/") if s], parts.query)
+
+
+# --- videos -----------------------------------------------------------------
 
 
 def _channel_id(c, external_id: str, title: str | None) -> int:
@@ -109,7 +136,11 @@ def video_row(item: dict) -> dict:
     }
 
 
-def _upsert_video(c, row: dict, channel_id: int, own: int) -> int:
+def upsert_video(c, row: dict, channel_id: int | None, own: int) -> int:
+    """Insert or update one ``video`` row inside an open transaction ``c``; return its store id.
+
+    A column the row lacks (None) keeps what the store has; ``own`` never goes back to 0.
+    """
     row = {**row, "channel_id": channel_id, "own": own}
     cols = list(row)
     keep = ("platform", "external_id", "own")
@@ -137,7 +168,7 @@ def ingest_videos(store: Store, payload: dict, *, fetched_at: str | None = None)
             sn = item.get("snippet") or {}
             cid = _channel_id(c, sn["channelId"], sn.get("channelTitle"))
             own = c.execute("SELECT own FROM channel WHERE id = ?", (cid,)).fetchone()[0]
-            ids.append(_upsert_video(c, {**video_row(item), "fetched_at": ts}, cid, int(own)))
+            ids.append(upsert_video(c, {**video_row(item), "fetched_at": ts}, cid, int(own)))
     return ids
 
 

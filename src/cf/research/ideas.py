@@ -24,7 +24,7 @@ from typing import Any, Iterable
 
 from cf.research import card, feed
 from cf.research.store import Store, dumps, now_iso
-from cf.research.watchlist import WatchlistError
+from cf.research import watchlist as watchlists
 
 STATUSES = ("inbox", "shortlisted", "discarded", "brief")
 TEXT_FIELDS = ("title", "summary", "content_positioning", "hook_alignment")
@@ -119,10 +119,7 @@ def validate(fields: dict, store: Store) -> list[str]:
 # --- reading ------------------------------------------------------------------
 
 def _watchlist_id(store: Store, name: str) -> int:
-    w = store.one("SELECT id FROM watchlist WHERE name = ?", (name,))
-    if w is None:
-        raise WatchlistError(f"no Watchlist named {name!r}")
-    return w["id"]
+    return watchlists.row(store, name)["id"]
 
 
 def _sources(store: Store, ids: list[int]) -> list[dict]:
