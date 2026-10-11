@@ -130,6 +130,17 @@ class IdeasCliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn(str(path), err)
 
+    def test_removing_a_watchlist_with_a_brief_needs_force(self):
+        a = self.add_one()
+        self.ok("ideas", "shortlist", str(a))
+        path = Path(self.json_of("ideas", "brief", str(a))["brief_path"])
+        code, out, err = self.run_cli("watchlist", "remove", "lisbon")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("--force", err)
+        self.ok("watchlist", "remove", "lisbon", "--force")
+        self.assertEqual(self.json_of("watchlist", "list"), [])
+        self.assertTrue(path.exists())
+
     def test_candidates(self):
         self.add_one(sources=(V2,))
         rows = self.json_of("ideas", "candidates", "lisbon", "--days", "30")

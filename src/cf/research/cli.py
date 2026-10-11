@@ -95,7 +95,7 @@ def cmd_wl_show(args, store) -> int:
 
 
 def cmd_wl_remove(args, store) -> int:
-    watchlist.remove(store, args.name)
+    watchlist.remove(store, args.name, force=args.force)
     return emit(args, {"removed": args.name}, lambda: f"Watchlist {args.name} удалён.")
 
 
@@ -133,8 +133,11 @@ def register_watchlist(sub, common) -> None:
     p = gs.add_parser("show", parents=[common], help="one Watchlist with its Reference channels")
     p.add_argument("name")
     p.set_defaults(func=cmd_wl_show)
-    p = gs.add_parser("remove", parents=[common], help="delete a Watchlist (channels stay in the store)")
+    p = gs.add_parser("remove", parents=[common],
+                      help="delete a Watchlist and its Ideas (channels, videos and Brief files stay)")
     p.add_argument("name")
+    p.add_argument("--force", action="store_true",
+                   help="remove it even when one of its Ideas has a Brief (the Ideas are deleted)")
     p.set_defaults(func=cmd_wl_remove)
     p = gs.add_parser("add-channel", parents=[common],
                       help="add a Reference channel by @handle, channel URL or UC… id")

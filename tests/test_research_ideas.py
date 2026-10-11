@@ -3,6 +3,7 @@
 import unittest
 
 from cf.research import ideas
+from cf.research import watchlist as wl
 from research_synth import NOW, V1, V2, V3, IdeasCase, add_card, analysis, fields
 
 class ValidationTest(IdeasCase):
@@ -211,6 +212,26 @@ class CandidatesTest(IdeasCase):
         self.assertAlmostEqual(row.outlier, 9.0)
         self.assertEqual(row.url, f"https://www.youtube.com/watch?v={V1}")
 
+
+
+class WatchlistRemoveTest(IdeasCase):
+    def test_removing_a_watchlist_deletes_its_ideas(self):
+        self.add()
+        self.add(sources=(V3,), wlname="other")
+        wl.remove(self.store, "lisbon")
+        self.assertEqual(self.store.one("SELECT COUNT(*) AS n FROM idea")["n"], 1)
+
+    def test_a_watchlist_with_a_briefed_idea_is_kept_unless_forced(self):
+        i = self.add().id
+        ideas.shortlist(self.store, i)
+        ideas.mark_brief(self.store, i, "/footage/b.md")
+        with self.assertRaises(wl.WatchlistError) as cm:
+            wl.remove(self.store, "lisbon")
+        self.assertIn("Brief", str(cm.exception))
+        self.assertIn("force", str(cm.exception))
+        self.assertEqual(ideas.get(self.store, i).status, "brief")
+        wl.remove(self.store, "lisbon", force=True)
+        self.assertEqual([w.name for w in wl.list_watchlists(self.store)], ["other"])
 
 if __name__ == "__main__":
     unittest.main()

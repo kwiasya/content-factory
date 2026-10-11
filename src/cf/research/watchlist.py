@@ -186,9 +186,18 @@ def list_watchlists(store: Store) -> list[Watchlist]:
     return [_watchlist(store, r) for r in store.query("SELECT * FROM watchlist ORDER BY name")]
 
 
-def remove(store: Store, name: str) -> None:
-    """Delete the Watchlist and its memberships; channels and their videos stay in the store."""
+def remove(store: Store, name: str, *, force: bool = False) -> None:
+    """Delete the Watchlist with its memberships, search hits and Ideas (Brief files on disk stay);
+    channels and their videos stay in the store.
+
+    Refuses while one of its Ideas has a Brief, unless ``force``."""
     wid = row(store, name)["id"]
+    briefed = store.query("SELECT id, brief_path FROM idea WHERE watchlist_id = ? AND status = 'brief' "
+                          "ORDER BY id", (wid,))
+    if briefed and not force:
+        ids = ", ".join(str(r["id"]) for r in briefed)
+        raise WatchlistError(f"Watchlist {name!r} has {len(briefed)} Idea(s) with a Brief ({ids}); removing it "
+                             f"deletes its Ideas (the Brief files stay). Pass --force to remove it anyway")
     with store.transaction() as c:
         c.execute("DELETE FROM watchlist WHERE id = ?", (wid,))
 
