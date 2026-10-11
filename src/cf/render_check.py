@@ -5,8 +5,9 @@
 
 Checks (docs/research/03-color-iphone-osmo/result-a.md Section D, and
 docs/research/05-music-and-sound/result-a.md for loudness): ffprobe says
-bt709/bt709/bt709, color_range tv, yuv420p, the ``style.json`` canvas size and fps (2160x3840,
-30 fps by default; ``--canvas 1080x1920`` checks a comparison render), no Dolby Vision side data,
+bt709/bt709/bt709, color_range tv, yuv420p, the canvas size and fps (``--canvas``, else the
+``canvas`` of ``<reel>/script.json`` for a file in ``<reel>/out/``, else ``style.json`` canvas:
+2160x3840, 30 fps; ``--canvas 1080x1920`` checks a comparison render), no Dolby Vision side data,
 AAC 48 kHz audio; ffmpeg ``loudnorm`` (print mode) gives integrated loudness within
 ``--lufs-tolerance`` LU of the target and true peak at or below the target.
 Prints a PASS/FAIL table and exits 1 on any FAIL.
@@ -33,7 +34,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from cf.canvas import Canvas, from_style
+from cf.canvas import Canvas, for_reel
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STYLE_PATH = REPO_ROOT / "style.json"
@@ -66,12 +67,24 @@ def expected_for(canvas: Canvas) -> dict:
     return {"width": canvas.width, "height": canvas.height, "fps": float(canvas.fps), **BASE_EXPECTED}
 
 
-def style_canvas(override: str | None = None) -> Canvas:
+def style_canvas(override: str | None = None, script_canvas: str | None = None) -> Canvas:
+    """``override`` (CLI) > ``script_canvas`` > style.json ``canvas``."""
     try:
         style = json.loads(STYLE_PATH.read_text())
     except (OSError, ValueError):
         style = {}
-    return from_style(style, override)
+    return for_reel(style, script_canvas, override)
+
+
+def script_canvas_for(path: Path) -> str | None:
+    """The ``canvas`` of the Script of a file rendered to ``<reel>/out/<name>.mp4`` (None if none)."""
+    for script in (path.parent.parent / "script.json", path.parent / "script.json"):
+        try:
+            v = json.loads(script.read_text()).get("canvas")
+        except (OSError, ValueError, AttributeError):
+            continue
+        return v if isinstance(v, str) and v.strip() else None
+    return None
 
 
 @dataclass
@@ -353,14 +366,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--fix-loudness", action="store_true",
                     help="two-pass loudnorm into <name>.normalized.mp4 (video copied), then check it")
     ap.add_argument("--report", help="also write the results as JSON here")
-    ap.add_argument("--canvas", help="expected size WxH instead of style.json canvas (e.g. 1080x1920)")
+    ap.add_argument("--canvas", help="expected canvas: preset (portrait, landscape) or WxH; default the Script's "
+                                     "canvas (<reel>/script.json next to out/), else style.json canvas")
     args = ap.parse_args(argv)
+    path = Path(args.file).expanduser().resolve()
     try:
-        expected = expected_for(style_canvas(args.canvas))
+        expected = expected_for(style_canvas(args.canvas, script_canvas_for(path)))
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 2
-    path = Path(args.file).expanduser().resolve()
     if not path.exists():
         print(f"no such file: {path}", file=sys.stderr)
         return 2

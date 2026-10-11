@@ -314,5 +314,18 @@ class CliTest(unittest.TestCase):
             self.assertIn("hashtags: 7", bad.stdout)
 
 
+
+class CanvasFieldTest(unittest.TestCase):
+    def test_canvas_is_optional_and_parsed(self):
+        self.assertIsNone(from_dict(good()).canvas)
+        self.assertEqual(from_dict({**good(), "canvas": "landscape"}).canvas, "landscape")
+        with self.assertRaises(ScriptError):
+            from_dict({**good(), "canvas": 16})
+
+    def test_unknown_canvas_is_a_violation(self):
+        self.assertEqual(validate(from_dict({**good(), "canvas": "landscape"}), MANIFEST, STYLE), [])
+        self.assertTrue(any(p.startswith("canvas:") for p in
+                            validate(from_dict({**good(), "canvas": "cinema"}), MANIFEST, STYLE)))
+
 if __name__ == "__main__":
     unittest.main()

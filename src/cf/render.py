@@ -5,7 +5,8 @@
 
 Opens project ``cf-<walk>-<reel>`` (never creates one), selects timeline ``<reel>``,
 creates or updates the render preset ``cf-instagram-<w>x<h>`` (``style.json``: ``render``
-format/codec, ``canvas`` size and fps, ``render.bitrate_mbps`` for that size, i.e. mp4 /
+format/codec, the canvas size and fps (``--canvas`` > the Script's ``canvas`` > ``style.json``
+``canvas``; ``landscape`` = 3840x2160), ``render.bitrate_mbps`` for that size, i.e. mp4 /
 H.264 High, 2160x3840, 30 fps, about 45 Mbit/s by default; AAC 48 kHz,
 ``ColorSpaceTag='Rec.709'``, ``GammaTag='Rec.709-A'``). ``--canvas 1080x1920`` renders a
 comparison file at that size (22 Mbit/s); Resolve scales the timeline to it. It targets
@@ -28,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from cf import render_check
-from cf.canvas import Canvas, from_style, preset_name, render_bitrate_kbps, render_codec
+from cf.canvas import Canvas, for_reel, preset_name, render_bitrate_kbps, render_codec
 from cf.script_schema import load_json
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -69,6 +70,15 @@ class RenderError(RuntimeError):
     pass
 
 
+def script_canvas_of(reel_dir: Path) -> str | None:
+    """The ``canvas`` of ``<reel_dir>/script.json`` (None when absent or unreadable)."""
+    try:
+        v = json.loads((reel_dir / "script.json").read_text()).get("canvas")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return v if isinstance(v, str) and v.strip() else None
+
+
 def job_mismatches(job: dict, expect: dict, out: Path) -> list[str]:
     """Differences between a GetRenderJobList entry and what was asked for (pure)."""
     bad = []
@@ -96,7 +106,9 @@ class Renderer:
                  canvas: str | None = None):
         self.reel_dir = reel_dir
         style = load_json(STYLE_PATH)
-        self.canvas = from_style(style, canvas)
+        script_canvas = script_canvas_of(reel_dir)
+        # --canvas > the Script's canvas > style.json canvas (the same rule as cf.build).
+        self.canvas = for_reel(style, script_canvas, canvas)
         self.fmt, self.codec = render_codec(style)
         try:
             self.video_kbps = render_bitrate_kbps(style, self.canvas)
@@ -115,7 +127,8 @@ class Renderer:
         self.report: dict[str, Any] = {"reel": self.reel, "project": self.project_name, "preset": self.preset,
                                        "out": str(self.out), "notes": [],
                                        "canvas": {"width": self.canvas.width, "height": self.canvas.height,
-                                                  "fps": self.canvas.fps, "override": canvas},
+                                                  "fps": self.canvas.fps, "preset": self.canvas.preset,
+                                                  "override": canvas, "script_canvas": script_canvas},
                                        "format": self.fmt, "codec": self.codec, "video_kbps": self.video_kbps}
         self.d: Any = None
 
@@ -287,8 +300,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("reel_dir", help="reels/<reel>/ inside the Walk folder")
     ap.add_argument("--walk", help="Walk folder with clip_manifest.json (default: two levels up)")
     ap.add_argument("--preset", help="render preset to create/update (default cf-instagram-<w>x<h> of the canvas)")
-    ap.add_argument("--canvas", help="output size WxH overriding style.json canvas, e.g. 1080x1920 for a "
-                                     "comparison render (fps and bitrate table from style.json)")
+    ap.add_argument("--canvas", help="canvas preset (portrait, landscape) or WxH overriding the Script's and "
+                                     "style.json canvas, e.g. 1080x1920 for a comparison render")
     ap.add_argument("--out", help="output .mp4 (default: <reel_dir>/out/<reel>.mp4)")
     ap.add_argument("--project-name", help="Resolve project (default: cf-<walk>-<reel>)")
     ap.add_argument("--no-check", action="store_true", help="skip cf.render_check")

@@ -6,7 +6,10 @@
 // Every pixel number here (sizes, paddings, radii, outlines, shadows, x/y) is in the
 // 1080×1920 reference space (style.json canvas.reference_width). Overlay.tsx scales the
 // whole design by designScale (style.ts): ×2 on the default 2160×3840 canvas, so a
-// preset looks the same at any canvas size. Safe zone (style.json, reference px):
+// preset looks the same at any canvas size. On a canvas preset with its own
+// overlay_positions (landscape, 1920×1080 reference) the roles keep their type system
+// and take anchor/x/y from style.overlay_positions (resolveRole, role_placement);
+// slots come from style.slots there. Safe zone (style.json, reference px):
 // y 269..1248, x 65..1015, and nothing right of x 850 below y 1150 (right rail).
 // "bottom-*" anchors put the box's bottom edge at y at rest; the slide-in starts
 // `animation.in.distance_px` lower, so bottom anchors sit at y ≤ 1248 - 24 = 1224.
@@ -14,9 +17,13 @@ import slotsJson from "./slots.json";
 import { Anchor, fontRoleFor, FontSpec, OverlayType, Style } from "./style";
 
 export type Slot = { anchor: Anchor; x?: number; y: number; align: "left" | "center" };
-export const SLOTS: Record<string, Slot> = Object.fromEntries(
-  Object.entries(slotsJson).filter(([k]) => !k.startsWith("_")),
-) as Record<string, Slot>;
+const slotTable = (raw: Record<string, unknown>): Record<string, Slot> =>
+  Object.fromEntries(Object.entries(raw).filter(([k]) => !k.startsWith("_"))) as Record<string, Slot>;
+/** The portrait slots (src/slots.json). */
+export const SLOTS: Record<string, Slot> = slotTable(slotsJson);
+/** Slots for the style's canvas: its own (style.slots, e.g. landscape) or SLOTS. */
+export const slotsFor = (style: Style): Record<string, Slot> =>
+  style.slots ? slotTable(style.slots) : SLOTS;
 
 export type Ornament = {
   kind: "sparkle" | "heart" | "bow";
@@ -413,11 +420,24 @@ export const resolveRole = (
 ): RoleStyle => {
   const base = baseRole(style, type, presetName);
   let out = base;
+  if (style.role_placement === "overlay_positions") {
+    // Canvas with its own placements (landscape): the preset keeps its type system
+    // (font, size, boxes, caps) and takes anchor/x/y from overlay_positions.
+    const pos = style.overlay_positions[type];
+    out = {
+      ...out,
+      anchor: pos.anchor,
+      x: pos.x,
+      y: pos.y,
+      align: pos.anchor === "center" || pos.anchor.endsWith("-center") ? "center" : "left",
+    };
+  }
   if (override.anchor) {
-    const slot = SLOTS[override.anchor];
+    const slots = slotsFor(style);
+    const slot = slots[override.anchor];
     if (!slot)
       throw new Error(
-        `[cf-overlay] unknown anchor "${override.anchor}"; known: ${Object.keys(SLOTS).join(", ")}`,
+        `[cf-overlay] unknown anchor "${override.anchor}"; known: ${Object.keys(slots).join(", ")}`,
       );
     out = { ...out, anchor: slot.anchor, x: slot.x, y: slot.y, align: slot.align };
   }

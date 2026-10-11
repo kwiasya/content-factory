@@ -22,15 +22,16 @@ the timeline start for the picture's length, source in-point ``script.track_in_s
 (default 0.6 s); the A1 ambience sits at ``style.audio.ambience_db``. ``cuts.json``
 ``beat_markers`` become timeline markers (downbeats Blue, other beats Cyan).
 
-The project and timeline resolution come from ``style.json`` ``canvas`` (2160x3840 by
-default; ``--canvas 1080x1920`` for a comparison build). Source clips whose display height
+The project and timeline resolution come from ``--canvas`` (a ``style.json`` ``canvases``
+name or WxH, e.g. ``1080x1920`` for a comparison build), else the Script's ``canvas``
+(``landscape`` = 3840x2160), else ``style.json`` ``canvas`` (2160x3840); ``cf.canvas.for_reel``. Source clips whose display height
 is below the canvas height get Resolve Studio Super Scale (``style.json`` ``upscale``:
 plain 2x by default, ``2x-enhanced`` optional; ``cf.canvas.upscale_plan``);
 ``--no-superscale`` turns it off on every clip. Stills are exported at the canvas size and
 downscaled to the proxy size for the luma comparison.
 
 Reframe (``cf.reframe``): a V1 item whose source is wider than the canvas (a landscape clip
-on the vertical canvas) gets the Script's ``reframe`` (default ``style.json`` ``reframe.default``,
+on the vertical canvas; on a landscape canvas a 16:9 clip has the canvas aspect and is not reframed) gets the Script's ``reframe`` (default ``style.json`` ``reframe.default``,
 ``follow``: a static window on the person from ``cf.follow``, computed on the proxies before Resolve
 is touched): ``ZoomX``/``ZoomY`` (ganged) so the source height fills the canvas, then ``Pan`` (0
 for ``center``/``smart``, the window position for ``pan``/``follow``), each read back. Every still
@@ -59,7 +60,7 @@ from typing import Any
 from cf import follow as fw
 from cf import frames
 from cf import reframe as rf
-from cf.canvas import Canvas, from_style, scaled_safe_zone, upscale_plan
+from cf.canvas import Canvas, for_reel, scaled_safe_zone, spec_of, upscale_plan
 from cf.script_schema import Script, load, load_json, manifest_clips, validate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -599,13 +600,16 @@ class Builder:
             self.beats_path = next((bp for bp in (track.with_name("beats.json"), reel_dir / "beats.json")
                                     if bp.exists()), None)
             self.beats = load_json(self.beats_path) if self.beats_path else None
-        self.canvas: Canvas = from_style(self.style, canvas)
+        # --canvas > the Script's canvas > style.json canvas.
+        self.canvas: Canvas = for_reel(self.style, self.script.canvas, canvas)
         self.width, self.height, self.fps = self.canvas.width, self.canvas.height, self.canvas.fps
         self.project_name = project_name or f"cf-{self.walk}-{self.reel}"
         self.r = Report(reel=self.reel, walk=self.walk, project=self.project_name)
         self.r.canvas = {"width": self.width, "height": self.height, "fps": self.fps,
                          "reference_width": self.canvas.reference_width, "scale": self.canvas.scale,
-                         "override": canvas, "safe_zone_px": scaled_safe_zone(self.style, self.canvas)}
+                         "preset": self.canvas.preset, "override": canvas, "script_canvas": self.script.canvas,
+                         "spec": spec_of(canvas, self.script.canvas),
+                         "safe_zone_px": scaled_safe_zone(self.style, self.canvas)}
         self.d: Any = None
 
     # ---- steps
@@ -1479,7 +1483,8 @@ class Builder:
         for s in r.settings:
             print(f"  {'ok ' if s['ok'] else 'BAD'} {s['key']:<30} {s['action']:<8} {s['after']!r}")
         c = r.canvas
-        override = f"  (--canvas {c['override']})" if c.get("override") else ""
+        override = f"  (--canvas {c['override']})" if c.get("override") else \
+            (f"  (script canvas {c['script_canvas']})" if c.get("script_canvas") else "")
         print(f"canvas {c.get('width')}x{c.get('height')} @{c.get('fps')}  scale x{c.get('scale'):g} from the "
               f"{c.get('reference_width')}-wide reference{override}  safe zone px {c.get('safe_zone_px')}")
         print("\nmedia:")
@@ -1588,16 +1593,16 @@ def main(argv: list[str] | None = None) -> int:
                     help="leave the Track out (ambience-only build for a sound added in Instagram)")
     ap.add_argument("--ambience-db", type=float,
                     help="A1 ambience volume in dB (default: style.audio.ambience_db with a Track, else 0)")
-    ap.add_argument("--canvas", help="timeline size WxH overriding style.json canvas, e.g. 1080x1920 "
-                                     "for a comparison build (fps stays style.json's)")
+    ap.add_argument("--canvas", help="canvas preset name (portrait, landscape) or WxH, overriding the Script's "
+                                     "canvas and style.json canvas; e.g. 1080x1920 for a comparison build")
     ap.add_argument("--no-superscale", action="store_true",
                     help="Super Scale off (1) on every clip instead of style.json upscale on the low-res ones")
     args = ap.parse_args(argv)
     if args.canvas:
-        from cf.canvas import parse_size  # noqa: PLC0415
+        from cf.canvas import resolve  # noqa: PLC0415
 
         try:
-            parse_size(args.canvas)
+            resolve(load_json(STYLE_PATH), args.canvas)
         except ValueError as exc:
             print(exc, file=sys.stderr)
             return 2

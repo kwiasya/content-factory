@@ -14,6 +14,7 @@ Schema, enums and the writing rules: `docs/script-schema.md`. Style: `style.json
 3. Draft 3–5 hooks of different `hook.type`, each paired with the clip that proves it. Critique them against the writing rules; keep one.
 4. Write `reels/<reel>/script.json`: order shots for impact (reorder freely), one overlay per scene, caption led by the place name, ≤5 hashtags. The default ending is `loop_seamless`: pick the hook from a clip whose preceding seconds are usable, so the last shot can be the run-up into the hook's first frame (see `docs/script-schema.md`, Seamless loop).
    For a landscape clip (DJI, landscape iPhone) leave `reframe` out (default `follow`: a static 9:16 window placed on the person by the build) or set `center` / `pan` with `x` (−1 left … 1 right); never `smart` (black bands). A static window holds only 31.6 % of the frame width, so pick ranges where she stays in one place or moves toward/away from the lens, not across the frame; a 1080p landscape clip is upscaled ×3.56 and looks soft, so prefer 4K sources.
+   For a horizontal (16:9, YouTube / feed) video set top-level `"canvas": "landscape"`: 16:9 clips then fill the frame with no reframe, portrait clips are rejected (they would pillarbox), and overlays use the landscape safe zone and positions from `style.json` `canvases.landscape`.
 5. Run `.venv/bin/python -m cf.script_schema validate reels/<reel>/script.json`; fix every reported rule until it passes.
 6. Show the user the Script as a shot list table plus the caption. Apply their edits in the JSON, re-validate.
 

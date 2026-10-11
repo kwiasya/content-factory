@@ -321,5 +321,24 @@ class StillStatsTest(unittest.TestCase):
             self.assertNotIn("at_proxy_size", still_stats(f, (2160, 3840)))
 
 
+
+class LandscapeStillStatsTest(unittest.TestCase):
+    def test_3840x2160_still_is_compared_at_the_960x540_proxy_size(self):
+        import tempfile
+
+        import cv2
+        import numpy as np
+
+        a = np.zeros((2160, 3840, 3), np.uint8)
+        a[:, :1920] = 200
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "s.png"
+            cv2.imwrite(str(f), a)
+            st = still_stats(f, (960, 540))
+            self.assertEqual((st["width"], st["height"]), (3840, 2160))
+            small = st["at_proxy_size"]
+            self.assertEqual((small["width"], small["height"]), (960, 540))
+            self.assertAlmostEqual(small["mean_luma"], st["mean_luma"], delta=0.5)
+
 if __name__ == "__main__":
     unittest.main()

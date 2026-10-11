@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 // Render one text overlay as transparent ProRes 4444.
 //
-//   node render.mjs --spec spec.json --out overlay.mov [--strict]
+//   node render.mjs --spec spec.json --out overlay.mov [--canvas landscape|portrait|WxH] [--strict]
 //   npm run render -- --spec spec.json --out overlay.mov
 //
 // spec.json: { "text": "...", "type": "hook|place|fact|line", "duration_s": 3,
-//              "style_path": "../style.json", "preset": "editorial-serif" }
+//              "style_path": "../style.json", "preset": "editorial-serif", "canvas": "landscape" }
+// Canvas: --canvas > spec.canvas > style.json canvas. A name picks style.json
+// canvases.<name>; WxH takes the geometry of the preset with the same aspect ratio
+// (cf.canvas.resolve is the Python twin). The preset's safe_zone, overlay_positions
+// and slots replace the top-level ones; with overlay_positions every overlay preset
+// takes its placement from there (role_placement), and designScale = width /
+// reference_width (2 at 2160x3840 and at 3840x2160).
 // `preset` is optional; it defaults to style.json typography.preset, then "legacy".
 // Optional `anchor` (a slot name from src/slots.json, e.g. "lower-left") overrides
 // the preset's placement; optional `scrim` (0..1) overrides its scrim strength.
@@ -36,6 +42,7 @@ const parseArgs = (argv) => {
     const k = argv[i];
     if (k === "--spec") a.spec = argv[++i];
     else if (k === "--out") a.out = argv[++i];
+    else if (k === "--canvas") a.canvas = argv[++i];
     else if (k === "--strict") a.strict = true;
     else if (k === "-h" || k === "--help") a.help = true;
     else die(2, `unknown argument ${k}`);
@@ -45,7 +52,7 @@ const parseArgs = (argv) => {
 
 const args = parseArgs(process.argv.slice(2));
 if (args.help || !args.spec || !args.out)
-  die(2, "usage: node render.mjs --spec spec.json --out file.mov [--strict]");
+  die(2, "usage: node render.mjs --spec spec.json --out file.mov [--canvas landscape|portrait|WxH] [--strict]");
 
 const specPath = path.resolve(CALLER_CWD, args.spec);
 const outPath = path.resolve(CALLER_CWD, args.out);
@@ -63,13 +70,59 @@ if (typeof spec.style_path !== "string") die(2, "spec.style_path must be a path 
 if (spec.preset !== undefined && (typeof spec.preset !== "string" || !spec.preset.trim()))
   die(2, "spec.preset must be a non-empty string when present");
 
+if (spec.canvas !== undefined && (typeof spec.canvas !== "string" || !spec.canvas.trim()))
+  die(2, "spec.canvas must be a canvas name or WxH when present");
+
 const stylePath = path.resolve(path.dirname(specPath), spec.style_path);
-let style;
+let baseStyle;
 try {
-  style = JSON.parse(fs.readFileSync(stylePath, "utf8"));
+  baseStyle = JSON.parse(fs.readFileSync(stylePath, "utf8"));
 } catch (e) {
   die(2, `cannot read style ${stylePath}: ${e.message}`);
 }
+if (!baseStyle.canvas) die(2, `style.json is missing "canvas"`);
+
+// --- canvas resolution (mirror of src/cf/canvas.py resolve / overlay_style) ---
+const canvasPresets = Object.fromEntries(
+  Object.entries(baseStyle.canvases ?? {}).filter(([k, v]) => !k.startsWith("_") && v && typeof v === "object"),
+);
+const sameAspect = (a, b) => a[0] * b[1] === a[1] * b[0];
+const defaultPreset = () => {
+  const c = baseStyle.canvas;
+  for (const [name, p] of Object.entries(canvasPresets))
+    if (p.width === c.width && p.height === c.height) return [name, { ...c, ...p }];
+  return [null, c];
+};
+const resolveCanvas = (specText) => {
+  const t = (specText ?? "").trim();
+  if (!t) return defaultPreset();
+  if (canvasPresets[t]) return [t, canvasPresets[t]];
+  const m = /^\s*(\d+)\s*[xX×]\s*(\d+)\s*$/.exec(t);
+  if (!m) die(2, `unknown canvas "${t}"; style.json canvases has ${Object.keys(canvasPresets).join(", ")} (or give WxH)`);
+  const size = [Number(m[1]), Number(m[2])];
+  if (size.some((n) => n <= 0 || n % 2)) die(2, `canvas ${t}: width and height must be positive and even`);
+  const [dn, dc] = defaultPreset();
+  if (sameAspect(size, [dc.width, dc.height])) return [dn, { ...dc, width: size[0], height: size[1] }];
+  for (const [name, p] of Object.entries(canvasPresets))
+    if (sameAspect(size, [p.width, p.height])) return [name, { ...p, width: size[0], height: size[1] }];
+  die(2, `canvas ${t}: no style.json canvases preset has that aspect ratio`);
+};
+const canvasSpec = args.canvas ?? spec.canvas;
+const [canvasName, cv] = resolveCanvas(canvasSpec);
+const style = {
+  ...baseStyle,
+  canvas: {
+    width: cv.width,
+    height: cv.height,
+    fps: cv.fps ?? baseStyle.canvas.fps,
+    reference_width: cv.reference_width ?? baseStyle.canvas.reference_width ?? 1080,
+    ...(canvasName ? { preset: canvasName } : {}),
+  },
+  safe_zone: cv.safe_zone ?? baseStyle.safe_zone,
+  overlay_positions: cv.overlay_positions ?? baseStyle.overlay_positions,
+  ...(cv.slots ? { slots: cv.slots } : {}),
+  ...(cv.overlay_positions ? { role_placement: "overlay_positions" } : {}),
+};
 for (const key of ["canvas", "safe_zone", "typography", "colors", "overlay_positions", "animation"])
   if (!style[key]) die(2, `style.json is missing "${key}"`);
 if (!style.overlay_positions[spec.type]) die(2, `style.overlay_positions has no "${spec.type}"`);
@@ -85,7 +138,7 @@ const presetSrc = fs.readFileSync(path.join(HERE, "src", "presets.ts"), "utf8");
 const knownPresets = ["legacy", ...[...presetSrc.matchAll(/^  "([a-z0-9-]+)": \{$/gm)].map((m) => m[1])];
 if (!knownPresets.includes(preset)) die(2, `unknown preset "${preset}"; known: ${knownPresets.join(", ")}`);
 
-const slots = JSON.parse(fs.readFileSync(path.join(HERE, "src", "slots.json"), "utf8"));
+const slots = style.slots ?? JSON.parse(fs.readFileSync(path.join(HERE, "src", "slots.json"), "utf8"));
 const knownSlots = Object.keys(slots).filter((k) => !k.startsWith("_"));
 if (spec.anchor !== undefined && !knownSlots.includes(spec.anchor))
   die(2, `unknown anchor "${spec.anchor}"; known: ${knownSlots.join(", ")}`);
@@ -202,6 +255,7 @@ const summary = {
   type: spec.type,
   preset,
   anchor: spec.anchor ?? null,
+  canvas: canvasName,
   fps,
   frames: durationInFrames,
   width: style.canvas.width,

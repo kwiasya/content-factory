@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 
 from cf.canvas import Canvas
-from cf.render import job_expect, job_mismatches, preset_settings
+from cf.render import job_expect, job_mismatches, preset_settings, script_canvas_of
 from cf.render_check import (evaluate, expected_for, normalized_path, parse_loudnorm, parse_probe, passed,
-                             style_canvas, video_duration)
+                             script_canvas_for, style_canvas, video_duration)
 
 UHD = Canvas(2160, 3840, 30)
 HD = Canvas(1080, 1920, 30)
@@ -174,6 +174,32 @@ class NamesAndJobsTest(unittest.TestCase):
                          (2160, 3840, 30.0, 45000))
         self.assertEqual(dict(preset_settings(HD, 22000))["FormatWidth"], 1080)
 
+
+
+class LandscapeCanvasTest(unittest.TestCase):
+    def test_expected_and_preset_for_landscape(self):
+        land = style_canvas("landscape")
+        self.assertEqual(expected_for(land)["width"], 3840)
+        self.assertEqual(expected_for(land)["height"], 2160)
+        self.assertEqual(style_canvas(None, "landscape"), land)  # the Script's canvas
+        self.assertEqual(style_canvas("1080x1920", "landscape").name, "1080x1920")  # CLI wins
+        rows = dict(preset_settings(land, 45000))
+        self.assertEqual((rows["FormatWidth"], rows["FormatHeight"], rows["VideoQuality"]), (3840, 2160, 45000))
+        self.assertEqual(job_expect(land)["FormatWidth"], 3840)
+
+    def test_script_canvas_is_read_next_to_out(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            reel = Path(tmp) / "reel-02"
+            (reel / "out").mkdir(parents=True)
+            f = reel / "out" / "reel-02.mp4"
+            self.assertIsNone(script_canvas_for(f))
+            self.assertIsNone(script_canvas_of(reel))
+            (reel / "script.json").write_text(json.dumps({"canvas": "landscape"}))
+            self.assertEqual(script_canvas_for(f), "landscape")
+            self.assertEqual(script_canvas_of(reel), "landscape")
 
 if __name__ == "__main__":
     unittest.main()

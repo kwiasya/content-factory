@@ -106,6 +106,7 @@ class Script:
     track_in_s: float | None = None
     track_fade_out_s: float | None = None
     metrics: dict | None = None
+    canvas: str | None = None  # style.json canvases name ('landscape') or 'WxH'; None = style.json canvas
 
     @property
     def total_s(self) -> float:
@@ -202,6 +203,7 @@ def from_dict(d: dict) -> Script:
         track_in_s=_opt_num(d, "track_in_s", "script"),
         track_fade_out_s=_opt_num(d, "track_fade_out_s", "script"),
         metrics=d.get("metrics"),
+        canvas=_str(d, "canvas", "script", required=False),
     )
 
 
@@ -235,7 +237,11 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
     shot_min = float(shot_s.get("min", SHOT_MIN_S))
     payoff_max = max(SHOT_MAX_S, float(shot_s.get("payoff_max", SHOT_MAX_S)))
     min_hold = float((style.get("animation") or {}).get("min_hold_s", 2.0))
-    canvas_w, canvas_h = canvas_size(style)
+    try:
+        canvas_w, canvas_h = canvas_size(style, script.canvas)
+    except ValueError as exc:
+        v.append(f"canvas: {exc}")
+        canvas_w, canvas_h = canvas_size(style)
     clips = manifest_clips(manifest)
 
     if script.schema != SCHEMA:
@@ -287,6 +293,11 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
                 v.append(f"{w}: out_s={s.out_s:g} is past the end of {s.clip} ({float(c['duration_s']):g} s)")
         src_w, src_h = rf.display_size(clips.get(s.clip))
         v.extend(f"{w}: {p}" for p in rf.problems(s.reframe, src_w, src_h, canvas_w, canvas_h))
+        if s.reframe is None and src_w and src_h and \
+                rf.aspect_relation(src_w, src_h, canvas_w, canvas_h) == "narrower":
+            v.append(f"{w}: clip {s.clip} ({src_w}x{src_h}) is narrower than the {canvas_w}x{canvas_h} canvas: "
+                     "it would leave black bands at the sides (no fill exists); use a clip of the canvas "
+                     "aspect or wider")
         for h in (s.reframe.hold_s if s.reframe else ()):
             if not s.in_s - EPS <= h <= s.out_s + EPS:
                 v.append(f"{w}: reframe.hold_s {h:g} is outside the shot ({s.in_s:g}-{s.out_s:g} s)")
@@ -382,7 +393,10 @@ def loop_seamless_problems(script: Script, clips: dict[str, dict], style: dict) 
                  f"vanish at the seam ({last.overlay.text!r})")
     # The window must not jump at the seam: same reframe (explicit or the clip's default), and a
     # pan ends where the first shot's pan starts.
-    cw, ch = canvas_size(style)
+    try:
+        cw, ch = canvas_size(style, script.canvas)
+    except ValueError:
+        cw, ch = canvas_size(style)
     dm = rf.default_mode(style)
     a, _ = rf.effective(last.reframe, clips.get(last.clip), cw, ch, dm)
     b, _ = rf.effective(first.reframe, clips.get(first.clip), cw, ch, dm)
@@ -396,8 +410,15 @@ def loop_seamless_problems(script: Script, clips: dict[str, dict], style: dict) 
     return v
 
 
-def canvas_size(style: dict | None) -> tuple[int, int]:
-    """``style.json`` ``canvas`` width and height (2160x3840 when missing)."""
+def canvas_size(style: dict | None, spec: str | None = None) -> tuple[int, int]:
+    """Width and height of the canvas ``spec`` (the Script's ``canvas``: a style.json
+    ``canvases`` name or 'WxH'), else of style.json ``canvas`` (2160x3840 when missing).
+    Raises ValueError for a spec ``cf.canvas.resolve`` does not know."""
+    if spec:
+        from cf.canvas import resolve  # noqa: PLC0415
+
+        c = resolve(style or {}, spec)
+        return c.width, c.height
     c = (style or {}).get("canvas") or {}
     return int(c.get("width", DEFAULT_CANVAS[0])), int(c.get("height", DEFAULT_CANVAS[1]))
 

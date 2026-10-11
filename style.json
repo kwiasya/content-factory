@@ -3,13 +3,114 @@
   "name": "travel-walk-v1",
   "status": "draft: defaults from research, not yet reviewed by the author",
   "audience": "one person planning a city break who wants to feel the place before going",
-  "_doc": "Pixel units: `canvas.width/height` are output pixels (2160x3840 by default, the author's preference since 2026-10-11). Every other pixel number in this file (safe_zone, overlay_positions, typography.*.size, animation.in.distance_px) and in overlays/src/presets.ts and slots.json is in a 1080-wide reference space (`canvas.reference_width`), so the numbers read as on a 1080x1920 frame. Canvas pixels = reference pixels x canvas.width / canvas.reference_width (x2 at 2160x3840). The overlay renderer (overlays/src/style.ts designScale) and cf.canvas (Python) apply that one factor.",
+  "_doc": "Pixel units: `canvas.width/height` are output pixels (2160x3840 by default, the author's preference since 2026-10-11). Every other pixel number in this file (safe_zone, overlay_positions, typography.*.size, animation.in.distance_px) and in overlays/src/presets.ts and slots.json is in a 1080-wide reference space (`canvas.reference_width`), so the numbers read as on a 1080x1920 frame. Canvas pixels = reference pixels x canvas.width / canvas.reference_width (x2 at 2160x3840). The overlay renderer (overlays/src/style.ts designScale) and cf.canvas (Python) apply that one factor. Named canvases: `canvases` holds one preset per orientation (portrait, landscape), each with its own size, reference_width and, where they differ from the top-level ones, safe_zone, overlay_positions and slots (all in that preset's reference space). `canvas` is the active default (portrait); a Script's top-level `canvas` ('landscape') picks a preset, and `--canvas landscape|portrait|WxH` on cf.build / cf.render / cf.render_check / overlays/render.mjs wins over both.",
   "canvas": {
     "width": 2160,
     "height": 3840,
     "fps": 30,
     "reference_width": 1080,
-    "note": "4K vertical by default (author, 2026-10-11). cf.build/cf.render take --canvas 1080x1920 for comparison renders."
+    "note": "Active default canvas (= canvases.portrait): 4K vertical (author, 2026-10-11). cf.build/cf.render take --canvas 1080x1920 for comparison renders, --canvas landscape (or a Script's canvas: 'landscape') for 16:9."
+  },
+  "canvases": {
+    "_doc": "Named canvas presets (cf.canvas.resolve, overlays/render.mjs). A preset without safe_zone / overlay_positions / slots uses the top-level ones (style.json safe_zone, overlay_positions, overlays/src/slots.json). A preset with overlay_positions has role_placement 'overlay_positions': every overlay preset (presets.ts) takes its anchor/x/y from there instead of its own portrait placement; font sizes, boxes and caps stay, so text is the same size relative to the frame's short side (designScale = width / reference_width = 2 on both 4K canvases). A WxH override picks the preset with the same aspect ratio.",
+    "portrait": {
+      "width": 2160,
+      "height": 3840,
+      "fps": 30,
+      "reference_width": 1080,
+      "note": "9:16 Reel; safe_zone, overlay_positions and slots are the top-level ones (Meta Reels UI)."
+    },
+    "landscape": {
+      "width": 3840,
+      "height": 2160,
+      "fps": 30,
+      "reference_width": 1920,
+      "note": "16:9 for YouTube and the Instagram feed (first horizontal video: reel-02-boat, 2026-10-11). Reference space 1920x1080, x2 at 3840x2160.",
+      "safe_zone": {
+        "top": 54,
+        "bottom": 130,
+        "left": 96,
+        "right": 96,
+        "source": "5 % margins all round (title-safe for 16:9); bottom 12 % keeps text clear of the YouTube progress bar and player controls. No right rail: feed and YouTube put no buttons over a 16:9 frame.",
+        "units": "reference px (reference_width 1920); x2 at 3840x2160"
+      },
+      "role_placement": "overlay_positions",
+      "overlay_positions": {
+        "_units": "reference px (1920x1080)",
+        "hook": {
+          "anchor": "center",
+          "y": 720
+        },
+        "place": {
+          "anchor": "bottom-left",
+          "x": 120,
+          "y": 920
+        },
+        "fact": {
+          "anchor": "top-left",
+          "x": 120,
+          "y": 90
+        },
+        "line": {
+          "anchor": "center",
+          "y": 720
+        }
+      },
+      "slots": {
+        "_doc": "Named placements for a spec's `anchor` on this canvas (same names as overlays/src/slots.json, 1920x1080 reference px). bottom-* y is the box's bottom edge at rest; the 24 px slide-in starts below it, so y <= 1080 - 130 - 24 = 926.",
+        "lower-left": {
+          "anchor": "bottom-left",
+          "x": 120,
+          "y": 920,
+          "align": "left"
+        },
+        "lower-center": {
+          "anchor": "bottom-center",
+          "y": 920,
+          "align": "center"
+        },
+        "mid-left": {
+          "anchor": "middle-left",
+          "x": 120,
+          "y": 540,
+          "align": "left"
+        },
+        "mid-center": {
+          "anchor": "center",
+          "y": 540,
+          "align": "center"
+        },
+        "high-left": {
+          "anchor": "middle-left",
+          "x": 120,
+          "y": 300,
+          "align": "left"
+        },
+        "high-center": {
+          "anchor": "center",
+          "y": 300,
+          "align": "center"
+        },
+        "upper-left": {
+          "anchor": "top-left",
+          "x": 120,
+          "y": 90,
+          "align": "left"
+        },
+        "upper-center": {
+          "anchor": "top-center",
+          "y": 90,
+          "align": "center"
+        },
+        "lower-left-loose": {
+          "anchor": "bottom-left",
+          "x": 120,
+          "y": 1000,
+          "align": "left",
+          "_note": "inside the 5 % frame margin but over the YouTube controls band (safe-zone warning); for the Instagram feed only"
+        }
+      }
+    }
   },
   "safe_zone": {
     "top": 269,
@@ -140,7 +241,9 @@
     "codec_note": "H.264 High is the default (Instagram re-encodes everything). GetRenderCodecs('mp4') on this Mac also lists 'H265' (H.265), which would give a smaller file at the same quality; not used, because render_check and the loudness fix expect h264.",
     "bitrate_mbps": {
       "2160x3840": 45,
-      "1080x1920": 22
+      "1080x1920": 22,
+      "3840x2160": 45,
+      "1920x1080": 22
     },
     "bitrate_note": "VideoQuality cap per canvas (SetRenderSettings VideoQuality = Mbit/s x 1000, kbit/s)."
   }

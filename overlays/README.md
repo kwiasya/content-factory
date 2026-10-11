@@ -65,6 +65,7 @@ npx --no-install remotion render src/index.ts Overlay <out> --props=<tmp> \
 | `preset` | Optional. Overlay preset name (see Presets); defaults to `typography.preset` in style.json, then `legacy`. An unknown name exits 2 and lists the known ones. |
 | `anchor` | Optional. A named slot from `src/slots.json` (`lower-left`, `lower-center`, `mid-left`, `mid-center`, `high-left`, `high-center`, `upper-left`, `upper-center`) that replaces the preset role's placement, for example the calmest, darkest area of this shot that is clear of the face. Unknown → exit 2. |
 | `scrim` | Optional, 0..1. Overrides the preset role's scrim strength. |
+| `canvas` | Optional. A style.json `canvases` name (`portrait`, `landscape`) or `WxH`; `--canvas` on the command line wins. The preset's size, `reference_width`, `safe_zone`, `overlay_positions` and `slots` replace the top-level ones. On `landscape` (3840×2160, reference 1920×1080) every overlay preset keeps its type system and takes its placement from `canvases.landscape.overlay_positions`, and `anchor` names resolve against `canvases.landscape.slots`; `designScale` is 2 on both 4K canvases, so text is the same size relative to the frame's short side. |
 
 ## Presets
 
