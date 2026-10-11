@@ -22,4 +22,4 @@ Before writing any text the author will post (hook, overlay, caption) or acting 
 
 ## Git
 
-Commits carry no Co-Authored-By or other AI attribution lines. Author is the configured git identity (Anastasiia <kwiasya27@gmail.com>).
+Commits carry no Co-Authored-By or other AI attribution lines. Author is the configured git identity; never set or override it.
