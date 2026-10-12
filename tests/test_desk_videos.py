@@ -329,6 +329,17 @@ class TextFileTest(VideosTestCase):
         self.assertEqual(self.save("long-one", "other.md", "x", "").status_code, 404)
         self.assertEqual(self.save("long-one", "subtitles/new.srt", "x", "").status_code, 404)
 
+    def test_voiceover_text_can_be_created_edited_and_is_listed(self):
+        self.assertEqual(self.read("long-one", "voiceover.md").status_code, 404)
+        self.ok(self.save("long-one", "voiceover.md", "This is the report.\n", ""))
+        self.assertEqual((self.video / "voiceover.md").read_text(), "This is the report.\n")
+        doc = self.read("long-one", "voiceover.md").json()
+        self.assertEqual(doc["kind"], "voiceover")
+        self.ok(self.save("long-one", "voiceover.md", "Take two.\n", doc["hash"]))
+        files = {f["path"]: f for f in self.client.get("/api/videos/long-one").json()["files"]}
+        self.assertEqual(files["voiceover.md"]["kind"], "voiceover")
+        self.assertTrue(files["voiceover.md"]["editable"])
+
     def test_only_editable_texts_inside_the_folder_are_served(self):
         for path in ("video.json", "renders/v1.mp4", "../../w1/clip_manifest.json", "/etc/hosts",
                      "subtitles/../video.json", "missing.md"):

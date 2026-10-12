@@ -27,10 +27,10 @@ NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 NOT_WALKS = {"videos", "references", "channels"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm"}
 SUBTITLE_SUFFIXES = {".srt", ".vtt"}
-TOP_TEXTS = {"brief.md": "brief", "notes.md": "notes", "references.md": "references"}
+TOP_TEXTS = {"brief.md": "brief", "voiceover.md": "voiceover", "notes.md": "notes", "references.md": "references"}
 MEDIA_FOLDERS = {"renders": "render", "out": "render", "overlays": "overlay", "sources": "source"}
-EDITABLE = {"script", "brief", "notes", "references", "subtitle"}
-CREATABLE = {"brief.md", "notes.md"}
+EDITABLE = {"script", "brief", "voiceover", "notes", "references", "subtitle"}
+CREATABLE = {"brief.md", "voiceover.md", "notes.md"}
 
 
 @dataclass(frozen=True)

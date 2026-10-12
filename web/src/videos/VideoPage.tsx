@@ -7,10 +7,11 @@ import { TextFileEditor } from "./TextFileEditor";
 import { mediaUrl } from "../api";
 import { videosApi, type VideoDetail, type VideoFile } from "./videosApi";
 
-type Tab = "script" | "brief" | "subtitles" | "renders" | "overlays" | "sources" | "files" | "references" | "notes";
+type Tab = "script" | "text" | "brief" | "subtitles" | "renders" | "overlays" | "sources" | "files" | "references" | "notes";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "script", label: "Script" },
+  { id: "text", label: "Text" },
   { id: "brief", label: "Brief" },
   { id: "subtitles", label: "Subtitles" },
   { id: "renders", label: "Renders" },
@@ -83,6 +84,7 @@ export function VideoPage({ slug }: { slug: string }) {
       {error && <p className="error">{error}</p>}
 
       {tab === "script" && <Picker slug={slug} files={ofKind("script")} empty="No script.* in this folder yet." onSaved={load} />}
+      {tab === "text" && <TextFileEditor key="voiceover" slug={slug} path="voiceover.md" creatable onSaved={load} />}
       {tab === "brief" && <TextFileEditor key="brief" slug={slug} path="brief.md" creatable onSaved={load} />}
       {tab === "subtitles" && (
         <Picker slug={slug} files={ofKind("subtitle")} empty="No .srt or .vtt files in this folder." onSaved={load} />
