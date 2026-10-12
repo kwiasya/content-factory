@@ -288,6 +288,29 @@ class TextFileTest(VideosTestCase):
         self.assertEqual(json.loads((self.reel / "script.draft.json").read_text())["concept"],
                          "A quieter afternoon by the lake.")
 
+    def test_a_script_json_that_is_not_cf_script_1_is_a_violation(self):
+        path = self.reel / "script.draft.json"
+        before = path.read_bytes()
+        doc = self.ok(self.read("w1~short-01", "script.draft.json"))
+        for schema in ("cf-script/0", None):
+            with self.subTest(schema=schema):
+                script = json.loads(doc["text"])
+                if schema is None:
+                    del script["schema"]
+                else:
+                    script["schema"] = schema
+                r = self.save("w1~short-01", "script.draft.json", json.dumps(script), doc["hash"])
+                self.assertEqual(r.status_code, 422, r.text)
+                self.assertTrue(any("cf-script/1" in v for v in r.json()["violations"]), r.text)
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_a_stale_hash_is_409_before_the_json_is_checked(self):
+        doc = self.ok(self.read("w1~short-01", "script.draft.json"))
+        self.ok(self.save("w1~short-01", "script.draft.json", doc["text"], doc["hash"]))
+        (self.reel / "script.draft.json").write_text(doc["text"] + "\n")
+        r = self.save("w1~short-01", "script.draft.json", "{not json", doc["hash"])
+        self.assertEqual(r.status_code, 409, r.text)
+
     def test_cf_script_of_a_walk_without_manifest_is_still_validated(self):
         (self.walk / "clip_manifest.json").unlink()
         (self.repo / "style.json").unlink()

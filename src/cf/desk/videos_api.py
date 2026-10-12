@@ -202,13 +202,17 @@ def text_target(folder: Folder, rel: str, *, creating: bool = False) -> Path:
     raise missing
 
 
-def script_violations(footage: Path, repo: Path, text: str) -> list[str]:
+def script_violations(footage: Path, repo: Path, text: str, *, script: bool) -> list[str]:
+    """Violations of a JSON text; a `script*.json` (`script` true) must be a cf-script/1 document."""
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
         return [f"invalid JSON: {e}"]
     if not isinstance(data, dict) or data.get("schema") != script_schema.SCHEMA:
-        return []
+        if not script:
+            return []
+        found = data.get("schema") if isinstance(data, dict) else None
+        return [f"schema must be {script_schema.SCHEMA}, got {json.dumps(found)}"]
     try:
         script = script_schema.from_dict(data)
     except script_schema.ScriptError as e:
@@ -270,17 +274,17 @@ def router(footage_root: Path, repo: Path) -> APIRouter:
     @api.put("/api/videos/{slug}/file", response_model=None)
     def put_file(slug: str, body: TextWrite) -> dict | JSONResponse:
         target = text_target(find_folder(footage, slug), body.path, creating=True)
-        if text_format(body.path) == "json":
-            violations = script_violations(footage, repo, body.text)
-            if violations:
-                return JSONResponse(status_code=422, content={
-                    "detail": "the Script did not pass cf-script/1 validation; nothing was written",
-                    "violations": violations})
         current = target.read_bytes() if target.exists() else None
         if current is not None and digest(current) != body.hash:
             return conflict(current)
         if current is None and body.hash:
             raise HTTPException(409, "the file was deleted since it was read")
+        if text_format(body.path) == "json":
+            violations = script_violations(footage, repo, body.text, script=kind_of(body.path) == "script")
+            if violations:
+                return JSONResponse(status_code=422, content={
+                    "detail": "the Script did not pass cf-script/1 validation; nothing was written",
+                    "violations": violations})
         data = body.text.encode("utf-8")
         atomic_write(target, data)
         return {"path": body.path, "hash": digest(data)}
