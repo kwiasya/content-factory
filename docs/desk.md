@@ -48,7 +48,7 @@ The groups live in one place, `GROUPS` in `src/cf/desk/catalog.py`; a new group 
 | Endpoint | Returns |
 |---|---|
 | `GET /api/meta` | `repo`, `branch`, `footage_root`, `db_path` |
-| `GET /api/catalog[?all=1]` | groups with `docs` (`path`, `title`, `kind`, `editable`, `git`) and `empty` hints |
+| `GET /api/catalog[?all=1]` | groups with `docs` (`path`, `title`, `kind`, `editable`, `git`; skill files also `description` from the SKILL.md frontmatter, null for other files, `size` and `mtime`, shown in the sidebar tooltip and on the skill page) and `empty` hints |
 | `GET /api/doc?path=` | the entry plus `text` and `hash` (`sha256:<hex>` of the bytes on disk) |
 | `PUT /api/doc` | body `{path, text, hash}`: writes atomically (temp file + rename) when `hash` matches the file; 409 with the fresh `text` and `hash` when the file changed since it was read; 403 for read-only; 422 for invalid JSON in a `json` document |
 | `GET /api/doc/diff?path=` | `git` state and unified `diff` against HEAD (untracked and ignored files diff against empty) |

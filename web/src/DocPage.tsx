@@ -7,6 +7,7 @@ import { Preview } from "./Preview";
 import { SkillLinks } from "./skills/SkillLinks";
 import { SkillLint } from "./formats/SkillLint";
 import { NoteBox } from "./notes/NoteBox";
+import { formatTime } from "./format";
 
 type Tab = "edit" | "diff" | "history";
 
@@ -75,6 +76,8 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
         <div>
           <h1>{doc.title}</h1>
           <code className="path">{doc.path}</code>
+          {doc.description && <p className="muted">{doc.description}</p>}
+          {doc.mtime && <p className="muted">Last change {formatTime(doc.mtime)}</p>}
         </div>
         <div className="doc-badges">
           <GitBadge state={doc.git} />

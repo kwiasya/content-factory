@@ -6,6 +6,7 @@ Desk reads and writes only paths this catalogue yields; a later group is one mor
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -30,6 +31,7 @@ class Source:
     exclude: Callable[[str], bool] = lambda rel: False
     title: Callable[[str], str] | None = None
     empty_hint: str | None = None
+    skill: bool = False
 
 
 @dataclass(frozen=True)
@@ -47,10 +49,11 @@ class Entry:
     title: str
     kind: str
     editable: bool
+    skill: dict | None = None
 
     def as_dict(self) -> dict:
         return {"path": self.path, "group": self.group, "title": self.title, "kind": self.kind,
-                "editable": self.editable}
+                "editable": self.editable, **(self.skill or {})}
 
 
 @dataclass
@@ -68,10 +71,10 @@ skill_title = folder_title(2)
 
 GROUPS: tuple[Group, ...] = (
     Group("skills", "Skills", (
-        Source(".claude/skills/*/**/*", exclude=is_vendored_skill, title=skill_title),
+        Source(".claude/skills/*/**/*", exclude=is_vendored_skill, title=skill_title, skill=True),
     )),
     Group("skills-vendored", "Vendored skills", (
-        Source(".claude/skills/remotion-*/**/*", editable=False, title=skill_title),
+        Source(".claude/skills/remotion-*/**/*", editable=False, title=skill_title, skill=True),
     ), hidden=True),
     Group("content", "Content", (
         Source("CLAUDE.md"),
@@ -94,6 +97,37 @@ GROUPS: tuple[Group, ...] = (
         Source("docs/research/[0-9][0-9]-*/notes/*.md", editable=False, title=folder_title(2)),
     )),
 )
+
+
+def frontmatter_description(text: str) -> str | None:
+    """The `description` of a SKILL.md YAML frontmatter: one line, quoted, or a folded/literal block."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for i, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return None
+        if not line.startswith("description:"):
+            continue
+        value = line[len("description:"):].strip()
+        if value[:1] in (">", "|"):
+            block = []
+            for more in lines[i + 1:]:
+                if more.strip() == "---" or (more and not more[0].isspace()):
+                    break
+                block.append(more.strip())
+            value = " ".join(b for b in block if b)
+        elif len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        return value or None
+    return None
+
+
+def skill_facts(path: Path) -> dict:
+    st = path.stat()
+    description = frontmatter_description(path.read_text(encoding="utf-8")) if path.name == "SKILL.md" else None
+    return {"description": description, "size": st.st_size,
+            "mtime": datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat(timespec="seconds")}
 
 
 def kind_of(rel: str) -> str:
@@ -130,7 +164,8 @@ def list_groups(repo: Path, *, include_hidden: bool = False) -> list[Listing]:
                 listing.empty.append({"glob": source.glob, "hint": source.empty_hint})
             for rel in rels:
                 title = source.title(rel) if source.title else rel
-                listing.entries.append(Entry(rel, group.id, title, kind_of(rel), source.editable))
+                facts = skill_facts(repo / rel) if source.skill else None
+                listing.entries.append(Entry(rel, group.id, title, kind_of(rel), source.editable, facts))
         listings.append(listing)
     return listings
 

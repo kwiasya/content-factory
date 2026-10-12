@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { formatTime } from "./format";
+import { formatTime } from "../format";
 import { videoHref } from "./routes";
 import { videosApi, type VideoSummary } from "./videosApi";
 

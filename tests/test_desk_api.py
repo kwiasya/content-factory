@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 from cf.desk.app import create_app
 
 TREE = {
-    ".claude/skills/alpha/SKILL.md": "---\nname: alpha\n---\n# Alpha\n",
+    ".claude/skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha does one thing. Use when asked.\n---\n# Alpha\n",
+    ".claude/skills/gamma/SKILL.md": "---\nname: gamma\ndescription: >\n  Gamma folds\n  two lines.\n---\n# Gamma\n",
     ".claude/skills/beta/SKILL.md": "# Beta\n",
     ".claude/skills/beta/templates/x.md": "template\n",
     ".claude/skills/remotion-foo/SKILL.md": "# Remotion foo\n",
@@ -82,7 +83,7 @@ class CatalogTest(DeskTestCase):
         self.assertEqual(list(groups), ["skills", "content", "formats", "research"])
         self.assertEqual(self.paths(groups["skills"]), [
             ".claude/skills/alpha/SKILL.md", ".claude/skills/beta/SKILL.md",
-            ".claude/skills/beta/templates/x.md"])
+            ".claude/skills/beta/templates/x.md", ".claude/skills/gamma/SKILL.md"])
         self.assertEqual(self.paths(groups["content"]), [
             "CLAUDE.md", "docs/agents/domain.md", "style.json", "research/templates/brief.md",
             "research/taxonomy.json"])
@@ -106,6 +107,19 @@ class CatalogTest(DeskTestCase):
         self.assertTrue(docs["formats/walk-reel/FORMAT.md"]["editable"])
         self.assertFalse(docs["formats/walk-reel/hook-library.md"]["editable"])
         self.assertEqual(docs["CLAUDE.md"]["git"], "clean")
+
+    def test_skill_entries_carry_description_size_and_last_change(self):
+        docs = {d["path"]: d for g in self.catalog(all=1).values() for d in g["docs"]}
+        alpha = docs[".claude/skills/alpha/SKILL.md"]
+        self.assertEqual(alpha["description"], "Alpha does one thing. Use when asked.")
+        self.assertEqual(alpha["size"], (self.repo / ".claude/skills/alpha/SKILL.md").stat().st_size)
+        self.assertRegex(alpha["mtime"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+        self.assertEqual(docs[".claude/skills/gamma/SKILL.md"]["description"], "Gamma folds two lines.")
+        self.assertIsNone(docs[".claude/skills/beta/SKILL.md"]["description"])
+        self.assertIsNone(docs[".claude/skills/beta/templates/x.md"]["description"])
+        self.assertEqual(docs[".claude/skills/beta/templates/x.md"]["size"], len("template\n"))
+        self.assertIn("mtime", docs[".claude/skills/remotion-foo/SKILL.md"])
+        self.assertNotIn("description", docs["CLAUDE.md"])
 
     def test_missing_author_folder_is_an_empty_state_pointing_to_author_setup(self):
         content = self.catalog()["content"]

@@ -16,6 +16,9 @@ export interface CatalogEntry {
   kind: "markdown" | "json";
   editable: boolean;
   git: GitState;
+  description?: string | null;
+  size?: number;
+  mtime?: string;
 }
 
 export interface CatalogGroup {

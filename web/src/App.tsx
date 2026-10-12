@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type CatalogGroup, type Meta } from "./api";
+import { api, type CatalogEntry, type CatalogGroup, type Meta } from "./api";
 import { DocPage } from "./DocPage";
 import { GitBadge } from "./GitBadge";
+import { formatSize, formatTime } from "./format";
 import { researchRoute } from "./research/ResearchPage";
 import { SearchBox, searchRoute } from "./search/SearchPage";
 import { FormatsNav, FormatsRoute } from "./formats/FormatsRoute";
@@ -14,6 +15,17 @@ const PREFIX = "#/doc/";
 
 function currentPath(): string | null {
   return window.location.hash.startsWith(PREFIX) ? decodeURIComponent(window.location.hash.slice(PREFIX.length)) : null;
+}
+
+function entryTooltip(d: CatalogEntry): string {
+  const lines = [d.path];
+  if (d.description) {
+    lines.push(d.description);
+  }
+  if (d.mtime !== undefined && d.size !== undefined) {
+    lines.push(`Last change ${formatTime(d.mtime)} · ${formatSize(d.size)}`);
+  }
+  return lines.join("\n");
 }
 
 export function App() {
@@ -80,7 +92,7 @@ export function App() {
                     <a
                       href={PREFIX + encodeURIComponent(d.path)}
                       className={d.path === path ? "active" : ""}
-                      title={d.path}
+                      title={entryTooltip(d)}
                     >
                       <span className="name">{d.title}</span>
                       {!d.editable && <span className="lock">ro</span>}

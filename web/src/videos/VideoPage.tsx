@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { cardHref, ideaHref } from "../contour/routes";
 import { NoteBox } from "../notes/NoteBox";
-import { formatSize, formatTime } from "./format";
+import { formatSize, formatTime } from "../format";
 import { VIDEOS_PREFIX } from "./routes";
 import { TextFileEditor } from "./TextFileEditor";
 import { mediaUrl, videosApi, type VideoDetail, type VideoFile } from "./videosApi";
