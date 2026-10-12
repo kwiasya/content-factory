@@ -289,7 +289,12 @@ def router(footage_root: Path, repo: Path) -> APIRouter:
         current = target.read_bytes()
         if digest(current) != body.hash:
             return conflict(current)
-        video = json.loads(current)
+        try:
+            video = json.loads(current)
+        except json.JSONDecodeError as e:
+            raise HTTPException(422, f"video.json is unreadable: {e}") from None
+        if not isinstance(video, dict):
+            raise HTTPException(422, "video.json is not an object")
         video["status"] = body.status
         today = datetime.now(timezone.utc).date().isoformat()
         video["history"] = [*(video.get("history") or []), {"status": body.status, "at": today, "note": body.note}]
