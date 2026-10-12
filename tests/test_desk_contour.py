@@ -239,3 +239,44 @@ class BriefTest(ContourCase):
         stale = self.send("PUT", self.url(self.briefed), 409, body={"text": "lost", "hash": h})
         self.assertEqual((stale["text"], stale["hash"]), ("# Brief\n\nnew\n", saved["hash"]))
         self.assertEqual(self.brief_path.read_text(encoding="utf-8"), "# Brief\n\nnew\n")
+
+
+class TaxonomyTest(ContourCase):
+    PROPOSED = "/api/contour/taxonomy/editing_style/golden_hour_descent"
+
+    def test_values_are_listed_by_kind_and_status(self):
+        got = self.get("/api/contour/taxonomy", kind="editing_style", status="proposed")
+        self.assertEqual([(v["value"], v["source"]) for v in got["values"]],
+                         [("golden_hour_descent", f"card:{V1}")])
+        self.assertIn("hook_category", got["kinds"])
+        self.assertGreater(len(self.get("/api/contour/taxonomy")["values"]), 1)
+        self.get("/api/contour/taxonomy", 422, kind="mood")
+
+    def test_approve_drops_the_proposed_prefix_in_the_stored_card_and_its_file(self):
+        got = self.send("POST", self.PROPOSED + "/approve")
+        self.assertEqual((got["status"], got["cards"]), ("approved", [V1]))
+        with st.open_store(self.db) as s:
+            stored = card.load(s, card.video(s, V1)["id"])
+        self.assertEqual(stored["analysis"]["visual_layout"]["sub_category"], "golden_hour_descent")
+        on_disk = json.loads((self.ref / "card.json").read_text())
+        self.assertEqual(on_disk["analysis"]["visual_layout"]["sub_category"], "golden_hour_descent")
+        self.assertEqual(self.get(f"/api/contour/cards/{V1}")["proposed"], [])
+
+    def test_reject_lists_the_cards_that_now_fail(self):
+        got = self.send("POST", self.PROPOSED + "/reject")
+        self.assertEqual((got["status"], got["cards"]), ("rejected", [V1]))
+        self.assertEqual(self.get("/api/contour/taxonomy", status="proposed")["values"], [])
+
+    def test_bad_kind_is_422_and_unknown_action_404(self):
+        self.send("POST", "/api/contour/taxonomy/mood/calm/approve", 422)
+        self.send("POST", self.PROPOSED + "/maybe", 404)
+
+
+class QuotaTest(ContourCase):
+    def test_quota_shows_today_per_bucket_and_method(self):
+        got = self.get("/api/contour/quota")
+        buckets = {b["bucket"]: b for b in got["buckets"]}
+        self.assertEqual(set(buckets), {"default", "search"})
+        self.assertEqual(buckets["default"]["remaining"], buckets["default"]["limit"] - buckets["default"]["used"])
+        self.assertEqual(buckets["default"]["used"], sum(m["units"] for m in got["by_method"]))
+        self.assertRegex(got["day"], r"^\d{4}-\d{2}-\d{2}$")

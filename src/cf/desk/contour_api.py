@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from cf.desk import media
 from cf.desk.hashed import atomic_write, digest
-from cf.research import card, feed, ideas, outlier, summary, taxonomy
+from cf.research import card, feed, ideas, outlier, quota, summary, taxonomy
 from cf.research import watchlist as watchlists
 from cf.research.cli import USER_ERRORS
 from cf.research.store import Store, open_store
@@ -192,5 +192,26 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
         data = body.text.encode("utf-8")
         atomic_write(path, data)
         return {"idea": idea_id, "path": str(path), "hash": digest(data)}
+
+    @api.get("/taxonomy")
+    def get_taxonomy(kind: str | None = None, status: str | None = None) -> dict:
+        with store() as s:
+            vals = taxonomy.values(s, kind=kind or None, status=status or None)
+            return {"values": [v.to_dict() for v in vals], "kinds": list(taxonomy.KINDS),
+                    "statuses": list(taxonomy.STATUSES)}
+
+    @api.post("/taxonomy/{kind}/{value}/{action}")
+    def judge_taxonomy(kind: str, value: str, action: str) -> dict:
+        if action not in ("approve", "reject"):
+            raise HTTPException(404, "action must be approve or reject")
+        with store() as s:
+            if action == "approve":
+                return taxonomy.approve(s, kind, value, root=footage).to_dict()
+            return taxonomy.reject(s, kind, value).to_dict()
+
+    @api.get("/quota")
+    def get_quota() -> dict:
+        with store() as s:
+            return {**quota.usage(s).to_dict(), "limits": quota.limits()}
 
     return api
