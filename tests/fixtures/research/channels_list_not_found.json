@@ -1,0 +1,5 @@
+{
+  "kind": "youtube#channelListResponse",
+  "etag": "z9Y8x7W6",
+  "pageInfo": {"totalResults": 0, "resultsPerPage": 5}
+}

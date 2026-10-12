@@ -1,0 +1,439 @@
+{
+  "schema": "cf-taxonomy-seed/1",
+  "about": "Controlled vocabulary for Reference cards, loaded into the research store as approved on every open (new values only). Proposed values come from cards and are approved or rejected through the CLI. Sources: docs/research/skills-review.md.",
+  "kinds": {
+    "hook_category": [
+      {
+        "source": "cf.script_schema.HOOK_TYPES",
+        "values": [
+          {
+            "value": "visual_payoff",
+            "label": "Visual payoff",
+            "note": "The first frame shows the reward the video promises"
+          },
+          {
+            "value": "pov",
+            "label": "POV",
+            "note": "Puts the viewer inside a situation: POV: you ..."
+          },
+          {
+            "value": "list",
+            "label": "List",
+            "note": "Opens a count: N things, N places"
+          },
+          {
+            "value": "contrast",
+            "label": "Contrast",
+            "note": "Expectation against reality, before against after"
+          },
+          {
+            "value": "question",
+            "label": "Question",
+            "note": "Opens with a question the video answers"
+          },
+          {
+            "value": "curiosity",
+            "label": "Curiosity gap",
+            "note": "Withholds the key fact until later"
+          }
+        ]
+      },
+      {
+        "source": "hook-playbook (Hook Genius shapes)",
+        "values": [
+          {
+            "value": "transformation",
+            "label": "Transformation",
+            "note": "Turn X into Y"
+          },
+          {
+            "value": "diagnosis",
+            "label": "Diagnosis",
+            "note": "The reason X fails is Y"
+          },
+          {
+            "value": "named_framework",
+            "label": "Named framework",
+            "note": "A sharp promise first, then the name of the method"
+          },
+          {
+            "value": "numbered_series",
+            "label": "Numbered series",
+            "note": "Episode N of X, with a tension line after the label"
+          },
+          {
+            "value": "reaction_promise",
+            "label": "Reaction promise",
+            "note": "Promises a reaction the viewer cannot skip"
+          },
+          {
+            "value": "fake_label",
+            "label": "Fake label",
+            "note": "Trap: a name with nothing behind it"
+          },
+          {
+            "value": "bare_number",
+            "label": "Bare number",
+            "note": "Trap: a number with no mechanism in the same sentence"
+          }
+        ]
+      }
+    ],
+    "storytelling_format": [
+      {
+        "source": "cf.script_schema.FORMATS",
+        "values": [
+          {
+            "value": "pov",
+            "label": "POV",
+            "note": "The viewer walks through it in first person"
+          },
+          {
+            "value": "listicle",
+            "label": "Listicle",
+            "note": "N things, counted through"
+          },
+          {
+            "value": "levels",
+            "label": "Levels",
+            "note": "Level 1 to level N, each one better than the last"
+          },
+          {
+            "value": "day_in_the_life",
+            "label": "Day In The Life",
+            "note": "A day, start to finish"
+          },
+          {
+            "value": "reveal",
+            "label": "Reveal",
+            "note": "Builds toward one thing shown last"
+          },
+          {
+            "value": "contrast",
+            "label": "Contrast",
+            "note": "Two states set against each other"
+          }
+        ]
+      },
+      {
+        "source": "format-finder (Sandcastles Formats)",
+        "values": [
+          {
+            "value": "breakdown_explainer",
+            "label": "Breakdowns / Explainers",
+            "note": "Takes one thing apart step by step"
+          },
+          {
+            "value": "case_study",
+            "label": "Case Studies",
+            "note": "One real example, and why it worked"
+          },
+          {
+            "value": "tutorial",
+            "label": "Tutorial",
+            "note": "Does the thing on screen, step by step"
+          },
+          {
+            "value": "ranking_rating_tier_list",
+            "label": "Ranking/Rating/Tier List",
+            "note": "Things ranked best to worst"
+          },
+          {
+            "value": "a_vs_b_comparison",
+            "label": "A vs B Comparison",
+            "note": "Two options set against each other"
+          },
+          {
+            "value": "reaction",
+            "label": "Reaction",
+            "note": "Watching something and responding to it"
+          },
+          {
+            "value": "problem_solution",
+            "label": "Problem Solution",
+            "note": "Here's the problem, here's the fix"
+          },
+          {
+            "value": "q_and_a",
+            "label": "Q&A",
+            "note": "One question, answered"
+          },
+          {
+            "value": "personal_learning_epiphany",
+            "label": "Personal Learning/Epiphany",
+            "note": "The moment I realized something"
+          },
+          {
+            "value": "common_trap_mistake",
+            "label": "Common Trap/Mistake",
+            "note": "Most people do this wrong; here's the fix"
+          },
+          {
+            "value": "about_me_origin_story",
+            "label": "About Me",
+            "note": "Who I am and how I got here"
+          },
+          {
+            "value": "scenario_hypothetical",
+            "label": "Scenarios",
+            "note": "Imagine this situation"
+          },
+          {
+            "value": "challenge",
+            "label": "Challenge",
+            "note": "I tried X for N days"
+          },
+          {
+            "value": "personal_update",
+            "label": "Personal Update",
+            "note": "Here's what just happened to me"
+          },
+          {
+            "value": "episodic_series_social_show",
+            "label": "Episodic Series/Social Show",
+            "note": "One episode of a running show"
+          },
+          {
+            "value": "skit_humor",
+            "label": "Skit/Humor",
+            "note": "Acted out for a laugh"
+          },
+          {
+            "value": "heros_journey",
+            "label": "Hero's Journey",
+            "note": "A struggle, a turn, a win"
+          },
+          {
+            "value": "interview_clips",
+            "label": "Interview Clips",
+            "note": "Someone else answering, cut from a longer talk"
+          },
+          {
+            "value": "yap",
+            "label": "Yap",
+            "note": "One take, talking it out, no script"
+          }
+        ]
+      }
+    ],
+    "editing_style": [
+      {
+        "source": "docs/research/skills-review.md (format-finder styles for the Script)",
+        "values": [
+          {
+            "value": "vlog_pov",
+            "label": "Vlog POV",
+            "note": "In-World (Vlog): On location, camera as the viewer's eyes"
+          },
+          {
+            "value": "vlog_music",
+            "label": "Vlog Music",
+            "note": "In-World (Vlog): On location, cut to a track, no voice"
+          },
+          {
+            "value": "vlog_timelapse",
+            "label": "Vlog Timelapse",
+            "note": "In-World (Vlog): On location, time compressed"
+          },
+          {
+            "value": "faceless",
+            "label": "Faceless",
+            "note": "Faceless: no face; footage, text, animation or clips with voice-over (category of the faceless_* styles)"
+          }
+        ]
+      },
+      {
+        "source": "format-finder (Sandcastles Editing Styles, 30 cards)",
+        "values": [
+          {
+            "value": "office_room_yap",
+            "label": "Office/Room Yap",
+            "note": "Studio/Set: One face talking in a room"
+          },
+          {
+            "value": "whiteboard",
+            "label": "Whiteboard",
+            "note": "Studio/Set: Talking at a whiteboard"
+          },
+          {
+            "value": "car_yap",
+            "label": "Car Yap",
+            "note": "Studio/Set: Talking to camera from the driver's seat"
+          },
+          {
+            "value": "podcast_clips",
+            "label": "Podcast Clips",
+            "note": "Studio/Set: Cut from a longer recorded conversation"
+          },
+          {
+            "value": "full_screen_hybrid",
+            "label": "Full Screen/Hybrid",
+            "note": "Studio/Set: Face, then full-screen cutaways to footage or screens"
+          },
+          {
+            "value": "split_screen",
+            "label": "Split Screen",
+            "note": "Studio/Set: Face on one side, the thing on the other"
+          },
+          {
+            "value": "comparison_clone",
+            "label": "Comparison Clone",
+            "note": "Studio/Set: The same person twice in frame, arguing both sides"
+          },
+          {
+            "value": "visual_greenscreen",
+            "label": "Visual Greenscreen",
+            "note": "Greenscreen: Face keyed over a clip or screenshot that stays up"
+          },
+          {
+            "value": "notes_article_greenscreen",
+            "label": "Notes/Article Greenscreen",
+            "note": "Greenscreen: Face keyed over a doc, notes app or article"
+          },
+          {
+            "value": "reaction",
+            "label": "Reaction",
+            "note": "Greenscreen: Face beside or over the clip being reacted to"
+          },
+          {
+            "value": "faceless_visual_explainer",
+            "label": "Faceless Visual Explainer",
+            "note": "Faceless: Footage or graphics with voice-over, no face"
+          },
+          {
+            "value": "faceless_clipping",
+            "label": "Faceless Clipping",
+            "note": "Faceless: Clips of others, re-cut"
+          },
+          {
+            "value": "faceless_animation",
+            "label": "Faceless Animation",
+            "note": "Faceless: Animated, no face"
+          },
+          {
+            "value": "faceless_reaction_explainer",
+            "label": "Faceless Reaction Explainer",
+            "note": "Faceless: Explains a clip without showing the speaker"
+          },
+          {
+            "value": "faceless_physical_explainer",
+            "label": "Faceless Physical Explainer",
+            "note": "Faceless: Hands and objects on camera, no face"
+          },
+          {
+            "value": "faceless_text_conversation",
+            "label": "Faceless Text Conversation",
+            "note": "Faceless: A chat or text thread carries the story"
+          },
+          {
+            "value": "faceless_gameplay_narration",
+            "label": "Faceless Gameplay Narration",
+            "note": "Faceless: Gameplay under a narrating voice"
+          },
+          {
+            "value": "vlog_hybrid",
+            "label": "Vlog Hybrid",
+            "note": "In-World (Vlog): On location, talking to camera between footage"
+          },
+          {
+            "value": "vlog_interactive",
+            "label": "Vlog Interactive",
+            "note": "In-World (Vlog): On location, talking with people met there"
+          },
+          {
+            "value": "vlog_reflective",
+            "label": "Vlog Reflective",
+            "note": "In-World (Vlog): On location, a reflective voice-over"
+          },
+          {
+            "value": "vlog_pov",
+            "label": "Vlog POV",
+            "note": "In-World (Vlog): On location, camera as the viewer's eyes"
+          },
+          {
+            "value": "vlog_music",
+            "label": "Vlog Music",
+            "note": "In-World (Vlog): On location, cut to a track, no voice"
+          },
+          {
+            "value": "vlog_timelapse",
+            "label": "Vlog Timelapse",
+            "note": "In-World (Vlog): On location, time compressed"
+          },
+          {
+            "value": "man_on_street_single",
+            "label": "Man on the Street (single)",
+            "note": "In-World (Vlog): One stranger answering on the street"
+          },
+          {
+            "value": "man_on_street_multiple",
+            "label": "Man on the Street (multiple)",
+            "note": "In-World (Vlog): Several strangers answering the same question"
+          },
+          {
+            "value": "skit_solo",
+            "label": "Skit Solo",
+            "note": "In-World (Skit): One person acting it out"
+          },
+          {
+            "value": "skit_group",
+            "label": "Skit Group",
+            "note": "In-World (Skit): Several people acting it out"
+          },
+          {
+            "value": "skit_lip_sync",
+            "label": "Skit Lip Sync",
+            "note": "In-World (Skit): Acted to borrowed audio"
+          },
+          {
+            "value": "skit_transformation",
+            "label": "Skit Transformation",
+            "note": "In-World (Skit): Acted before and after"
+          },
+          {
+            "value": "stop_motion",
+            "label": "Stop-Motion",
+            "note": "Other: Frame-by-frame"
+          }
+        ]
+      }
+    ],
+    "visual_layout": [
+      {
+        "source": "research spec #1",
+        "values": [
+          {
+            "value": "talking_head",
+            "label": "Talking head",
+            "note": "One face talking to camera"
+          },
+          {
+            "value": "screencast",
+            "label": "Screencast",
+            "note": "A screen recording carries the picture"
+          },
+          {
+            "value": "broll_voiceover",
+            "label": "B-roll with voice-over",
+            "note": "Footage under a narrating voice"
+          },
+          {
+            "value": "pov_walk",
+            "label": "POV walk",
+            "note": "Walking footage from the eyes or just behind"
+          },
+          {
+            "value": "text_on_footage",
+            "label": "Text on footage",
+            "note": "On-screen text carries the story over footage"
+          },
+          {
+            "value": "split",
+            "label": "Split",
+            "note": "Two pictures at once: face and screen, before and after"
+          }
+        ]
+      }
+    ]
+  }
+}

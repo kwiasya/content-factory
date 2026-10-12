@@ -5,5 +5,15 @@ __pycache__/
 tools/vision-score/.build/
 
 # Remotion overlays
-overlays/node_modules/
+overlays/node_modules
 overlays/out/
+
+# Author context: personal, lives on this Mac only (/author-setup creates it)
+author/
+
+# Secrets (YouTube Data API key); see .env.example
+.env
+
+# Desk frontend
+web/node_modules
+web/dist/

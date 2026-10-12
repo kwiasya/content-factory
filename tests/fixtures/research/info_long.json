@@ -1,0 +1,134 @@
+{
+ "id": "dQw4w9WgXcQ",
+ "title": "Lisbon Alfama at Golden Hour — 4K Walk",
+ "description": "Start: Miradouro de Santa Luzia\n00:00 Intro\n00:40 Alfama stairs\n01:30 Sunset at the viewpoint",
+ "duration": 120,
+ "duration_string": "2:00",
+ "upload_date": "20261009",
+ "timestamp": 1791561612,
+ "view_count": 184022,
+ "like_count": 5310,
+ "comment_count": 402,
+ "channel_id": "UCxR9mXyZbC1dEf2GhIjKlMn",
+ "channel": "Slow Walks",
+ "channel_url": "https://www.youtube.com/channel/UCxR9mXyZbC1dEf2GhIjKlMn",
+ "channel_follower_count": 312000,
+ "uploader": "Slow Walks",
+ "uploader_id": "@slowwalks",
+ "tags": [
+  "lisbon",
+  "walking tour",
+  "4k walk"
+ ],
+ "categories": [
+  "Travel & Events"
+ ],
+ "chapters": [
+  {
+   "start_time": 0.0,
+   "end_time": 40.0,
+   "title": "Intro"
+  },
+  {
+   "start_time": 40.0,
+   "end_time": 90.0,
+   "title": "Alfama stairs"
+  },
+  {
+   "start_time": 90.0,
+   "end_time": 120.0,
+   "title": "Sunset at the viewpoint"
+  }
+ ],
+ "heatmap": [
+  {
+   "start_time": 0.0,
+   "end_time": 12.0,
+   "value": 1.0
+  },
+  {
+   "start_time": 12.0,
+   "end_time": 24.0,
+   "value": 0.41
+  },
+  {
+   "start_time": 24.0,
+   "end_time": 36.0,
+   "value": 0.22
+  },
+  {
+   "start_time": 36.0,
+   "end_time": 48.0,
+   "value": 0.18
+  },
+  {
+   "start_time": 48.0,
+   "end_time": 60.0,
+   "value": 0.2
+  },
+  {
+   "start_time": 60.0,
+   "end_time": 72.0,
+   "value": 0.17
+  },
+  {
+   "start_time": 72.0,
+   "end_time": 84.0,
+   "value": 0.19
+  },
+  {
+   "start_time": 84.0,
+   "end_time": 96.0,
+   "value": 0.63
+  },
+  {
+   "start_time": 96.0,
+   "end_time": 108.0,
+   "value": 0.58
+  },
+  {
+   "start_time": 108.0,
+   "end_time": 120.0,
+   "value": 0.12
+  }
+ ],
+ "automatic_captions": {
+  "en-orig": [
+   {
+    "ext": "json3",
+    "url": "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&fmt=json3",
+    "name": "English (Original)"
+   },
+   {
+    "ext": "vtt",
+    "url": "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&fmt=vtt",
+    "name": "English (Original)"
+   }
+  ],
+  "en": [
+   {
+    "ext": "json3",
+    "url": "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&fmt=json3",
+    "name": "English"
+   }
+  ],
+  "de": [
+   {
+    "ext": "json3",
+    "url": "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&tlang=de&fmt=json3",
+    "name": "German"
+   }
+  ]
+ },
+ "subtitles": {},
+ "width": 1280,
+ "height": 720,
+ "fps": 30,
+ "aspect_ratio": 1.78,
+ "availability": "public",
+ "media_type": "video",
+ "live_status": "not_live",
+ "language": "en",
+ "webpage_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+ "thumbnail": "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"
+}

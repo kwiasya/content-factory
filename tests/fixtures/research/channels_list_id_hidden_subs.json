@@ -1,0 +1,20 @@
+{
+  "kind": "youtube#channelListResponse",
+  "etag": "k2L3m4N5",
+  "pageInfo": {"totalResults": 1, "resultsPerPage": 5},
+  "items": [{
+    "kind": "youtube#channel",
+    "etag": "q1W2e3R4",
+    "id": "UCa1B2c3D4e5F6g7H8i9J0kL",
+    "snippet": {
+      "title": "Terminal Tuesdays",
+      "description": "Short screencasts about coding agents.",
+      "customUrl": "@terminaltuesdays",
+      "publishedAt": "2023-01-02T10:00:00Z",
+      "thumbnails": {"default": {"url": "https://yt3.ggpht.com/def=s88", "width": 88, "height": 88}},
+      "localized": {"title": "Terminal Tuesdays", "description": "Short screencasts about coding agents."}
+    },
+    "contentDetails": {"relatedPlaylists": {"likes": "", "uploads": "UUa1B2c3D4e5F6g7H8i9J0kL"}},
+    "statistics": {"viewCount": "903114", "hiddenSubscriberCount": true, "videoCount": "57"}
+  }]
+}
