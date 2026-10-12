@@ -192,5 +192,36 @@ class SearchTest(ResearchTestCase):
         self.assertEqual(self.client.get("/api/search").status_code, 422)
 
 
+class SkillLinksTest(ResearchTestCase):
+    def test_map_lists_paths_commands_tables_and_skills_each_own_skill_mentions(self):
+        skills = {s["name"]: s for s in self.get("/api/skills/links")["skills"]}
+        self.assertEqual(list(skills), ["alpha", "beta"])
+        self.assertEqual(skills["alpha"], {
+            "name": "alpha", "path": ".claude/skills/alpha/SKILL.md",
+            "paths": ["CLAUDE.md", "docs/research/09-storytelling", "docs/research/SYNTHESIS.md"],
+            "catalogued": ["CLAUDE.md", "docs/research/SYNTHESIS.md"],
+            "commands": ["cf.research quota", "cf.research watchlist add"],
+            "tables": ["idea", "watchlist"],
+            "skills": ["beta"],
+            "mentioned_by": ["beta"],
+        })
+
+    def test_inbound_links_come_from_any_file_of_the_mentioning_skill(self):
+        beta = self.get("/api/skills/beta/links")
+        self.assertEqual(beta["skills"], ["alpha", "remotion-foo"])
+        self.assertEqual(beta["mentioned_by"], ["alpha"])
+        self.assertEqual(beta["paths"], [])
+        self.assertEqual(beta["tables"], [])
+
+    def test_unknown_or_vendored_skill_is_404(self):
+        for name in ["nope", "remotion-foo"]:
+            with self.subTest(name=name):
+                self.assertEqual(self.client.get(f"/api/skills/{name}/links").status_code, 404)
+
+    def test_without_the_store_module_no_tables_are_found(self):
+        (self.repo / "src/cf/research/store.py").unlink()
+        self.assertEqual(self.get("/api/skills/alpha/links")["tables"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

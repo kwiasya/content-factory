@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from cf.desk import catalog, gitread
 from cf.desk import research_api
 from cf.desk import search
+from cf.desk import skill_links
 
 WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
@@ -98,6 +99,7 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
 
     app.include_router(research_api.router(repo))
     app.include_router(search.router(repo))
+    app.include_router(skill_links.router(repo))
 
     @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     def api_not_found(rest: str) -> None:
