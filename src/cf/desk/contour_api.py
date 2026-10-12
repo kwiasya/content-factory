@@ -12,9 +12,13 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from cf.desk import media
-from cf.research import card, feed, outlier, summary, taxonomy, watchlist
+from cf.desk.hashed import atomic_write, digest
+from cf.research import card, feed, ideas, outlier, summary, taxonomy
+from cf.research import watchlist as watchlists
 from cf.research.cli import USER_ERRORS
 from cf.research.store import Store, open_store
 
@@ -24,6 +28,18 @@ SUMMARY_LIMIT = 10
 
 def _rounded(row: feed.FeedRow) -> dict:
     return {**row.to_dict(), "outlier": None if row.outlier is None else round(row.outlier, 2)}
+
+
+IDEA_MOVES = {"shortlist": ideas.shortlist, "discard": ideas.discard, "restore": ideas.restore}
+
+
+class NoteIn(BaseModel):
+    text: str
+
+
+class BriefWrite(BaseModel):
+    text: str
+    hash: str
 
 
 def _pending(store: Store, analysis: dict | None) -> list[dict]:
@@ -64,22 +80,22 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
             except (*USER_ERRORS, ValueError) as e:
                 raise HTTPException(422, _detail(e)) from None
 
-    def watchlist_of(s: Store, name: str) -> watchlist.Watchlist:
+    def watchlist_of(s: Store, name: str) -> watchlists.Watchlist:
         try:
-            return watchlist.get(s, name)
-        except watchlist.WatchlistError as e:
+            return watchlists.get(s, name)
+        except watchlists.WatchlistError as e:
             raise HTTPException(404, str(e)) from None
 
     @api.get("/watchlists")
     def get_watchlists() -> dict:
         with store() as s:
-            return {"watchlists": [w.to_dict() for w in watchlist.list_watchlists(s)]}
+            return {"watchlists": [w.to_dict() for w in watchlists.list_watchlists(s)]}
 
     @api.get("/watchlists/{name}")
     def get_watchlist(name: str) -> dict:
         with store() as s:
             w = watchlist_of(s, name)
-            return {"watchlist": w.to_dict(), "channels": [c.to_dict() for c in watchlist.channels(s, name)]}
+            return {"watchlist": w.to_dict(), "channels": [c.to_dict() for c in watchlists.channels(s, name)]}
 
     @api.get("/watchlists/{name}/feed")
     def get_feed(name: str, days: float = feed.DEFAULT_LOOKBACK_DAYS, min_outlier: float | None = None,
@@ -115,5 +131,66 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
         with store() as s:
             watchlist_of(s, name)
             return summary.summarize(s, name, what, days=days, limit=SUMMARY_LIMIT).to_dict()
+
+    def idea_of(s: Store, idea_id: int) -> ideas.Idea:
+        try:
+            return ideas.get(s, idea_id)
+        except ideas.IdeaError as e:
+            raise HTTPException(404, str(e)) from None
+
+    def brief_file(idea: ideas.Idea) -> Path:
+        if not idea.brief_path:
+            raise HTTPException(404, f"Idea {idea.id} has no Brief yet; shortlist it, then run "
+                                     f"python -m cf.research ideas brief {idea.id} (skill /suggest-ideas)")
+        path = Path(idea.brief_path)
+        root = footage.resolve()
+        if not path.resolve().is_relative_to(root) or path.suffix != ".md":
+            raise HTTPException(404, f"the Brief of Idea {idea.id} is not a .md file under the footage root")
+        if not path.is_file():
+            raise HTTPException(404, f"the Brief of Idea {idea.id} is missing on disk: {path}")
+        return path
+
+    @api.get("/ideas")
+    def get_ideas(watchlist: str | None = None, status: str | None = None) -> dict:
+        with store() as s:
+            names = [watchlist_of(s, watchlist).name] if watchlist else \
+                [w.name for w in watchlists.list_watchlists(s)]
+            found = [i for n in names for i in ideas.list(s, n, status=status or None)]
+            return {"ideas": [i.to_dict() for i in found], "statuses": list(ideas.STATUSES)}
+
+    @api.post("/ideas/{idea_id}/{action}")
+    def move_idea(idea_id: int, action: str) -> dict:
+        move = IDEA_MOVES.get(action)
+        if move is None:
+            raise HTTPException(404, f"action must be one of {', '.join(IDEA_MOVES)}")
+        with store() as s:
+            idea_of(s, idea_id)
+            return move(s, idea_id).to_dict()
+
+    @api.put("/ideas/{idea_id}/notes")
+    def add_idea_note(idea_id: int, body: NoteIn) -> dict:
+        with store() as s:
+            idea_of(s, idea_id)
+            return ideas.note(s, idea_id, body.text).to_dict()
+
+    @api.get("/ideas/{idea_id}/brief")
+    def get_brief(idea_id: int) -> dict:
+        with store() as s:
+            path = brief_file(idea_of(s, idea_id))
+        data = path.read_bytes()
+        return {"idea": idea_id, "path": str(path), "text": data.decode("utf-8"), "hash": digest(data)}
+
+    @api.put("/ideas/{idea_id}/brief", response_model=None)
+    def put_brief(idea_id: int, body: BriefWrite) -> dict | JSONResponse:
+        with store() as s:
+            path = brief_file(idea_of(s, idea_id))
+        current = path.read_bytes()
+        if digest(current) != body.hash:
+            return JSONResponse(status_code=409, content={
+                "detail": "the Brief changed on disk since it was read",
+                "text": current.decode("utf-8"), "hash": digest(current)})
+        data = body.text.encode("utf-8")
+        atomic_write(path, data)
+        return {"idea": idea_id, "path": str(path), "hash": digest(data)}
 
     return api

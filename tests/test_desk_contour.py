@@ -77,14 +77,14 @@ class ContourCase(unittest.TestCase):
         self.client = TestClient(create_app(base / "repo", footage_root=self.footage, db_path=self.db,
                                             web_dist=base / "dist"))
 
-    def get(self, url: str, status: int = 200, **params):
+    def get(self, url: str, expect: int = 200, **params):
         r = self.client.get(url, params=params)
-        self.assertEqual(r.status_code, status, r.text)
+        self.assertEqual(r.status_code, expect, r.text)
         return r.json()
 
-    def send(self, method: str, url: str, status: int = 200, body=None):
+    def send(self, method: str, url: str, expect: int = 200, body=None):
         r = self.client.request(method, url, json=body)
-        self.assertEqual(r.status_code, status, r.text)
+        self.assertEqual(r.status_code, expect, r.text)
         return r.json()
 
 
@@ -180,3 +180,62 @@ class SummaryTest(ContourCase):
     def test_an_unknown_summary_is_422_and_an_unknown_watchlist_404(self):
         self.get("/api/contour/watchlists/lisbon/summary/music", 422)
         self.get("/api/contour/watchlists/nowhere/summary/hooks", 404)
+
+
+class IdeasTest(ContourCase):
+    def statuses(self, **params) -> dict[int, str]:
+        return {i["id"]: i["status"] for i in self.get("/api/contour/ideas", **params)["ideas"]}
+
+    def test_ideas_are_listed_by_watchlist_and_status(self):
+        self.assertEqual(self.statuses(), {self.briefed: "brief", self.inbox: "inbox"})
+        self.assertEqual(self.statuses(watchlist="lisbon", status="inbox"), {self.inbox: "inbox"})
+        self.assertEqual(self.statuses(watchlist="empty"), {})
+        self.get("/api/contour/ideas", 422, status="maybe")
+        self.get("/api/contour/ideas", 404, watchlist="nowhere")
+
+    def test_shortlist_discard_and_restore_persist(self):
+        moved = self.send("POST", f"/api/contour/ideas/{self.inbox}/shortlist")
+        self.assertEqual(moved["status"], "shortlisted")
+        with st.open_store(self.db) as s:
+            self.assertEqual(ideas.get(s, self.inbox).status, "shortlisted")
+        self.assertIn("inbox", self.send("POST", f"/api/contour/ideas/{self.inbox}/discard", 422)["detail"])
+
+    def test_discard_then_restore_brings_the_idea_back_to_the_inbox(self):
+        self.send("POST", f"/api/contour/ideas/{self.inbox}/discard")
+        self.assertEqual(self.statuses(status="discarded"), {self.inbox: "discarded"})
+        self.send("POST", f"/api/contour/ideas/{self.inbox}/restore")
+        self.assertEqual(self.statuses(status="inbox"), {self.inbox: "inbox"})
+
+    def test_unknown_idea_or_action_is_404(self):
+        self.send("POST", "/api/contour/ideas/999/shortlist", 404)
+        self.send("POST", f"/api/contour/ideas/{self.inbox}/promote", 404)
+
+    def test_a_note_is_appended_and_kept(self):
+        got = self.send("PUT", f"/api/contour/ideas/{self.inbox}/notes", body={"text": "Shoot it at dawn"})
+        self.assertEqual([n["text"] for n in got["notes"]], ["Shoot it at dawn"])
+        with st.open_store(self.db) as s:
+            self.assertEqual([n["text"] for n in ideas.get(s, self.inbox).notes], ["Shoot it at dawn"])
+        self.send("PUT", f"/api/contour/ideas/{self.inbox}/notes", 422, body={"text": "  "})
+
+
+class BriefTest(ContourCase):
+    def url(self, idea_id: int) -> str:
+        return f"/api/contour/ideas/{idea_id}/brief"
+
+    def test_the_brief_is_read_from_its_file_with_a_hash(self):
+        got = self.get(self.url(self.briefed))
+        self.assertEqual(got["path"], str(self.brief_path))
+        self.assertEqual(got["text"], self.brief_path.read_text(encoding="utf-8"))
+        self.assertTrue(got["hash"].startswith("sha256:"))
+
+    def test_an_idea_without_a_brief_is_404_naming_the_command(self):
+        self.assertIn("ideas brief", self.get(self.url(self.inbox), 404)["detail"])
+
+    def test_writing_with_the_read_hash_saves_and_a_stale_hash_is_409(self):
+        h = self.get(self.url(self.briefed))["hash"]
+        saved = self.send("PUT", self.url(self.briefed), body={"text": "# Brief\n\nnew\n", "hash": h})
+        self.assertEqual(self.brief_path.read_text(encoding="utf-8"), "# Brief\n\nnew\n")
+        self.assertNotEqual(saved["hash"], h)
+        stale = self.send("PUT", self.url(self.briefed), 409, body={"text": "lost", "hash": h})
+        self.assertEqual((stale["text"], stale["hash"]), ("# Brief\n\nnew\n", saved["hash"]))
+        self.assertEqual(self.brief_path.read_text(encoding="utf-8"), "# Brief\n\nnew\n")
