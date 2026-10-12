@@ -27,7 +27,7 @@ SUMMARY_LIMIT = 10
 IDEA_MOVES = {"shortlist": ideas.shortlist, "discard": ideas.discard, "restore": ideas.restore}
 
 
-class NoteIn(BaseModel):
+class IdeaNoteIn(BaseModel):
     text: str
 
 
@@ -167,7 +167,7 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
             return move(s, idea_id).to_dict()
 
     @api.put("/ideas/{idea_id}/notes")
-    def add_idea_note(idea_id: int, body: NoteIn) -> dict:
+    def add_idea_note(idea_id: int, body: IdeaNoteIn) -> dict:
         with store(write=True) as s:
             idea_of(s, idea_id)
             return ideas.note(s, idea_id, body.text).to_dict()

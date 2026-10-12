@@ -58,7 +58,7 @@ def router(repo: Path) -> APIRouter:
     r = APIRouter()
 
     @r.get("/api/skills/lint")
-    def get_summary() -> dict:
+    def lint_counts() -> dict:
         counts = {}
         for name in own_skills(repo):
             lint = lint_skill(repo, name)

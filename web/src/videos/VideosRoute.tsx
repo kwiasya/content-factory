@@ -1,18 +1,18 @@
 import { VideoPage } from "./VideoPage";
 import { VideosPage } from "./VideosPage";
-import { VIDEOS_PREFIX, videosRoute as parse } from "./routes";
+import { VIDEOS_PREFIX, parseVideos } from "./routes";
 import "./videos.css";
 
 export function VideosNav({ hash }: { hash: string }) {
   return (
-    <a href={VIDEOS_PREFIX} className={parse(hash) ? "nav active" : "nav"}>
+    <a href={VIDEOS_PREFIX} className={parseVideos(hash) ? "nav active" : "nav"}>
       Videos
     </a>
   );
 }
 
 export function videosRoute(hash: string) {
-  const current = parse(hash);
+  const current = parseVideos(hash);
   if (current === null) {
     return null;
   }
