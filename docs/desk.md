@@ -55,10 +55,27 @@ The groups live in one place, `GROUPS` in `src/cf/desk/catalog.py`; a new group 
 
 Git is read-only: status, diff, log. Commits stay with the Author or the Editor.
 
+## Videos
+
+Code: `src/cf/desk/videos_api.py`, `src/cf/desk/media.py`, `web/src/videos/`. Desk lists every `videos/<slug>/video.json` in the footage root (ADR 0006) and every legacy `<walk>/reels/<reel>/`, addressed as `<walk>~<reel>`, with format `walk-reel` and a status derived from the folder: `script` when a `script*.json` exists, `edit` with `cuts.json` or overlays, `review` with a render in `out/`. Everything is read per request; nothing is cached.
+
+`video.json` is `cf-video/1`: `slug`, `title_working`, `format`, `channel`, `language`, `walks`, `status`, `history[{status, at, note}]`, `references`, `ideas`, `published_url`. Statuses in order: `idea`, `brief`, `script`, `recording`, `edit`, `review`, `published`.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/videos` | `videos` (`slug`, `title`, `format`, `channel`, `status`, `legacy`, `updated`, `error`), newest change first |
+| `GET /api/videos/{slug}` | `video` (the `video.json`, or the derived one for a legacy Reel), its `hash`, `statuses`, `files` (`path`, `kind`, `size`, `mtime`, `editable`, `media`) and the Walk `proxies` |
+| `POST /api/videos/{slug}/status` | body `{status, note, hash}`: sets the status, appends `{status, at: today (UTC), note}` to `history` and rewrites `video.json`; 409 on a stale hash or for a legacy Reel, 422 for an unknown status |
+| `GET /api/videos/{slug}/file?path=` | an editable text of the folder (`script*.md|json`, `brief.md`, `notes.md`, `references.md`, `.srt`/`.vtt`): `kind`, `format`, `text`, `hash` |
+| `PUT /api/videos/{slug}/file` | body `{path, text, hash}`: the same hashed atomic write as documents; `brief.md` and `notes.md` can be created with `hash: ""`; a `cf-script/1` JSON is validated by `cf.script_schema` (with the Walk's `clip_manifest.json` and the repo `style.json` when present) and 422 with `violations` writes nothing |
+| `GET /api/media?path=` | file streaming with HTTP Range (206) for paths relative to the footage root under `videos/<slug>/{renders,overlays,sources}/`, `<walk>/proxy/`, `<walk>/reels/<reel>/`, `references/<watchlist>/<id>/proxy.mp4`; `raw/`, symlinks out, directories and everything else are 404 |
+
+The web page lives at `#/videos` (list) and `#/videos/<slug>`. ProRes 4444 overlays play in Safari only.
+
 ## Frontend
 
 `web/` is Vite + React + TypeScript + CodeMirror 6. `npm --prefix web run dev` starts Vite on its own port and proxies `/api` to `127.0.0.1:8765` (run `python -m cf.desk` alongside). `npm --prefix web run lint` runs eslint and tsc; `npm --prefix web run build` writes `web/dist`, which `cf.desk` serves at `/`. `web/node_modules` and `web/dist` are gitignored.
 
 ## Tests
 
-`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path) and `tests/test_desk_cli.py` (flags). They do not need the frontend build.
+`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_videos.py` (Videos and media on a temporary footage root) and `tests/test_desk_cli.py` (flags). They do not need the frontend build.
