@@ -137,5 +137,26 @@ class FormatRulesTest(FormatsTestCase):
             "tag": "PRACTITIONER", "source": "[P](https://example.com/c)", "confidence": "high"})
 
 
+class FormatVideosTest(FormatsTestCase):
+    def test_videos_of_the_format_come_from_video_json_under_the_footage_root(self):
+        self.write_video("b-long", video("b-long", "tech-explainer", "brief"))
+        self.write_video("a-long", video("a-long", "tech-explainer"))
+        self.write_video("reel-1", video("reel-1", "walk-reel"))
+        videos = self.get("/api/formats/tech-explainer")["videos"]
+        self.assertEqual(videos, [
+            {"slug": "a-long", "title": "Title a-long", "status": "script", "channel": "tech-en",
+             "path": str(self.footage / "videos" / "a-long")},
+            {"slug": "b-long", "title": "Title b-long", "status": "brief", "channel": "tech-en",
+             "path": str(self.footage / "videos" / "b-long")},
+        ])
+
+    def test_no_videos_folder_and_broken_video_json_are_not_errors(self):
+        self.assertEqual(self.get("/api/formats/walk-reel")["videos"], [])
+        self.write_video("broken", "{not json")
+        self.write_video("listy", "[1, 2]")
+        self.write_video("ok", video("ok", "walk-reel"))
+        self.assertEqual([v["slug"] for v in self.get("/api/formats/walk-reel")["videos"]], ["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()

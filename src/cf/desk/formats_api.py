@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -78,6 +79,25 @@ def parse_rules(text: str, topic: str) -> list[dict]:
     return rules
 
 
+def format_videos(footage_root: Path, fid: str) -> list[dict]:
+    videos = []
+    for path in sorted(Path(footage_root).glob("videos/*/video.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict) or data.get("format") != fid:
+            continue
+        videos.append({
+            "slug": data.get("slug") or path.parent.name,
+            "title": data.get("title_working") or data.get("title") or path.parent.name,
+            "status": data.get("status"),
+            "channel": data.get("channel"),
+            "path": str(path.parent),
+        })
+    return videos
+
+
 def format_page(repo: Path, footage_root: Path, fid: str) -> dict | None:
     folder = repo / FORMATS_DIR / fid
     if not FORMAT_ID_RE.fullmatch(fid) or not (folder / "FORMAT.md").is_file():
@@ -96,6 +116,7 @@ def format_page(repo: Path, footage_root: Path, fid: str) -> dict | None:
         "hook_library": read_doc(repo, folder / "hook-library.md"),
         "topics": topics,
         "rules": rules,
+        "videos": format_videos(footage_root, fid),
     }
 
 
