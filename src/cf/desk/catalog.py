@@ -33,6 +33,7 @@ class Source:
     exclude: Callable[[str], bool] = lambda rel: False
     title: Callable[[str], str] | None = None
     empty_hint: str | None = None
+    empty_code: str | None = None
     skill: bool = False
 
 
@@ -84,7 +85,8 @@ GROUPS: tuple[Group, ...] = (
         Source("style.json"),
         Source("research/templates/*.md"),
         Source("research/taxonomy.json"),
-        Source("author/*.md", empty_hint="author/ is missing: run /author-setup in Claude Code to create the profile."),
+        Source("author/*.md", empty_hint="author/ is missing: run /author-setup in Claude Code to create the profile.",
+               empty_code="author_missing"),
     )),
     Group("formats", "Formats", (
         Source("formats/*/FORMAT.md", title=folder_title(1)),
@@ -165,7 +167,7 @@ def list_groups(repo: Path, *, include_hidden: bool = False) -> list[Listing]:
         for source in group.sources:
             rels = _matches(repo, source)
             if not rels and source.empty_hint and not (repo / _source_root(source)).is_dir():
-                listing.empty.append({"glob": source.glob, "hint": source.empty_hint})
+                listing.empty.append({"glob": source.glob, "hint": source.empty_hint, "code": source.empty_code})
             for rel in rels:
                 title = source.title(rel) if source.title else rel
                 facts = skill_facts(repo, rel) if source.skill else None

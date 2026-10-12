@@ -5,9 +5,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from cf.desk import videos_api
+from cf.desk.problems import Problem
 from cf.desk.research_api import RESEARCH_DIR
 
 FORMATS_DIR = "formats"
@@ -124,7 +125,7 @@ def router(repo: Path, footage_root: Path) -> APIRouter:
     def get_format(fid: str) -> dict:
         page = format_page(repo, footage_root, fid)
         if page is None:
-            raise HTTPException(404, "no such Format")
+            raise Problem(404, "format_not_found", "no such Format", id=fid)
         return page
 
     return r

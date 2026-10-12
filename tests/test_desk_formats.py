@@ -112,6 +112,8 @@ class FormatPageTest(FormatsTestCase):
     def test_unknown_or_malformed_format_is_404(self):
         for fid in ("nope", "Walk-Reel", "%2e%2e", "walk-reel%2F..%2F..%2Fdocs"):
             self.assertEqual(self.client.get(f"/api/formats/{fid}").status_code, 404, fid)
+        r = self.client.get("/api/formats/nope")
+        self.assertEqual((r.json()["code"], r.json()["params"]), ("format_not_found", {"id": "nope"}))
 
 
 class FormatRulesTest(FormatsTestCase):

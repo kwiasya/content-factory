@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from cf.research import notes
 from cf.desk import storeuse
+from cf.desk.problems import Problem
 from cf.research.store import Store
 
 
@@ -27,12 +28,12 @@ def router(db_path: Path) -> APIRouter:
     r = APIRouter(prefix="/api/notes")
 
     @contextmanager
-    def store(write: bool = True) -> Iterator[Store]:
+    def store(write: bool = True, note_id: int | None = None) -> Iterator[Store]:
         with (storeuse.writing if write else storeuse.reading)(db_path) as s:
             try:
                 yield s
             except notes.NoteNotFound as e:
-                raise HTTPException(404, str(e)) from None
+                raise Problem(404, "note_not_found", str(e), id=note_id) from None
             except notes.NoteError as e:
                 raise HTTPException(422, str(e)) from None
 
@@ -51,12 +52,12 @@ def router(db_path: Path) -> APIRouter:
 
     @r.post("/{note_id}/resolve")
     def resolve_note(note_id: int) -> dict:
-        with store() as s:
+        with store(note_id=note_id) as s:
             return notes.resolve(s, note_id).to_dict()
 
     @r.delete("/{note_id}")
     def delete_note(note_id: int) -> dict:
-        with store() as s:
+        with store(note_id=note_id) as s:
             return notes.delete(s, note_id).to_dict()
 
     return r

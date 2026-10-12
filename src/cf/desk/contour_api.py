@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from cf.desk import media, paths, storeuse
 from cf.desk.hashed import atomic_write, digest, stale
+from cf.desk.problems import Problem
 from cf.research import card, feed, ideas, outlier, quota, summary, taxonomy
 from cf.research import watchlist as watchlists
 from cf.research.cli import USER_ERRORS
@@ -82,7 +83,7 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
         try:
             return watchlists.get(s, name)
         except watchlists.WatchlistError as e:
-            raise HTTPException(404, str(e)) from None
+            raise Problem(404, "watchlist_not_found", str(e), name=name) from None
 
     @api.get("/watchlists")
     def get_watchlists() -> dict:
@@ -111,11 +112,13 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
             try:
                 v = card.video(s, video_id)
             except card.CardError as e:
-                raise HTTPException(404, str(e)) from None
+                raise Problem(404, "reference_not_found", str(e), id=video_id) from None
             c = card.load(s, v["id"])
             if c is None:
-                raise HTTPException(404, f"Reference {v['external_id']} has no card yet; run "
-                                         f"python -m cf.research fetch {v['external_id']} (skill /analyze-reference)")
+                command = f"python -m cf.research fetch {v['external_id']}"
+                raise Problem(404, "card_missing", f"Reference {v['external_id']} has no card yet; run "
+                                                   f"{command} (skill /analyze-reference)",
+                              id=v["external_id"], command=command)
             ref = feed.reference(s, v["external_id"])
             row = {**ref.to_dict(), "outlier": outlier.score(s, v["external_id"])} if ref else None
             if row and row["outlier"] is not None:
@@ -134,19 +137,21 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
         try:
             return ideas.get(s, idea_id)
         except ideas.IdeaError as e:
-            raise HTTPException(404, str(e)) from None
+            raise Problem(404, "idea_not_found", str(e), id=idea_id) from None
 
     def brief_file(idea: ideas.Idea) -> Path:
         if not idea.brief_path:
-            raise HTTPException(404, f"Idea {idea.id} has no Brief yet; shortlist it, then run "
-                                     f"python -m cf.research ideas brief {idea.id} (skill /suggest-ideas)")
+            command = f"python -m cf.research ideas brief {idea.id}"
+            raise Problem(404, "brief_missing", f"Idea {idea.id} has no Brief yet; shortlist it, then run "
+                                                f"{command} (skill /suggest-ideas)", id=idea.id, command=command)
         rel = paths.relative_under(footage, Path(idea.brief_path))
         path = paths.contained(footage, rel) if rel is not None else None
         if path is None or path.suffix != ".md":
-            raise HTTPException(404, f"the Brief of Idea {idea.id} is not a .md file under the footage root "
-                                     "(no `..`, no symlink)")
+            raise Problem(404, "brief_outside", f"the Brief of Idea {idea.id} is not a .md file under the footage "
+                                                "root (no `..`, no symlink)", id=idea.id)
         if not path.is_file():
-            raise HTTPException(404, f"the Brief of Idea {idea.id} is missing on disk: {path}")
+            raise Problem(404, "brief_file_missing", f"the Brief of Idea {idea.id} is missing on disk: {path}",
+                          id=idea.id, path=str(path))
         return path
 
     @api.get("/ideas")
@@ -163,11 +168,17 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
         if move is None:
             raise HTTPException(404, f"action must be one of {', '.join(IDEA_MOVES)}")
         with store(write=True) as s:
-            idea_of(s, idea_id)
-            return move(s, idea_id).to_dict()
+            current = idea_of(s, idea_id)
+            try:
+                return move(s, idea_id).to_dict()
+            except ideas.IdeaError as e:
+                raise Problem(422, "idea_move_not_allowed", str(e), id=idea_id, status=current.status,
+                              action=action) from None
 
     @api.put("/ideas/{idea_id}/notes")
     def add_idea_note(idea_id: int, body: IdeaNoteIn) -> dict:
+        if not body.text.strip():
+            raise Problem(422, "note_empty", "a note needs text")
         with store(write=True) as s:
             idea_of(s, idea_id)
             return ideas.note(s, idea_id, body.text).to_dict()
@@ -183,7 +194,7 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
     def put_brief(idea_id: int, body: BriefWrite) -> dict | JSONResponse:
         with store() as s:
             path = brief_file(idea_of(s, idea_id))
-        conflict = stale(path.read_bytes(), body.hash, "the Brief changed on disk since it was read")
+        conflict = stale(path.read_bytes(), body.hash, "the Brief changed on disk since it was read", "brief_changed")
         if conflict:
             return conflict
         data = body.text.encode("utf-8")

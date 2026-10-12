@@ -69,7 +69,8 @@ class NotesApiTest(unittest.TestCase):
         self.assertEqual(self.listed(all=1), [])
 
     def test_missing_note_is_404_and_bad_note_is_422(self):
-        self.assertEqual(self.client.post("/api/notes/99/resolve").status_code, 404)
+        r = self.client.post("/api/notes/99/resolve")
+        self.assertEqual((r.status_code, r.json()["code"], r.json()["params"]), (404, "note_not_found", {"id": 99}))
         self.assertEqual(self.client.delete("/api/notes/99").status_code, 404)
         for body in ({"kind": "nope", "key": "x", "text": "t"}, {"kind": "skill", "key": "", "text": "t"},
                      {"kind": "skill", "key": "x", "text": " "}):

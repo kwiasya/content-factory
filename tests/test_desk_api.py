@@ -133,6 +133,7 @@ class CatalogTest(DeskTestCase):
         content = self.catalog()["content"]
         self.assertEqual(content["empty"][0]["glob"], "author/*.md")
         self.assertIn("/author-setup", content["empty"][0]["hint"])
+        self.assertEqual(content["empty"][0]["code"], "author_missing")
 
     def test_author_files_are_listed_when_present(self):
         (self.repo / "author").mkdir()
@@ -194,18 +195,21 @@ class WriteTest(DeskTestCase):
         self.assertEqual(r.status_code, 409)
         self.assertEqual(r.json()["text"], "# Editor wrote this\n")
         self.assertEqual(r.json()["hash"], self.doc("CLAUDE.md")["hash"])
+        self.assertEqual(r.json()["code"], "file_changed")
         self.assertEqual((self.repo / "CLAUDE.md").read_text(), "# Editor wrote this\n")
 
     def test_read_only_doc_is_refused(self):
         read = self.doc("formats/walk-reel/hook-library.md")
         r = self.put(read["path"], "# edited\n", read["hash"])
         self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.json()["code"], "read_only")
         self.assertEqual((self.repo / "formats/walk-reel/hook-library.md").read_text(), "# Hooks\n")
 
     def test_uncatalogued_or_traversal_write_is_404_and_writes_nothing(self):
         for path in ["secret.txt", "../outside.md", "docs/agents/new.md"]:
             with self.subTest(path=path):
-                self.assertEqual(self.put(path, "x\n", "sha256:0").status_code, 404)
+                r = self.put(path, "x\n", "sha256:0")
+                self.assertEqual((r.status_code, r.json()["code"]), (404, "not_in_catalogue"))
         self.assertEqual((self.repo / "secret.txt").read_text(), "not catalogued\n")
         self.assertFalse((Path(self.tmp.name) / "outside.md").exists())
         self.assertFalse((self.repo / "docs/agents/new.md").exists())
@@ -214,6 +218,7 @@ class WriteTest(DeskTestCase):
         read = self.doc("style.json")
         r = self.put("style.json", '{"schema": ', read["hash"])
         self.assertEqual(r.status_code, 422)
+        self.assertEqual((r.json()["code"], r.json()["params"]), ("invalid_json", {"line": 1, "column": 12}))
         self.assertEqual((self.repo / "style.json").read_text(), '{"schema": "style/1"}\n')
 
 

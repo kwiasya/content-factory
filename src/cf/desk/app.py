@@ -10,9 +10,10 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from cf.desk import (catalog, contour_api, formats_api, gitread, media, notes_api, research_api, search, skill_lint,
-                     skill_links, videos_api)
+from cf.desk import (catalog, contour_api, formats_api, gitread, media, notes_api, problems, research_api, search,
+                     skill_lint, skill_links, videos_api)
 from cf.desk.hashed import atomic_write, digest, stale
+from cf.desk.problems import Problem
 
 WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
@@ -21,11 +22,12 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
                token: str | None = None) -> FastAPI:
     repo = Path(repo).resolve()
     app = FastAPI(title="Desk", docs_url=None, redoc_url=None, openapi_url=None)
+    problems.install(app)
 
     def entry_of(path: str) -> catalog.Entry:
         entry = catalog.find(repo, path)
         if entry is None:
-            raise HTTPException(404, "not in the Desk catalogue")
+            raise Problem(404, "not_in_catalogue", "not in the Desk catalogue", path=path)
         return entry
 
     def git_state(rel: str) -> str:
@@ -72,12 +74,12 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
     def put_doc(body: DocWrite) -> dict:
         entry = entry_of(body.path)
         if not entry.editable:
-            raise HTTPException(403, "this document is read-only in Desk")
+            raise Problem(403, "read_only", "this document is read-only in Desk", path=entry.path)
         if entry.kind == "json":
             try:
                 json.loads(body.text)
             except json.JSONDecodeError as e:
-                raise HTTPException(422, f"invalid JSON: {e}") from None
+                raise Problem(422, "invalid_json", f"invalid JSON: {e}", line=e.lineno, column=e.colno) from None
         target = repo / entry.path
         data = body.text.encode("utf-8")
         conflict = stale(target.read_bytes(), body.hash)

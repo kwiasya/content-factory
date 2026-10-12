@@ -138,11 +138,18 @@ class ListTest(VideosTestCase):
         write(self.footage / "videos" / "broken" / "video.json", "{oops")
         videos = {v["slug"]: v for v in self.ok(self.client.get("/api/videos"))["videos"]}
         self.assertIn("video.json", videos["broken"]["error"])
+        self.assertEqual(videos["broken"]["error_code"], "video_json_unreadable")
         self.assertIsNone(videos["broken"]["status"])
-        self.assertEqual(self.client.get("/api/videos/broken").status_code, 422)
+        r = self.client.get("/api/videos/broken")
+        self.assertEqual((r.status_code, r.json()["code"]), (422, "video_json_unreadable"))
+        write(self.footage / "videos" / "broken" / "video.json", "[]")
+        r = self.client.get("/api/videos/broken")
+        self.assertEqual((r.status_code, r.json()["code"]), (422, "video_json_not_object"))
 
     def test_unknown_video_is_404(self):
-        self.assertEqual(self.client.get("/api/videos/nope").status_code, 404)
+        r = self.client.get("/api/videos/nope")
+        self.assertEqual((r.status_code, r.json()["code"], r.json()["params"]),
+                         (404, "video_not_found", {"slug": "nope"}))
         self.assertEqual(self.client.get("/api/videos/videos~x").status_code, 404)
 
 
@@ -230,13 +237,17 @@ class StatusTest(VideosTestCase):
 
     def test_unknown_status_is_422_and_stale_hash_is_409_and_nothing_is_written(self):
         before = (self.video / "video.json").read_bytes()
-        self.assertEqual(self.post(status="done", hash=self.current_hash()).status_code, 422)
-        self.assertEqual(self.post(status="edit", hash="sha256:stale").status_code, 409)
+        unknown = self.post(status="done", hash=self.current_hash())
+        self.assertEqual((unknown.status_code, unknown.json()["code"]), (422, "status_invalid"))
+        self.assertEqual(unknown.json()["params"], {"status": "done", "statuses": [
+            "idea", "brief", "script", "recording", "edit", "review", "published"]})
+        stale = self.post(status="edit", hash="sha256:stale")
+        self.assertEqual((stale.status_code, stale.json()["code"]), (409, "file_changed"))
         self.assertEqual((self.video / "video.json").read_bytes(), before)
 
     def test_legacy_reel_status_cannot_be_set(self):
         r = self.client.post("/api/videos/w1~short-01/status", json={"status": "edit", "hash": ""})
-        self.assertEqual(r.status_code, 409)
+        self.assertEqual((r.status_code, r.json()["code"]), (409, "legacy_status"))
 
 
 class TextFileTest(VideosTestCase):
@@ -271,7 +282,7 @@ class TextFileTest(VideosTestCase):
         bad["hook"]["clip"] = "NOPE.MOV"
         bad["hashtags"] = ["#a", "#b", "#c", "#d", "#e", "#f"]
         r = self.save("w1~short-01", "script.draft.json", json.dumps(bad), doc["hash"])
-        self.assertEqual(r.status_code, 422)
+        self.assertEqual((r.status_code, r.json()["code"]), (422, "script_invalid"))
         violations = r.json()["violations"]
         self.assertTrue(any("NOPE.MOV" in v for v in violations), violations)
         self.assertTrue(any("hashtag" in v for v in violations), violations)
@@ -326,8 +337,18 @@ class TextFileTest(VideosTestCase):
         self.ok(self.save("long-one", "brief.md", "# Brief\n", ""))
         self.assertEqual((self.video / "brief.md").read_text(), "# Brief\n")
         self.assertEqual(self.save("long-one", "brief.md", "# again\n", "").status_code, 409)
-        self.assertEqual(self.save("long-one", "other.md", "x", "").status_code, 404)
+        other = self.save("long-one", "other.md", "x", "")
+        self.assertEqual((other.status_code, other.json()["code"]), (404, "video_text_not_found"))
+        self.assertEqual(other.json()["params"], {"path": "other.md"})
         self.assertEqual(self.save("long-one", "subtitles/new.srt", "x", "").status_code, 404)
+
+    def test_saving_a_read_file_that_was_deleted_since_is_409(self):
+        self.ok(self.save("long-one", "notes.md", "x\n", ""))
+        read = self.ok(self.read("long-one", "notes.md"))
+        (self.video / "notes.md").unlink()
+        r = self.save("long-one", "notes.md", "y\n", read["hash"])
+        self.assertEqual((r.status_code, r.json()["code"]), (409, "file_deleted"))
+        self.assertFalse((self.video / "notes.md").exists())
 
     def test_voiceover_text_can_be_created_edited_and_is_listed(self):
         self.assertEqual(self.read("long-one", "voiceover.md").status_code, 404)

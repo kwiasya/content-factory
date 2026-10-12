@@ -12,13 +12,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from cf import script_schema
 from cf.desk import media, paths
 from cf.desk.hashed import atomic_write, digest, stale
+from cf.desk.problems import Problem, body as problem_body
 
 SCHEMA = "cf-video/1"
 STATUSES = ("idea", "brief", "script", "recording", "edit", "review", "published")
@@ -66,7 +67,7 @@ def find_folder(footage: Path, slug: str) -> Folder:
     for folder in list_folders(footage):
         if folder.slug == slug:
             return folder
-    raise HTTPException(404, "no such Video")
+    raise Problem(404, "video_not_found", "no such Video", slug=slug)
 
 
 def walk_files(folder: Path) -> list[Path]:
@@ -96,6 +97,14 @@ def legacy_status(reel: Path) -> str:
     return "idea"
 
 
+def unreadable(e: Exception) -> Problem:
+    return Problem(422, "video_json_unreadable", f"video.json is unreadable: {e}")
+
+
+def not_an_object() -> Problem:
+    return Problem(422, "video_json_not_object", "video.json is not an object")
+
+
 def read_video(folder: Folder) -> dict:
     if folder.legacy:
         return {"schema": SCHEMA, "slug": folder.slug, "title_working": f"{folder.walk} / {folder.path.name}",
@@ -105,20 +114,21 @@ def read_video(folder: Folder) -> dict:
     try:
         data = json.loads((folder.path / "video.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
-        raise HTTPException(422, f"video.json is unreadable: {e}") from None
+        raise unreadable(e) from None
     if not isinstance(data, dict):
-        raise HTTPException(422, "video.json is not an object")
+        raise not_an_object()
     return {**data, "slug": folder.slug, "legacy": False}
 
 
 def summary(folder: Folder) -> dict:
     try:
-        video, error = read_video(folder), None
-    except HTTPException as e:
-        video, error = {}, e.detail
+        video, error, code = read_video(folder), None, None
+    except Problem as e:
+        video, error, code = {}, e.detail, e.code
     return {"slug": folder.slug, "title": video.get("title_working") or folder.slug,
             "format": video.get("format"), "channel": video.get("channel"), "status": video.get("status"),
-            "legacy": folder.legacy, "updated": iso(last_change(folder.path)), "error": error}
+            "legacy": folder.legacy, "updated": iso(last_change(folder.path)), "error": error,
+            "error_code": code}
 
 
 def kind_of(rel: str) -> str:
@@ -187,7 +197,7 @@ def text_format(rel: str) -> str:
 
 
 def text_target(folder: Folder, rel: str, *, creating: bool = False) -> Path:
-    missing = HTTPException(404, "not an editable text of this Video")
+    missing = Problem(404, "video_text_not_found", "not an editable text of this Video", path=rel)
     target = paths.contained(folder.path, rel)
     if target is None or kind_of(rel) not in EDITABLE:
         raise missing
@@ -267,13 +277,13 @@ def router(footage_root: Path, repo: Path) -> APIRouter:
         if conflict:
             return conflict
         if current is None and body.hash:
-            raise HTTPException(409, "the file was deleted since it was read")
+            raise Problem(409, "file_deleted", "the file was deleted since it was read", path=body.path)
         if text_format(body.path) == "json":
             violations = script_violations(footage, repo, body.text, script=kind_of(body.path) == "script")
             if violations:
-                return JSONResponse(status_code=422, content={
-                    "detail": "the Script did not pass cf-script/1 validation; nothing was written",
-                    "violations": violations})
+                return JSONResponse(status_code=422, content=problem_body(
+                    "script_invalid", "the Script did not pass cf-script/1 validation; nothing was written",
+                    violations=violations))
         data = body.text.encode("utf-8")
         atomic_write(target, data)
         return {"path": body.path, "hash": digest(data)}
@@ -282,9 +292,11 @@ def router(footage_root: Path, repo: Path) -> APIRouter:
     def set_status(slug: str, body: StatusChange) -> dict | JSONResponse:
         folder = find_folder(footage, slug)
         if folder.legacy:
-            raise HTTPException(409, "a legacy Reel's status is derived from its folder; migrate it to videos/ first")
+            raise Problem(409, "legacy_status",
+                          "a legacy Reel's status is derived from its folder; migrate it to videos/ first")
         if body.status not in STATUSES:
-            raise HTTPException(422, f"status must be one of {', '.join(STATUSES)}")
+            raise Problem(422, "status_invalid", f"status must be one of {', '.join(STATUSES)}",
+                          status=body.status, statuses=list(STATUSES))
         target = folder.path / "video.json"
         current = target.read_bytes()
         conflict = stale(current, body.hash)
@@ -293,9 +305,9 @@ def router(footage_root: Path, repo: Path) -> APIRouter:
         try:
             video = json.loads(current)
         except json.JSONDecodeError as e:
-            raise HTTPException(422, f"video.json is unreadable: {e}") from None
+            raise unreadable(e) from None
         if not isinstance(video, dict):
-            raise HTTPException(422, "video.json is not an object")
+            raise not_an_object()
         video["status"] = body.status
         today = datetime.now(timezone.utc).date().isoformat()
         video["history"] = [*(video.get("history") or []), {"status": body.status, "at": today, "note": body.note}]

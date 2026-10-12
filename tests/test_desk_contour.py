@@ -100,7 +100,9 @@ class WatchlistsTest(ContourCase):
         self.assertEqual(sorted(c["handle"] for c in got["channels"]), ["@alpha", "@beta"])
 
     def test_an_unknown_watchlist_is_404(self):
-        self.assertIn("nowhere", self.get("/api/contour/watchlists/nowhere", 404)["detail"])
+        got = self.get("/api/contour/watchlists/nowhere", 404)
+        self.assertIn("nowhere", got["detail"])
+        self.assertEqual((got["code"], got["params"]), ("watchlist_not_found", {"name": "nowhere"}))
 
 
 class FeedTest(ContourCase):
@@ -154,8 +156,12 @@ class CardTest(ContourCase):
         self.assertEqual(got["sections"], [])
 
     def test_unknown_reference_or_one_without_a_card_is_404(self):
-        self.get("/api/contour/cards/nope0000000", 404)
-        self.assertIn("fetch", self.get(f"/api/contour/cards/{V3}", 404)["detail"])
+        unknown = self.get("/api/contour/cards/nope0000000", 404)
+        self.assertEqual((unknown["code"], unknown["params"]), ("reference_not_found", {"id": "nope0000000"}))
+        bare = self.get(f"/api/contour/cards/{V3}", 404)
+        self.assertIn("fetch", bare["detail"])
+        self.assertEqual((bare["code"], bare["params"]),
+                         ("card_missing", {"id": V3, "command": f"python -m cf.research fetch {V3}"}))
 
 
 class SummaryTest(ContourCase):
@@ -198,7 +204,10 @@ class IdeasTest(ContourCase):
         self.assertEqual(moved["status"], "shortlisted")
         with st.open_store(self.db) as s:
             self.assertEqual(ideas.get(s, self.inbox).status, "shortlisted")
-        self.assertIn("inbox", self.send("POST", f"/api/contour/ideas/{self.inbox}/discard", 422)["detail"])
+        refused = self.send("POST", f"/api/contour/ideas/{self.inbox}/discard", 422)
+        self.assertIn("inbox", refused["detail"])
+        self.assertEqual((refused["code"], refused["params"]),
+                         ("idea_move_not_allowed", {"id": self.inbox, "status": "shortlisted", "action": "discard"}))
 
     def test_discard_then_restore_brings_the_idea_back_to_the_inbox(self):
         self.send("POST", f"/api/contour/ideas/{self.inbox}/discard")
@@ -207,7 +216,8 @@ class IdeasTest(ContourCase):
         self.assertEqual(self.statuses(status="inbox"), {self.inbox: "inbox"})
 
     def test_unknown_idea_or_action_is_404(self):
-        self.send("POST", "/api/contour/ideas/999/shortlist", 404)
+        unknown = self.send("POST", "/api/contour/ideas/999/shortlist", 404)
+        self.assertEqual((unknown["code"], unknown["params"]), ("idea_not_found", {"id": 999}))
         self.send("POST", f"/api/contour/ideas/{self.inbox}/promote", 404)
 
     def test_a_note_is_appended_and_kept(self):
@@ -215,7 +225,8 @@ class IdeasTest(ContourCase):
         self.assertEqual([n["text"] for n in got["notes"]], ["Shoot it at dawn"])
         with st.open_store(self.db) as s:
             self.assertEqual([n["text"] for n in ideas.get(s, self.inbox).notes], ["Shoot it at dawn"])
-        self.send("PUT", f"/api/contour/ideas/{self.inbox}/notes", 422, body={"text": "  "})
+        empty = self.send("PUT", f"/api/contour/ideas/{self.inbox}/notes", 422, body={"text": "  "})
+        self.assertEqual(empty["code"], "note_empty")
 
 
 class BriefTest(ContourCase):
@@ -229,7 +240,10 @@ class BriefTest(ContourCase):
         self.assertTrue(got["hash"].startswith("sha256:"))
 
     def test_an_idea_without_a_brief_is_404_naming_the_command(self):
-        self.assertIn("ideas brief", self.get(self.url(self.inbox), 404)["detail"])
+        got = self.get(self.url(self.inbox), 404)
+        self.assertIn("ideas brief", got["detail"])
+        self.assertEqual((got["code"], got["params"]), ("brief_missing", {
+            "id": self.inbox, "command": f"python -m cf.research ideas brief {self.inbox}"}))
 
     def test_writing_with_the_read_hash_saves_and_a_stale_hash_is_409(self):
         h = self.get(self.url(self.briefed))["hash"]
@@ -238,6 +252,7 @@ class BriefTest(ContourCase):
         self.assertNotEqual(saved["hash"], h)
         stale = self.send("PUT", self.url(self.briefed), 409, body={"text": "lost", "hash": h})
         self.assertEqual((stale["text"], stale["hash"]), ("# Brief\n\nnew\n", saved["hash"]))
+        self.assertEqual(stale["code"], "brief_changed")
         self.assertEqual(self.brief_path.read_text(encoding="utf-8"), "# Brief\n\nnew\n")
 
 
@@ -257,9 +272,15 @@ class BriefTest(ContourCase):
         for path in (dotted, link, txt):
             with self.subTest(path=str(path)):
                 self.point_brief_at(path)
-                self.get(self.url(self.briefed), 404)
+                self.assertEqual(self.get(self.url(self.briefed), 404)["code"], "brief_outside")
                 self.send("PUT", self.url(self.briefed), 404, body={"text": "x", "hash": ""})
         self.assertEqual(inside.read_text(), "# other\n")
+
+    def test_a_brief_missing_on_disk_is_404_naming_the_path(self):
+        self.brief_path.unlink()
+        got = self.get(self.url(self.briefed), 404)
+        self.assertEqual((got["code"], got["params"]),
+                         ("brief_file_missing", {"id": self.briefed, "path": str(self.brief_path)}))
 
 
 class TaxonomyTest(ContourCase):

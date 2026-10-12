@@ -32,6 +32,9 @@ class StoreUseTest(unittest.TestCase):
             r = self.client.get(url)
             self.assertEqual(r.status_code, 404, url)
             self.assertIn("factory.db", r.json()["detail"])
+            self.assertEqual(r.json()["code"], "db_missing", url)
+            self.assertEqual(r.json()["params"],
+                             {"path": str(self.db), "command": "python -m cf.research watchlist list"})
         self.assertFalse(self.db.exists())
 
     def test_a_read_does_not_seed_the_taxonomy(self):
@@ -46,6 +49,9 @@ class StoreUseTest(unittest.TestCase):
         r = self.client.get("/api/contour/watchlists")
         self.assertEqual(r.status_code, 409, r.text)
         self.assertIn("schema version 0", r.json()["detail"])
+        self.assertEqual(r.json()["code"], "db_schema")
+        self.assertEqual(r.json()["params"], {"path": str(self.db), "version": 0, "expected": st.SCHEMA_VERSION,
+                                              "command": "python -m cf.research watchlist list"})
         with sqlite3.connect(self.db) as conn:
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 0)
 
