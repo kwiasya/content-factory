@@ -24,12 +24,6 @@ from cf.research.store import Store, open_store
 
 FEED_LIMIT = 20
 SUMMARY_LIMIT = 10
-
-
-def _rounded(row: feed.FeedRow) -> dict:
-    return {**row.to_dict(), "outlier": None if row.outlier is None else round(row.outlier, 2)}
-
-
 IDEA_MOVES = {"shortlist": ideas.shortlist, "discard": ideas.discard, "restore": ideas.restore}
 
 
@@ -40,6 +34,10 @@ class NoteIn(BaseModel):
 class BriefWrite(BaseModel):
     text: str
     hash: str
+
+
+def _rounded(row: feed.FeedRow) -> dict:
+    return {**row.to_dict(), "outlier": None if row.outlier is None else round(row.outlier, 2)}
 
 
 def _pending(store: Store, analysis: dict | None) -> list[dict]:
