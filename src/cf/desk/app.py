@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from cf.desk import catalog, formats_api, gitread
+from cf.desk import catalog, formats_api, gitread, skill_lint
 
 WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
@@ -95,6 +95,7 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
         return {"path": entry.path, "hash": digest(data), "git": git_state(entry.path)}
 
     app.include_router(formats_api.router(repo, footage_root))
+    app.include_router(skill_lint.router(repo))
 
     @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     def api_not_found(rest: str) -> None:

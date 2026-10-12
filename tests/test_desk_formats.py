@@ -158,5 +158,30 @@ class FormatVideosTest(FormatsTestCase):
         self.assertEqual([v["slug"] for v in self.get("/api/formats/walk-reel")["videos"]], ["ok"])
 
 
+class SkillLintTest(FormatsTestCase):
+    def refs(self, items: list[dict]) -> list[str]:
+        return [i["ref"] for i in items]
+
+    def test_missing_repo_paths_are_reported_with_file_and_line(self):
+        lint = self.get("/api/skills/alpha/lint")
+        self.assertEqual(lint["missing_paths"], [
+            {"ref": "docs/gone.md", "file": ".claude/skills/alpha/SKILL.md", "line": 3},
+            {"ref": "formats/nope/FORMAT.md", "file": ".claude/skills/alpha/templates/t.md", "line": 1},
+        ])
+
+    def test_slash_mentions_of_skills_that_are_not_folders_are_reported(self):
+        lint = self.get("/api/skills/alpha/lint")
+        self.assertEqual(lint["missing_skills"], [
+            {"ref": "/ghost", "file": ".claude/skills/alpha/SKILL.md", "line": 3}])
+
+    def test_paths_relative_to_the_skill_folder_and_clean_skills_pass(self):
+        self.assertEqual(self.get("/api/skills/beta/lint"), {
+            "name": "beta", "missing_paths": [], "missing_skills": []})
+
+    def test_vendored_unknown_and_malformed_skills_are_404(self):
+        for name in ("remotion-foo", "nope", "Alpha"):
+            self.assertEqual(self.client.get(f"/api/skills/{name}/lint").status_code, 404, name)
+
+
 if __name__ == "__main__":
     unittest.main()
