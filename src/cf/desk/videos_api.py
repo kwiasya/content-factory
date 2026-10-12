@@ -13,9 +13,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from cf.desk import media
-from cf.desk.hashed import digest
+from cf.desk.hashed import atomic_write, digest
 
 SCHEMA = "cf-video/1"
 STATUSES = ("idea", "brief", "script", "recording", "edit", "review", "published")
@@ -172,6 +174,18 @@ def detail(footage: Path, folder: Folder) -> dict:
             "proxies": proxies(footage, video.get("walks") or [])}
 
 
+class StatusChange(BaseModel):
+    status: str
+    note: str = ""
+    hash: str
+
+
+def conflict(current: bytes) -> JSONResponse:
+    return JSONResponse(status_code=409, content={
+        "detail": "the file changed on disk since it was read",
+        "text": current.decode("utf-8"), "hash": digest(current)})
+
+
 def router(footage_root: Path, repo: Path) -> APIRouter:
     footage = Path(footage_root)
     api = APIRouter()
@@ -185,5 +199,23 @@ def router(footage_root: Path, repo: Path) -> APIRouter:
     @api.get("/api/videos/{slug}")
     def get_video(slug: str) -> dict:
         return detail(footage, find_folder(footage, slug))
+
+    @api.post("/api/videos/{slug}/status", response_model=None)
+    def set_status(slug: str, body: StatusChange) -> dict | JSONResponse:
+        folder = find_folder(footage, slug)
+        if folder.legacy:
+            raise HTTPException(409, "a legacy Reel's status is derived from its folder; migrate it to videos/ first")
+        if body.status not in STATUSES:
+            raise HTTPException(422, f"status must be one of {', '.join(STATUSES)}")
+        target = folder.path / "video.json"
+        current = target.read_bytes()
+        if digest(current) != body.hash:
+            return conflict(current)
+        video = json.loads(current)
+        video["status"] = body.status
+        today = datetime.now(timezone.utc).date().isoformat()
+        video["history"] = [*(video.get("history") or []), {"status": body.status, "at": today, "note": body.note}]
+        atomic_write(target, (json.dumps(video, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+        return detail(footage, folder)
 
     return api

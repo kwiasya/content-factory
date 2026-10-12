@@ -5,6 +5,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -199,3 +200,33 @@ class DetailTest(VideosTestCase):
         self.assertNotIn("w1/raw/x.mp4", media)
         self.assertIn("w1/reels/short-01/out/short-01.mp4", media)
         self.assertEqual([p["media"] for p in detail["proxies"]], ["w1/proxy/A.mp4"])
+
+
+class StatusTest(VideosTestCase):
+    def post(self, **body):
+        return self.client.post("/api/videos/long-one/status", json=body)
+
+    def current_hash(self) -> str:
+        return self.ok(self.client.get("/api/videos/long-one"))["hash"]
+
+    def test_status_change_appends_history_with_todays_utc_date_and_rewrites_video_json(self):
+        today = datetime.now(timezone.utc).date().isoformat()
+        detail = self.ok(self.post(status="recording", note="camera day", hash=self.current_hash()))
+        on_disk = json.loads((self.video / "video.json").read_text())
+        self.assertEqual(on_disk["status"], "recording")
+        self.assertEqual(on_disk["history"], VIDEO["history"] + [
+            {"status": "recording", "at": today, "note": "camera day"}])
+        self.assertEqual({k: on_disk[k] for k in VIDEO if k not in ("status", "history")},
+                         {k: VIDEO[k] for k in VIDEO if k not in ("status", "history")})
+        self.assertEqual(detail["video"]["status"], "recording")
+        self.assertNotEqual(detail["hash"], None)
+
+    def test_unknown_status_is_422_and_stale_hash_is_409_and_nothing_is_written(self):
+        before = (self.video / "video.json").read_bytes()
+        self.assertEqual(self.post(status="done", hash=self.current_hash()).status_code, 422)
+        self.assertEqual(self.post(status="edit", hash="sha256:stale").status_code, 409)
+        self.assertEqual((self.video / "video.json").read_bytes(), before)
+
+    def test_legacy_reel_status_cannot_be_set(self):
+        r = self.client.post("/api/videos/w1~short-01/status", json={"status": "edit", "hash": ""})
+        self.assertEqual(r.status_code, 409)
