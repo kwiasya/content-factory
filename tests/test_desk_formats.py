@@ -158,6 +158,17 @@ class FormatVideosTest(FormatsTestCase):
         self.assertEqual([v["slug"] for v in self.get("/api/formats/walk-reel")["videos"]], ["ok"])
 
 
+    def test_legacy_reels_show_on_the_walk_reel_format(self):
+        reel = self.footage / "w1" / "reels" / "short-01"
+        reel.mkdir(parents=True)
+        (reel / "script.draft.json").write_text("{}")
+        self.write_video("ok", video("ok", "walk-reel"))
+        videos = self.get("/api/formats/walk-reel")["videos"]
+        self.assertEqual([(v["slug"], v["status"], v["path"]) for v in videos],
+                         [("ok", "script", str(self.footage / "videos" / "ok")),
+                          ("w1~short-01", "script", str(reel))])
+        self.assertEqual(self.get("/api/formats/tech-explainer")["videos"], [])
+
 class SkillLintTest(FormatsTestCase):
     def refs(self, items: list[dict]) -> list[str]:
         return [i["ref"] for i in items]

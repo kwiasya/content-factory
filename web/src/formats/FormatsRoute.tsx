@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { formatsApi, type Format, type FormatSummary, type Rule } from "./api";
 import { Preview } from "../Preview";
+import { videoHref } from "../videos/routes";
 import "./formats.css";
 
 const ROOT = "#/formats";
@@ -144,7 +145,8 @@ function FormatPage({ id }: { id: string }) {
         <h2>Videos ({format.videos.length})</h2>
         {format.videos.length === 0 ? (
           <p className="muted">
-            No <code>videos/*/video.json</code> with format <code>{format.id}</code> under the footage root.
+            No Video (<code>videos/*/video.json</code> or legacy Reel) with format <code>{format.id}</code> under the
+            footage root.
           </p>
         ) : (
           <table className="grid">
@@ -159,7 +161,9 @@ function FormatPage({ id }: { id: string }) {
             <tbody>
               {format.videos.map((v) => (
                 <tr key={v.slug}>
-                  <td>{v.title}</td>
+                  <td>
+                    <a href={videoHref(v.slug)}>{v.title}</a>
+                  </td>
                   <td>{v.status ?? "—"}</td>
                   <td>{v.channel ?? "—"}</td>
                   <td>

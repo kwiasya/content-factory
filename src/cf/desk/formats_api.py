@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+
+from cf.desk import videos_api
 
 FORMATS_DIR = "formats"
 FORMAT_ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
@@ -80,21 +81,13 @@ def parse_rules(text: str, topic: str) -> list[dict]:
 
 
 def format_videos(footage_root: Path, fid: str) -> list[dict]:
+    footage = Path(footage_root)
     videos = []
-    for path in sorted(Path(footage_root).glob("videos/*/video.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        if not isinstance(data, dict) or data.get("format") != fid:
-            continue
-        videos.append({
-            "slug": data.get("slug") or path.parent.name,
-            "title": data.get("title_working") or data.get("title") or path.parent.name,
-            "status": data.get("status"),
-            "channel": data.get("channel"),
-            "path": str(path.parent),
-        })
+    for folder in videos_api.list_folders(footage):
+        item = videos_api.summary(folder)
+        if item["format"] == fid:
+            videos.append({"slug": item["slug"], "title": item["title"], "status": item["status"],
+                           "channel": item["channel"], "path": str(folder.path)})
     return videos
 
 
