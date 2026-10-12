@@ -216,9 +216,16 @@ def script_violations(footage: Path, repo: Path, text: str) -> list[str]:
     walk = data.get("walk")
     manifest = None
     if isinstance(walk, str) and NAME.match(walk):
-        manifest = script_schema.load_json(footage / walk / "clip_manifest.json")
-    style = script_schema.load_json(repo / "style.json")
-    return script_schema.validate(script, manifest, style)
+        manifest = optional_json(footage / walk / "clip_manifest.json")
+    return script_schema.validate(script, manifest, optional_json(repo / "style.json"))
+
+
+def optional_json(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 class TextWrite(BaseModel):
@@ -267,7 +274,7 @@ def router(footage_root: Path, repo: Path) -> APIRouter:
             violations = script_violations(footage, repo, body.text)
             if violations:
                 return JSONResponse(status_code=422, content={
-                    "detail": "the Script breaks the cf-script/1 rules; nothing was written",
+                    "detail": "the Script did not pass cf-script/1 validation; nothing was written",
                     "violations": violations})
         current = target.read_bytes() if target.exists() else None
         if current is not None and digest(current) != body.hash:

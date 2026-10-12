@@ -288,6 +288,16 @@ class TextFileTest(VideosTestCase):
         self.assertEqual(json.loads((self.reel / "script.draft.json").read_text())["concept"],
                          "A quieter afternoon by the lake.")
 
+    def test_cf_script_of_a_walk_without_manifest_is_still_validated(self):
+        (self.walk / "clip_manifest.json").unlink()
+        (self.repo / "style.json").unlink()
+        doc = self.ok(self.read("w1~short-01", "script.draft.json"))
+        bad = json.loads(doc["text"])
+        bad["target_length_s"] = 555
+        r = self.save("w1~short-01", "script.draft.json", json.dumps(bad), doc["hash"])
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertTrue(r.json()["violations"])
+
     def test_brief_and_notes_can_be_created_other_missing_files_cannot(self):
         self.assertEqual(self.read("long-one", "brief.md").status_code, 404)
         self.ok(self.save("long-one", "brief.md", "# Brief\n", ""))
