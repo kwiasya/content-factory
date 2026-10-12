@@ -146,7 +146,8 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
         _one_of(what, summary.SECTIONS, "summary_invalid", "summary")
         with store() as s:
             watchlist_of(s, name)
-            return summary.summarize(s, name, what, days=days, limit=SUMMARY_LIMIT).to_dict()
+            return {**summary.summarize(s, name, what, days=days, limit=SUMMARY_LIMIT).to_dict(),
+                    "weight_code": "outlier_sum"}
 
     def idea_of(s: Store, idea_id: int) -> ideas.Idea:
         try:

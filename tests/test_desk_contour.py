@@ -171,6 +171,8 @@ class SummaryTest(ContourCase):
     def test_hooks_summary_groups_carded_references_and_lists_uncarded_outliers(self):
         got = self.get("/api/contour/watchlists/lisbon/summary/hooks")
         self.assertEqual((got["summary"], got["days"], got["carded"]), ("hooks", 14, 1))
+        self.assertEqual((got["weight"], got["weight_code"]),
+                         ("sum of Outlier scores, unscored counted as 1", "outlier_sum"))
         self.assertEqual([sec["kind"] for sec in got["sections"]], ["hook_category", "hook_formula"])
         group = got["sections"][0]["groups"][0]
         self.assertEqual((group["value"], group["count"], group["examples"][0]["external_id"]),
