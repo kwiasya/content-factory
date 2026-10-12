@@ -5,6 +5,7 @@ import { DiffView } from "./DiffView";
 import { GitBadge } from "./GitBadge";
 import { Preview } from "./Preview";
 import { SkillLinks } from "./skills/SkillLinks";
+import { SkillLint } from "./formats/SkillLint";
 
 type Tab = "edit" | "diff" | "history";
 
@@ -79,6 +80,7 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
           {!doc.editable && <span className="badge readonly">read-only</span>}
         </div>
       </div>
+      <SkillLint path={doc.path} version={doc.hash} />
 
       <SkillLinks path={doc.path} />
 

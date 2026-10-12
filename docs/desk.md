@@ -53,10 +53,16 @@ The groups live in one place, `GROUPS` in `src/cf/desk/catalog.py`; a new group 
 | `PUT /api/doc` | body `{path, text, hash}`: writes atomically (temp file + rename) when `hash` matches the file; 409 with the fresh `text` and `hash` when the file changed since it was read; 403 for read-only; 422 for invalid JSON in a `json` document |
 | `GET /api/doc/diff?path=` | `git` state and unified `diff` against HEAD (untracked and ignored files diff against empty) |
 | `GET /api/doc/log?path=` | commits touching the file: `hash`, `date`, `author`, `subject` |
+| `GET /api/formats` | `formats`: one per `formats/*/FORMAT.md` (`id` = folder, `title` from the `# Format: …` heading, `path`, `has_hook_library`) |
+| `GET /api/formats/{id}` | `format` (`path`, `text` of FORMAT.md; edit it through `PUT /api/doc`), `hook_library` (`path`, `text`, or null until `hooks export`), `topics` (two-digit numbers from the "Research rules that apply" line, each with its `docs/research/NN-*/rules.md` path or null), `rules` (rows of those tables: `topic`, `id`, `rule`, `scope`, `tag`, `source`, `confidence`, mapped by the table header), `videos` (`videos/*/video.json` under the footage root whose `format` is `id`: `slug`, `title`, `status`, `channel`, `path`) |
+| `GET /api/skills/lint` | `skills`: broken reference count per own skill, for the catalogue badge |
+| `GET /api/skills/{name}/lint` | `missing_paths` and `missing_skills` (`ref`, `file`, `line`) for one own skill; 404 for vendored or unknown skills |
 | `GET /api/research` | `topics` from the folders `docs/research/NN-slug/` (`id`, `number`, `slug`, `title` and `status` from the README table, flags `chatgpt`, `result_a`, `rules`, `verification`, `notes` paths, `docs` paths), `synthesis` paths, `readme` path |
 | `GET /api/search?q=[&all=1]` | case-insensitive substring search over every catalogued document (hidden groups only with `all=1`): `groups` of `hits` (`path`, `title`, `count` of matching lines, up to 3 `snippets` with `line` and `text`), `total`, `truncated` after 200 hits; 422 for a blank query |
 | `GET /api/skills/links` | for every own skill: `paths` it mentions that exist in the repo (`catalogued` is the subset Desk can open), `commands` (`cf.research <group> [<cmd>]`), store `tables` (names from `CREATE TABLE` in `src/cf/research/store.py`, counted when written as `` `name` ``, `name table`, `name row(s)` or after `FROM`/`JOIN`/`INTO`/`UPDATE`), `skills` (folders under `.claude/skills/` written as `/name`, `` `name` `` or `.claude/skills/name`) and `mentioned_by` |
 | `GET /api/skills/{name}/links` | the same entry for one own skill; 404 for a vendored or unknown one |
+
+Skill lint reads every `.md` of the skill. A path is a token with `/` or ending in `.md`, `.json`, `.py`, without placeholders (`<>{}*$~:`) or `..`, whose first segment exists at the repo root, the skill folder or the file's folder; it is broken when it exists in none of those. A skill mention is `/name`; it is broken when `.claude/skills/<name>/` does not exist and `name` is not a Claude Code built-in command.
 
 Git is read-only: status, diff, log. Commits stay with the Author or the Editor.
 
@@ -64,8 +70,8 @@ Search and the link map read the files on every request; there is no index or ca
 
 ## Frontend
 
-`web/` is Vite + React + TypeScript + CodeMirror 6. Routes are hash routes: `#/doc/<path>` (document with Edit, Diff vs HEAD and History tabs; a skill's `SKILL.md` also shows what it mentions and who mentions it), `#/research` (topics with file flags, synthesis), `#/research/<NN-slug>` (`rules.md` with an editor, answers and notes in tabs with a contents list built from their headings), `#/search/<query>` (the header search box). `npm --prefix web run dev` starts Vite on its own port and proxies `/api` to `127.0.0.1:8765` (run `python -m cf.desk` alongside). `npm --prefix web run lint` runs eslint and tsc; `npm --prefix web run build` writes `web/dist`, which `cf.desk` serves at `/`. `web/node_modules` and `web/dist` are gitignored.
+`web/` is Vite + React + TypeScript + CodeMirror 6. Routes are hash routes: `#/doc/<path>` (document with Edit, Diff vs HEAD and History tabs; a skill's `SKILL.md` also shows what it mentions and who mentions it), `#/research` (topics with file flags, synthesis), `#/research/<NN-slug>` (`rules.md` with an editor, answers and notes in tabs with a contents list built from their headings), `#/search/<query>` (the header search box). `npm --prefix web run dev` starts Vite on its own port and proxies `/api` to `127.0.0.1:8765` (run `python -m cf.desk` alongside). `npm --prefix web run lint` runs eslint and tsc. The Format shelf (`#/formats`, `#/formats/<id>`) and the skill lint badge and list live in `web/src/formats/`. `npm --prefix web run build` writes `web/dist`, which `cf.desk` serves at `/`. `web/node_modules` and `web/dist` are gitignored.
 
 ## Tests
 
-`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_research.py` (research group, topics, search, skill link map) and `tests/test_desk_cli.py` (flags). They do not need the frontend build.
+`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_formats.py` (Format shelf and skill lint), `tests/test_desk_research.py` (research group, topics, search, skill link map) and `tests/test_desk_cli.py` (flags). They do not need the frontend build.
