@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type CatalogGroup, type Meta } from "./api";
 import { DocPage } from "./DocPage";
 import { GitBadge } from "./GitBadge";
+import { FormatsNav, FormatsRoute } from "./formats/FormatsRoute";
+import { LintBadge } from "./formats/SkillLint";
 
 const PREFIX = "#/doc/";
 
@@ -68,20 +70,26 @@ export function App() {
                       <span className="name">{d.title}</span>
                       {!d.editable && <span className="lock">ro</span>}
                       <GitBadge state={d.git} compact />
+                      <LintBadge path={d.path} />
                     </a>
                   </li>
                 ))}
               </ul>
             </section>
           ))}
+          <FormatsNav />
         </aside>
         {error && !path && <p className="error">{error}</p>}
         {path ? (
           <DocPage key={path} path={path} onSaved={refresh} />
         ) : (
-          <main className="doc">
-            <p className="muted">Pick a document on the left.</p>
-          </main>
+          <FormatsRoute
+            fallback={
+              <main className="doc">
+                <p className="muted">Pick a document on the left.</p>
+              </main>
+            }
+          />
         )}
       </div>
     </div>
