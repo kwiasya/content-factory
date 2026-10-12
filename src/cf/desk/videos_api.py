@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from cf import script_schema
 from cf.desk import media
 from cf.desk.hashed import atomic_write, digest
 
@@ -29,6 +30,7 @@ SUBTITLE_SUFFIXES = {".srt", ".vtt"}
 TOP_TEXTS = {"brief.md": "brief", "notes.md": "notes", "references.md": "references"}
 MEDIA_FOLDERS = {"renders": "render", "out": "render", "overlays": "overlay", "sources": "source"}
 EDITABLE = {"script", "brief", "notes", "references", "subtitle"}
+CREATABLE = {"brief.md", "notes.md"}
 
 
 @dataclass(frozen=True)
@@ -104,14 +106,19 @@ def read_video(folder: Folder) -> dict:
         data = json.loads((folder.path / "video.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
         raise HTTPException(422, f"video.json is unreadable: {e}") from None
+    if not isinstance(data, dict):
+        raise HTTPException(422, "video.json is not an object")
     return {**data, "slug": folder.slug, "legacy": False}
 
 
 def summary(folder: Folder) -> dict:
-    video = read_video(folder)
+    try:
+        video, error = read_video(folder), None
+    except HTTPException as e:
+        video, error = {}, e.detail
     return {"slug": folder.slug, "title": video.get("title_working") or folder.slug,
             "format": video.get("format"), "channel": video.get("channel"), "status": video.get("status"),
-            "legacy": folder.legacy, "updated": iso(last_change(folder.path))}
+            "legacy": folder.legacy, "updated": iso(last_change(folder.path)), "error": error}
 
 
 def kind_of(rel: str) -> str:
@@ -174,6 +181,52 @@ def detail(footage: Path, folder: Folder) -> dict:
             "proxies": proxies(footage, video.get("walks") or [])}
 
 
+def text_format(rel: str) -> str:
+    suffix = Path(rel).suffix.lower()
+    return "markdown" if suffix == ".md" else "json" if suffix == ".json" else "text"
+
+
+def text_target(folder: Folder, rel: str, *, creating: bool = False) -> Path:
+    missing = HTTPException(404, "not an editable text of this Video")
+    parts = rel.split("/")
+    if (not rel or rel.startswith("/") or any(p in ("", ".", "..") or p.startswith(".") for p in parts)
+            or kind_of(rel) not in EDITABLE):
+        raise missing
+    root = folder.path.resolve()
+    target = folder.path / rel
+    resolved = target.resolve()
+    if not resolved.is_relative_to(root) or resolved.relative_to(root).parts != tuple(parts):
+        raise missing
+    if target.is_file() or (creating and rel in CREATABLE and not target.exists()):
+        return target
+    raise missing
+
+
+def script_violations(footage: Path, repo: Path, text: str) -> list[str]:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        return [f"invalid JSON: {e}"]
+    if not isinstance(data, dict) or data.get("schema") != script_schema.SCHEMA:
+        return []
+    try:
+        script = script_schema.from_dict(data)
+    except script_schema.ScriptError as e:
+        return [str(e)]
+    walk = data.get("walk")
+    manifest = None
+    if isinstance(walk, str) and NAME.match(walk):
+        manifest = script_schema.load_json(footage / walk / "clip_manifest.json")
+    style = script_schema.load_json(repo / "style.json")
+    return script_schema.validate(script, manifest, style)
+
+
+class TextWrite(BaseModel):
+    path: str
+    text: str
+    hash: str
+
+
 class StatusChange(BaseModel):
     status: str
     note: str = ""
@@ -199,6 +252,31 @@ def router(footage_root: Path, repo: Path) -> APIRouter:
     @api.get("/api/videos/{slug}")
     def get_video(slug: str) -> dict:
         return detail(footage, find_folder(footage, slug))
+
+    @api.get("/api/videos/{slug}/file")
+    def get_file(slug: str, path: str) -> dict:
+        target = text_target(find_folder(footage, slug), path)
+        data = target.read_bytes()
+        return {"path": path, "kind": kind_of(path), "format": text_format(path),
+                "text": data.decode("utf-8", errors="replace"), "hash": digest(data)}
+
+    @api.put("/api/videos/{slug}/file", response_model=None)
+    def put_file(slug: str, body: TextWrite) -> dict | JSONResponse:
+        target = text_target(find_folder(footage, slug), body.path, creating=True)
+        if text_format(body.path) == "json":
+            violations = script_violations(footage, repo, body.text)
+            if violations:
+                return JSONResponse(status_code=422, content={
+                    "detail": "the Script breaks the cf-script/1 rules; nothing was written",
+                    "violations": violations})
+        current = target.read_bytes() if target.exists() else None
+        if current is not None and digest(current) != body.hash:
+            return conflict(current)
+        if current is None and body.hash:
+            raise HTTPException(409, "the file was deleted since it was read")
+        data = body.text.encode("utf-8")
+        atomic_write(target, data)
+        return {"path": body.path, "hash": digest(data)}
 
     @api.post("/api/videos/{slug}/status", response_model=None)
     def set_status(slug: str, body: StatusChange) -> dict | JSONResponse:

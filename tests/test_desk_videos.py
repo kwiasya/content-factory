@@ -134,6 +134,13 @@ class ListTest(VideosTestCase):
         write(self.reel / "out" / "short-01.mp4", MP4)
         self.assertEqual(status(), "review")
 
+    def test_unreadable_video_json_stays_in_the_list_with_an_error(self):
+        write(self.footage / "videos" / "broken" / "video.json", "{oops")
+        videos = {v["slug"]: v for v in self.ok(self.client.get("/api/videos"))["videos"]}
+        self.assertIn("video.json", videos["broken"]["error"])
+        self.assertIsNone(videos["broken"]["status"])
+        self.assertEqual(self.client.get("/api/videos/broken").status_code, 422)
+
     def test_unknown_video_is_404(self):
         self.assertEqual(self.client.get("/api/videos/nope").status_code, 404)
         self.assertEqual(self.client.get("/api/videos/videos~x").status_code, 404)
@@ -230,3 +237,68 @@ class StatusTest(VideosTestCase):
     def test_legacy_reel_status_cannot_be_set(self):
         r = self.client.post("/api/videos/w1~short-01/status", json={"status": "edit", "hash": ""})
         self.assertEqual(r.status_code, 409)
+
+
+class TextFileTest(VideosTestCase):
+    def read(self, slug: str, path: str):
+        return self.client.get(f"/api/videos/{slug}/file", params={"path": path})
+
+    def save(self, slug: str, path: str, text: str, hash: str):
+        return self.client.put(f"/api/videos/{slug}/file", json={"path": path, "text": text, "hash": hash})
+
+    def test_script_markdown_reads_and_writes_through_the_hash(self):
+        doc = self.ok(self.read("long-one", "script.md"))
+        self.assertEqual((doc["kind"], doc["format"], doc["text"]), ("script", "markdown", "# Script\n\nHook line.\n"))
+        saved = self.ok(self.save("long-one", "script.md", "# Script v2\n", doc["hash"]))
+        self.assertEqual((self.video / "script.md").read_text(), "# Script v2\n")
+        stale = self.save("long-one", "script.md", "# lost\n", doc["hash"])
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(stale.json()["hash"], saved["hash"])
+        self.assertEqual((self.video / "script.md").read_text(), "# Script v2\n")
+
+    def test_subtitle_is_text_and_writable(self):
+        doc = self.ok(self.read("long-one", "subtitles/en.srt"))
+        self.assertEqual((doc["kind"], doc["format"], doc["text"]), ("subtitle", "text", SRT))
+        self.ok(self.save("long-one", "subtitles/en.srt", SRT.replace("Hello", "Hi"), doc["hash"]))
+        self.assertIn("Hi", (self.video / "subtitles" / "en.srt").read_text())
+
+    def test_invalid_cf_script_returns_violations_and_leaves_the_file(self):
+        path = self.reel / "script.draft.json"
+        before = path.read_bytes()
+        doc = self.ok(self.read("w1~short-01", "script.draft.json"))
+        self.assertEqual(doc["format"], "json")
+        bad = json.loads(doc["text"])
+        bad["hook"]["clip"] = "NOPE.MOV"
+        bad["hashtags"] = ["#a", "#b", "#c", "#d", "#e", "#f"]
+        r = self.save("w1~short-01", "script.draft.json", json.dumps(bad), doc["hash"])
+        self.assertEqual(r.status_code, 422)
+        violations = r.json()["violations"]
+        self.assertTrue(any("NOPE.MOV" in v for v in violations), violations)
+        self.assertTrue(any("hashtag" in v for v in violations), violations)
+        self.assertEqual(path.read_bytes(), before)
+        broken = self.save("w1~short-01", "script.draft.json", "{not json", doc["hash"])
+        self.assertEqual(broken.status_code, 422)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_valid_cf_script_is_written(self):
+        doc = self.ok(self.read("w1~short-01", "script.draft.json"))
+        script = json.loads(doc["text"])
+        script["concept"] = "A quieter afternoon by the lake."
+        self.ok(self.save("w1~short-01", "script.draft.json", json.dumps(script, indent=2), doc["hash"]))
+        self.assertEqual(json.loads((self.reel / "script.draft.json").read_text())["concept"],
+                         "A quieter afternoon by the lake.")
+
+    def test_brief_and_notes_can_be_created_other_missing_files_cannot(self):
+        self.assertEqual(self.read("long-one", "brief.md").status_code, 404)
+        self.ok(self.save("long-one", "brief.md", "# Brief\n", ""))
+        self.assertEqual((self.video / "brief.md").read_text(), "# Brief\n")
+        self.assertEqual(self.save("long-one", "brief.md", "# again\n", "").status_code, 409)
+        self.assertEqual(self.save("long-one", "other.md", "x", "").status_code, 404)
+        self.assertEqual(self.save("long-one", "subtitles/new.srt", "x", "").status_code, 404)
+
+    def test_only_editable_texts_inside_the_folder_are_served(self):
+        for path in ("video.json", "renders/v1.mp4", "../../w1/clip_manifest.json", "/etc/hosts",
+                     "subtitles/../video.json", "missing.md"):
+            with self.subTest(path):
+                self.assertEqual(self.read("long-one", path).status_code, 404)
+                self.assertEqual(self.save("long-one", path, "x", "").status_code, 404)
