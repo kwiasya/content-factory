@@ -50,7 +50,7 @@ export type SaveResult =
   | { status: "conflict"; text: string; hash: string }
   | { status: "error"; message: string };
 
-async function getJson<T>(url: string): Promise<T> {
+export async function getJson<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) {
     throw new Error(`${r.status} ${await r.text()}`);

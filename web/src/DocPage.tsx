@@ -4,6 +4,7 @@ import { CodeEditor } from "./CodeEditor";
 import { DiffView } from "./DiffView";
 import { GitBadge } from "./GitBadge";
 import { Preview } from "./Preview";
+import { SkillLinks } from "./skills/SkillLinks";
 
 type Tab = "edit" | "diff" | "history";
 
@@ -78,6 +79,8 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
           {!doc.editable && <span className="badge readonly">read-only</span>}
         </div>
       </div>
+
+      <SkillLinks path={doc.path} />
 
       <nav className="tabs">
         {(["edit", "diff", "history"] as Tab[]).map((t) => (

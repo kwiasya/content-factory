@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type CatalogGroup, type Meta } from "./api";
 import { DocPage } from "./DocPage";
 import { GitBadge } from "./GitBadge";
+import { researchRoute } from "./research/ResearchPage";
+import { SearchBox, searchRoute } from "./search/SearchPage";
 
 const PREFIX = "#/doc/";
 
@@ -14,6 +16,7 @@ export function App() {
   const [groups, setGroups] = useState<CatalogGroup[]>([]);
   const [showVendored, setShowVendored] = useState(false);
   const [path, setPath] = useState<string | null>(currentPath);
+  const [hash, setHash] = useState(window.location.hash);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -27,7 +30,10 @@ export function App() {
   useEffect(refresh, [refresh]);
 
   useEffect(() => {
-    const onHash = () => setPath(currentPath());
+    const onHash = () => {
+      setPath(currentPath());
+      setHash(window.location.hash);
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -36,6 +42,8 @@ export function App() {
     <div className="app">
       <header className="top">
         <strong>Desk</strong>
+        <a href="#/research" className={hash.startsWith("#/research") ? "nav active" : "nav"}>Research</a>
+        <SearchBox />
         {meta && (
           <span className="checkout" title={`footage: ${meta.footage_root}\ndb: ${meta.db_path}`}>
             <code>{meta.repo}</code>
@@ -79,9 +87,12 @@ export function App() {
         {path ? (
           <DocPage key={path} path={path} onSaved={refresh} />
         ) : (
-          <main className="doc">
-            <p className="muted">Pick a document on the left.</p>
-          </main>
+          (researchRoute(hash) ??
+          searchRoute(hash) ?? (
+            <main className="doc">
+              <p className="muted">Pick a document on the left.</p>
+            </main>
+          ))
         )}
       </div>
     </div>
