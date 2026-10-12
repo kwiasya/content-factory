@@ -188,7 +188,19 @@ V4 = """
 ALTER TABLE channel ADD COLUMN uploads_through TEXT;
 """
 
-MIGRATIONS: list[str] = [V1, V2, V3, V4]  # MIGRATIONS[i] takes the store from version i to i + 1
+V5 = """
+CREATE TABLE note (
+    id          INTEGER PRIMARY KEY,
+    kind        TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    resolved_at TEXT
+);
+CREATE INDEX note_open ON note (kind, key) WHERE resolved_at IS NULL;
+"""
+
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5]  # MIGRATIONS[i] takes the store from version i to i + 1
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

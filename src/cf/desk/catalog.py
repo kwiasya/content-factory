@@ -85,6 +85,14 @@ GROUPS: tuple[Group, ...] = (
         Source("formats/*/FORMAT.md", title=folder_title(1)),
         Source("formats/*/hook-library.md", editable=False, title=folder_title(1)),
     )),
+    Group("research", "Research", (
+        Source("docs/research/SYNTHESIS*.md", title=lambda rel: rel.rsplit("/", 1)[1]),
+        Source("docs/research/README.md", editable=False, title=lambda rel: rel.rsplit("/", 1)[1]),
+        Source("docs/research/[0-9][0-9]-*/rules.md", title=folder_title(2)),
+        Source("docs/research/[0-9][0-9]-*/*.md", editable=False, title=folder_title(2),
+               exclude=lambda rel: rel.endswith("/rules.md")),
+        Source("docs/research/[0-9][0-9]-*/notes/*.md", editable=False, title=folder_title(2)),
+    )),
 )
 
 

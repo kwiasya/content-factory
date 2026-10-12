@@ -5,7 +5,8 @@ remove-channel, add-query), ``taxonomy`` (list, approve, reject), ``quota``,
 ``scout``, ``snapshot``, ``feed``, ``fetch`` (one Reference, deep), ``card``
 (validate, save, show), ``ideas`` (add, list, show, shortlist, discard,
 restore, note, brief, candidates), ``summary`` (hooks, formats, topics), ``hooks``
-(save, remove, list, export: the Hook library of a Format). Every command takes
+(save, remove, list, export: the Hook library of a Format), ``notes`` (list, add,
+resolve, delete: Notes from the Author). Every command takes
 ``--json`` (machine output on stdout) and ``--db`` (default ``CF_FACTORY_DB`` or
 ``<footage root>/factory.db``). Human output is a Markdown table in Russian.
 Errors: one line on stderr, exit 1.
@@ -24,7 +25,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cf.research import brief, card, feed, fetch, hooks, ideas, quota, scout, summary, taxonomy, watchlist, youtube
+from cf.research import brief, card, feed, fetch, hooks, ideas, notes, quota, scout, summary, taxonomy, watchlist, youtube
 from cf.research.kinds import KINDS
 from cf.research.store import StoreError, open_store
 
@@ -32,6 +33,7 @@ from cf.research.store import StoreError, open_store
 USER_ERRORS: tuple[type[Exception], ...] = (
     watchlist.WatchlistError, taxonomy.TaxonomyError, quota.QuotaExceeded,
     youtube.YouTubeError, StoreError, fetch.FetchError, card.CardError, ideas.IdeaError, hooks.HookError,
+    notes.NoteError,
 )
 
 
@@ -786,9 +788,58 @@ def register_hooks(sub, common) -> None:
     p.set_defaults(func=cmd_hooks_export)
 
 
+# --- notes (Notes from the Author) ------------------------------------------------
+
+def _notes_table(ns: list[notes.Note]) -> str:
+    if not ns:
+        return "Note нет."
+    return md_table(["ID", "Kind", "Key", "Текст", "Создана", "Закрыта"],
+                    [(str(n.id), n.kind, n.key, n.text, n.created_at, n.resolved_at) for n in ns])
+
+
+def cmd_notes_list(args, store) -> int:
+    ns = notes.list(store, kind=args.kind, key=args.key, include_resolved=args.all)
+    return emit(args, [n.to_dict() for n in ns], lambda: _notes_table(ns))
+
+
+def cmd_notes_add(args, store) -> int:
+    n = notes.add(store, args.kind, args.key, args.text)
+    return emit(args, n.to_dict(), lambda: f"Note #{n.id} ({n.kind} {n.key}) добавлена")
+
+
+def cmd_notes_resolve(args, store) -> int:
+    n = notes.resolve(store, args.id)
+    return emit(args, n.to_dict(), lambda: f"Note #{n.id} закрыта")
+
+
+def cmd_notes_delete(args, store) -> int:
+    n = notes.delete(store, args.id)
+    return emit(args, n.to_dict(), lambda: f"Note #{n.id} удалена")
+
+
+def register_notes(sub, common) -> None:
+    g = sub.add_parser("notes", help="Notes the Author left on skills, documents, videos, cards and Ideas")
+    gs = g.add_subparsers(dest="cmd", required=True)
+    p = gs.add_parser("list", parents=[common], help="open Notes, optionally of one kind and key")
+    p.add_argument("--kind", choices=notes.KINDS)
+    p.add_argument("--key", help="repo-relative path, skill name or id")
+    p.add_argument("--all", action="store_true", help="include resolved Notes")
+    p.set_defaults(func=cmd_notes_list)
+    p = gs.add_parser("add", parents=[common], help="leave a Note on one entity")
+    p.add_argument("kind", choices=notes.KINDS)
+    p.add_argument("key", help='repo-relative path, skill name or id; "" for a general Note')
+    p.add_argument("text")
+    p.set_defaults(func=cmd_notes_add)
+    for name, func, text in (("resolve", cmd_notes_resolve, "close a Note after acting on it"),
+                             ("delete", cmd_notes_delete, "remove a Note")):
+        p = gs.add_parser(name, parents=[common], help=text)
+        p.add_argument("id", type=int)
+        p.set_defaults(func=func)
+
+
 GROUPS: list[Callable] = [register_watchlist, register_taxonomy, register_quota,
                           register_scout, register_snapshot, register_feed, register_fetch, register_card,
-                          register_ideas, register_summary, register_hooks]
+                          register_ideas, register_summary, register_hooks, register_notes]
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -4,6 +4,9 @@ import { CodeEditor } from "./CodeEditor";
 import { DiffView } from "./DiffView";
 import { GitBadge } from "./GitBadge";
 import { Preview } from "./Preview";
+import { SkillLinks } from "./skills/SkillLinks";
+import { SkillLint } from "./formats/SkillLint";
+import { NoteBox } from "./notes/NoteBox";
 
 type Tab = "edit" | "diff" | "history";
 
@@ -78,6 +81,9 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
           {!doc.editable && <span className="badge readonly">read-only</span>}
         </div>
       </div>
+      <SkillLint path={doc.path} version={doc.hash} />
+
+      <SkillLinks path={doc.path} />
 
       <nav className="tabs">
         {(["edit", "diff", "history"] as Tab[]).map((t) => (
@@ -154,6 +160,8 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
             </tbody>
           </table>
         ))}
+
+      <NoteBox kind="document" noteKey={doc.path} />
     </main>
   );
 }
