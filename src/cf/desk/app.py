@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 import secrets
-import stat
-import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -15,12 +11,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from cf.desk import catalog, gitread
+from cf.desk.hashed import atomic_write, digest
 
 WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
-
-
-def digest(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path = WEB_DIST,
@@ -152,17 +145,3 @@ class DocWrite(BaseModel):
     text: str
     hash: str
 
-
-def atomic_write(target: Path, data: bytes) -> None:
-    mode = stat.S_IMODE(target.stat().st_mode)
-    fd, tmp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".desk", dir=target.parent)
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
-        os.chmod(tmp, mode)
-        os.replace(tmp, target)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
