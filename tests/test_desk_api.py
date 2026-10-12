@@ -248,5 +248,46 @@ class MetaTest(DeskTestCase):
         self.assertFalse(self.db.exists())
 
 
+class FrontendTest(DeskTestCase):
+    def test_without_a_build_the_root_tells_how_to_build_the_frontend(self):
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("text/html", r.headers["content-type"])
+        self.assertIn("npm --prefix web run build", r.text)
+
+    def test_built_frontend_is_served_with_index_fallback(self):
+        (self.dist / "assets").mkdir(parents=True)
+        (self.dist / "index.html").write_text("<!doctype html><title>Desk</title>")
+        (self.dist / "assets" / "app.js").write_text("console.log(1)")
+        self.assertIn("<title>Desk</title>", self.client.get("/").text)
+        self.assertEqual(self.client.get("/assets/app.js").text, "console.log(1)")
+        self.assertIn("<title>Desk</title>", self.client.get("/doc/CLAUDE.md").text)
+        self.assertEqual(self.client.get("/api/nothing").status_code, 404)
+
+    def test_built_frontend_does_not_serve_files_outside_dist(self):
+        self.dist.mkdir()
+        (self.dist / "index.html").write_text("<!doctype html><title>Desk</title>")
+        r = self.client.get("/..%2Fstyle.json")
+        self.assertNotIn("schema", r.text)
+
+
+class TokenTest(DeskTestCase):
+    token = "s3cret"
+
+    def test_requests_without_the_token_are_401(self):
+        for path in ["/api/catalog", "/api/meta", "/"]:
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, 401)
+        self.assertEqual(self.client.get("/api/meta", headers={"Authorization": "Bearer wrong"}).status_code, 401)
+
+    def test_bearer_header_is_accepted(self):
+        r = self.client.get("/api/meta", headers={"Authorization": "Bearer s3cret"})
+        self.assertEqual(r.status_code, 200)
+
+    def test_token_in_the_url_sets_a_cookie_for_the_browser(self):
+        self.assertEqual(self.client.get("/", params={"token": "s3cret"}).status_code, 200)
+        self.assertEqual(self.client.get("/api/catalog").status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()

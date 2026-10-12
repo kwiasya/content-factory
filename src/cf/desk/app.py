@@ -5,12 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 import stat
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from cf.desk import catalog, gitread
@@ -93,7 +94,57 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
         atomic_write(target, data)
         return {"path": entry.path, "hash": digest(data), "git": git_state(entry.path)}
 
+    @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+    def api_not_found(rest: str) -> None:
+        raise HTTPException(404, "no such API endpoint")
+
+    @app.get("/{rest:path}")
+    def frontend(rest: str) -> Response:
+        index = web_dist / "index.html"
+        if not index.is_file():
+            return HTMLResponse(NO_BUILD)
+        root = web_dist.resolve()
+        candidate = (root / rest).resolve()
+        if rest and candidate.is_relative_to(root) and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(index)
+
+    if token:
+        install_token_guard(app, token)
+
     return app
+
+
+NO_BUILD = """<!doctype html>
+<meta charset="utf-8">
+<title>Desk</title>
+<body style="font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem">
+<h1>Desk API is running</h1>
+<p>The web frontend is not built yet. Build it once, then reload this page:</p>
+<pre>npm --prefix web install
+npm --prefix web run build</pre>
+<p>The API answers under <code>/api/</code>, for example <a href="/api/meta">/api/meta</a>.</p>
+</body>
+"""
+
+COOKIE = "desk_token"
+
+
+def install_token_guard(app: FastAPI, token: str) -> None:
+    def matches(value: str | None) -> bool:
+        return value is not None and secrets.compare_digest(value.encode(), token.encode())
+
+    @app.middleware("http")
+    async def guard(request: Request, call_next):
+        header = request.headers.get("authorization", "")
+        bearer = header[7:] if header.lower().startswith("bearer ") else None
+        query = request.query_params.get("token")
+        if not (matches(bearer) or matches(request.cookies.get(COOKIE)) or matches(query)):
+            return JSONResponse(status_code=401, content={"detail": "Desk token required"})
+        response = await call_next(request)
+        if matches(query):
+            response.set_cookie(COOKIE, token, httponly=True, samesite="strict")
+        return response
 
 
 class DocWrite(BaseModel):
