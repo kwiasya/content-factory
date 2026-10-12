@@ -8,6 +8,7 @@ import { FormatsNav, FormatsRoute } from "./formats/FormatsRoute";
 import { LintBadge } from "./formats/SkillLint";
 import { NOTES_HASH, NotesPage, useNotesRoute } from "./notes/NotesPage";
 import { VideosNav, videosRoute } from "./videos/VideosRoute";
+import { ContourNav, contourRoute } from "./contour/ContourRoute";
 
 const PREFIX = "#/doc/";
 
@@ -49,6 +50,7 @@ export function App() {
         <strong>Desk</strong>
         <a href="#/research" className={hash.startsWith("#/research") ? "nav active" : "nav"}>Research</a>
         <VideosNav hash={hash} />
+        <ContourNav hash={hash} />
         <SearchBox />
         {meta && (
           <span className="checkout" title={`footage: ${meta.footage_root}\ndb: ${meta.db_path}`}>
@@ -100,7 +102,8 @@ export function App() {
         ) : (
           (researchRoute(hash) ??
           searchRoute(hash) ??
-          videosRoute(hash) ?? (
+          videosRoute(hash) ??
+          contourRoute(hash) ?? (
             <FormatsRoute
               fallback={
                 <main className="doc">
