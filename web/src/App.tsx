@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type CatalogGroup, type Meta } from "./api";
 import { DocPage } from "./DocPage";
 import { GitBadge } from "./GitBadge";
+import { NOTES_HASH, NotesPage, useNotesRoute } from "./notes/NotesPage";
 
 const PREFIX = "#/doc/";
 
@@ -15,6 +16,7 @@ export function App() {
   const [showVendored, setShowVendored] = useState(false);
   const [path, setPath] = useState<string | null>(currentPath);
   const [error, setError] = useState<string | null>(null);
+  const onNotes = useNotesRoute();
 
   useEffect(() => {
     api.meta().then(setMeta, (e: Error) => setError(e.message));
@@ -42,6 +44,7 @@ export function App() {
             {meta.branch && <span className="branch">{meta.branch}</span>}
           </span>
         )}
+        <a href={NOTES_HASH} className="nav-notes">Notes</a>
       </header>
       <div className="body">
         <aside className="sidebar">
@@ -78,6 +81,8 @@ export function App() {
         {error && !path && <p className="error">{error}</p>}
         {path ? (
           <DocPage key={path} path={path} onSaved={refresh} />
+        ) : onNotes ? (
+          <NotesPage />
         ) : (
           <main className="doc">
             <p className="muted">Pick a document on the left.</p>

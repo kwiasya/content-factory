@@ -4,6 +4,7 @@ import { CodeEditor } from "./CodeEditor";
 import { DiffView } from "./DiffView";
 import { GitBadge } from "./GitBadge";
 import { Preview } from "./Preview";
+import { NoteBox } from "./notes/NoteBox";
 
 type Tab = "edit" | "diff" | "history";
 
@@ -154,6 +155,8 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
             </tbody>
           </table>
         ))}
+
+      <NoteBox kind="document" noteKey={doc.path} />
     </main>
   );
 }
