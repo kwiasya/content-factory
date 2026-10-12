@@ -156,3 +156,27 @@ class CardTest(ContourCase):
     def test_unknown_reference_or_one_without_a_card_is_404(self):
         self.get("/api/contour/cards/nope0000000", 404)
         self.assertIn("fetch", self.get(f"/api/contour/cards/{V3}", 404)["detail"])
+
+
+class SummaryTest(ContourCase):
+    def test_hooks_summary_groups_carded_references_and_lists_uncarded_outliers(self):
+        got = self.get("/api/contour/watchlists/lisbon/summary/hooks")
+        self.assertEqual((got["summary"], got["days"], got["carded"]), ("hooks", 14, 1))
+        self.assertEqual([sec["kind"] for sec in got["sections"]], ["hook_category", "hook_formula"])
+        group = got["sections"][0]["groups"][0]
+        self.assertEqual((group["value"], group["count"], group["examples"][0]["external_id"]),
+                         ("visual_payoff", 1, V1))
+        self.assertEqual([(u["external_id"], u["measured"]) for u in got["uncarded"]], [(V2, True)])
+
+    def test_formats_and_topics_have_their_sections(self):
+        def kinds(what: str) -> list[str]:
+            return [sec["kind"] for sec in self.get(f"/api/contour/watchlists/lisbon/summary/{what}")["sections"]]
+        self.assertEqual(kinds("formats"), ["storytelling_format", "visual_layout"])
+        self.assertEqual(kinds("topics"), ["topic"])
+
+    def test_days_narrow_the_window(self):
+        self.assertEqual(self.get("/api/contour/watchlists/lisbon/summary/topics", days=1)["carded"], 0)
+
+    def test_an_unknown_summary_is_422_and_an_unknown_watchlist_404(self):
+        self.get("/api/contour/watchlists/lisbon/summary/music", 422)
+        self.get("/api/contour/watchlists/nowhere/summary/hooks", 404)

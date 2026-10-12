@@ -14,11 +14,12 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from cf.desk import media
-from cf.research import card, feed, outlier, taxonomy, watchlist
+from cf.research import card, feed, outlier, summary, taxonomy, watchlist
 from cf.research.cli import USER_ERRORS
 from cf.research.store import Store, open_store
 
 FEED_LIMIT = 20
+SUMMARY_LIMIT = 10
 
 
 def _rounded(row: feed.FeedRow) -> dict:
@@ -108,5 +109,11 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
             return {"external_id": v["external_id"], "reference": row, "card": c,
                     "sections": c["measured"].get("sections") or [], "proposed": _pending(s, c["analysis"]),
                     "media": _proxy(footage, v["external_id"])}
+
+    @api.get("/watchlists/{name}/summary/{what}")
+    def get_summary(name: str, what: str, days: float = summary.DEFAULT_DAYS) -> dict:
+        with store() as s:
+            watchlist_of(s, name)
+            return summary.summarize(s, name, what, days=days, limit=SUMMARY_LIMIT).to_dict()
 
     return api
