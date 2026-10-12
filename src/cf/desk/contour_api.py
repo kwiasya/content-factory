@@ -13,7 +13,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from cf.research import feed, watchlist
+from cf.desk import media
+from cf.research import card, feed, outlier, taxonomy, watchlist
 from cf.research.cli import USER_ERRORS
 from cf.research.store import Store, open_store
 
@@ -22,6 +23,27 @@ FEED_LIMIT = 20
 
 def _rounded(row: feed.FeedRow) -> dict:
     return {**row.to_dict(), "outlier": None if row.outlier is None else round(row.outlier, 2)}
+
+
+def _pending(store: Store, analysis: dict | None) -> list[dict]:
+    out: list[dict] = []
+    for path, kind in card.category_paths():
+        raw = card.field(analysis or {}, path)
+        if not isinstance(raw, str):
+            continue
+        value = card.split_proposed(raw)[0]
+        t = taxonomy.get(store, kind, value)
+        if t is not None and t.status == "proposed" and {"kind": kind, "value": value} not in out:
+            out.append({"kind": kind, "value": value})
+    return out
+
+
+def _proxy(footage: Path, external_id: str) -> str | None:
+    for d in card.reference_dirs(external_id, footage):
+        rel = (d / "proxy.mp4").relative_to(footage).as_posix()
+        if media.resolve(footage, rel):
+            return rel
+    return None
 
 
 def _detail(e: Exception) -> str:
@@ -67,5 +89,24 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
             rows = feed.feed(s, name, lookback_days=days, min_outlier=min_outlier, min_views=min_views,
                              kind=kind or None, max_duration_s=max_duration, limit=limit)
             return {"watchlist": name, "days": days, "limit": limit, "rows": [_rounded(r) for r in rows]}
+
+    @api.get("/cards/{video_id}")
+    def get_card(video_id: str) -> dict:
+        with store() as s:
+            try:
+                v = card.video(s, video_id)
+            except card.CardError as e:
+                raise HTTPException(404, str(e)) from None
+            c = card.load(s, v["id"])
+            if c is None:
+                raise HTTPException(404, f"Reference {v['external_id']} has no card yet; run "
+                                         f"python -m cf.research fetch {v['external_id']} (skill /analyze-reference)")
+            ref = feed.reference(s, v["external_id"])
+            row = {**ref.to_dict(), "outlier": outlier.score(s, v["external_id"])} if ref else None
+            if row and row["outlier"] is not None:
+                row["outlier"] = round(row["outlier"], 2)
+            return {"external_id": v["external_id"], "reference": row, "card": c,
+                    "sections": c["measured"].get("sections") or [], "proposed": _pending(s, c["analysis"]),
+                    "media": _proxy(footage, v["external_id"])}
 
     return api

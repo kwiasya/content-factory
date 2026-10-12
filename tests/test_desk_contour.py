@@ -132,3 +132,27 @@ class FeedTest(ContourCase):
     def test_an_unknown_kind_is_422_and_an_unknown_watchlist_404(self):
         self.get("/api/contour/watchlists/lisbon/feed", 422, kind="huge")
         self.get("/api/contour/watchlists/nowhere/feed", 404)
+
+
+class CardTest(ContourCase):
+    def test_card_carries_measured_analysis_sections_the_proxy_and_pending_values(self):
+        got = self.get(f"/api/contour/cards/{V1}")
+        self.assertEqual((got["reference"]["title"], got["reference"]["outlier"]), ("Alfama at dusk", 9.0))
+        self.assertEqual(got["card"]["measured"]["cuts_per_min"], 12.0)
+        self.assertEqual(got["card"]["measured"]["heatmap_peaks"][0]["quote"], "Okay, sunset time.")
+        self.assertEqual(got["card"]["analysis"]["visual_layout"]["sub_category"], "proposed:golden_hour_descent")
+        self.assertEqual([x["text"] for x in got["sections"]],
+                         ["So this is Alfama, the oldest part of Lisbon.", "Watch the stairs."])
+        self.assertEqual(got["media"], f"references/lisbon/{V1}/proxy.mp4")
+        self.assertEqual(got["proposed"], [{"kind": "editing_style", "value": "golden_hour_descent"}])
+        self.assertEqual(self.client.get("/api/media", params={"path": got["media"]}).status_code, 200)
+
+    def test_a_measured_only_card_has_no_analysis_and_no_player(self):
+        got = self.get(f"/api/contour/cards/{V2}")
+        self.assertIsNone(got["card"]["analysis"])
+        self.assertIsNone(got["media"])
+        self.assertEqual(got["sections"], [])
+
+    def test_unknown_reference_or_one_without_a_card_is_404(self):
+        self.get("/api/contour/cards/nope0000000", 404)
+        self.assertIn("fetch", self.get(f"/api/contour/cards/{V3}", 404)["detail"])
