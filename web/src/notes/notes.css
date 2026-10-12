@@ -110,9 +110,3 @@
 .note-group {
   margin-bottom: 16px;
 }
-
-.nav-notes {
-  margin-left: auto;
-  color: var(--accent);
-  text-decoration: none;
-}

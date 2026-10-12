@@ -3,11 +3,11 @@ import { api, type CatalogEntry, type CatalogGroup, type Meta } from "./api";
 import { DocPage } from "./DocPage";
 import { GitBadge } from "./GitBadge";
 import { formatSize, formatTime } from "./format";
-import { researchRoute } from "./research/ResearchPage";
+import { ResearchNav, researchRoute } from "./research/ResearchPage";
 import { SearchBox, searchRoute } from "./search/SearchPage";
 import { FormatsNav, FormatsRoute } from "./formats/FormatsRoute";
 import { LintBadge } from "./formats/SkillLint";
-import { NOTES_HASH, NotesPage, useNotesRoute } from "./notes/NotesPage";
+import { NotesNav, notesRoute } from "./notes/NotesPage";
 import { VideosNav, videosRoute } from "./videos/VideosRoute";
 import { ContourNav, contourRoute } from "./contour/ContourRoute";
 
@@ -35,7 +35,6 @@ export function App() {
   const [path, setPath] = useState<string | null>(currentPath);
   const [hash, setHash] = useState(window.location.hash);
   const [error, setError] = useState<string | null>(null);
-  const onNotes = useNotesRoute();
 
   useEffect(() => {
     api.meta().then(setMeta, (e: Error) => setError(e.message));
@@ -60,7 +59,7 @@ export function App() {
     <div className="app">
       <header className="top">
         <strong>Desk</strong>
-        <a href="#/research" className={hash.startsWith("#/research") ? "nav active" : "nav"}>Research</a>
+        <ResearchNav hash={hash} />
         <VideosNav hash={hash} />
         <ContourNav hash={hash} />
         <SearchBox />
@@ -70,7 +69,7 @@ export function App() {
             {meta.branch && <span className="branch">{meta.branch}</span>}
           </span>
         )}
-        <a href={NOTES_HASH} className="nav-notes">Notes</a>
+        <NotesNav hash={hash} />
       </header>
       <div className="body">
         <aside className="sidebar">
@@ -104,19 +103,19 @@ export function App() {
               </ul>
             </section>
           ))}
-          <FormatsNav />
+          <FormatsNav hash={hash} />
         </aside>
         {error && !path && <p className="error">{error}</p>}
         {path ? (
           <DocPage key={path} path={path} onSaved={refresh} />
-        ) : onNotes ? (
-          <NotesPage />
         ) : (
-          (researchRoute(hash) ??
+          (notesRoute(hash) ??
+          researchRoute(hash) ??
           searchRoute(hash) ??
           videosRoute(hash) ??
           contourRoute(hash) ?? (
             <FormatsRoute
+              hash={hash}
               fallback={
                 <main className="doc">
                   <p className="muted">Pick a document on the left.</p>

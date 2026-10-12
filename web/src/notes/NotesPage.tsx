@@ -3,16 +3,18 @@ import { NoteItem } from "./NoteItem";
 import { NOTE_KINDS, notesApi, type Note, type NoteKind } from "./notesApi";
 import "./notes.css";
 
-export const NOTES_HASH = "#/notes";
+const NOTES_HASH = "#/notes";
 
-export function useNotesRoute(): boolean {
-  const [active, setActive] = useState(() => window.location.hash === NOTES_HASH);
-  useEffect(() => {
-    const onHash = () => setActive(window.location.hash === NOTES_HASH);
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, []);
-  return active;
+export function NotesNav({ hash }: { hash: string }) {
+  return (
+    <a href={NOTES_HASH} className={hash === NOTES_HASH ? "nav active" : "nav"}>
+      Notes
+    </a>
+  );
+}
+
+export function notesRoute(hash: string) {
+  return hash === NOTES_HASH ? <NotesPage /> : null;
 }
 
 const KIND_TITLES: Record<NoteKind, string> = {
@@ -38,7 +40,7 @@ function Target({ note }: { note: Note }) {
   return <code>{note.key}</code>;
 }
 
-export function NotesPage() {
+function NotesPage() {
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

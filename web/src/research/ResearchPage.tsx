@@ -6,6 +6,14 @@ const PREFIX = "#/research";
 
 const docHref = (path: string) => "#/doc/" + encodeURIComponent(path);
 
+export function ResearchNav({ hash }: { hash: string }) {
+  return (
+    <a href={PREFIX} className={hash === PREFIX || hash.startsWith(PREFIX + "/") ? "nav active" : "nav"}>
+      Research
+    </a>
+  );
+}
+
 export function researchRoute(hash: string) {
   if (hash !== PREFIX && !hash.startsWith(PREFIX + "/")) {
     return null;

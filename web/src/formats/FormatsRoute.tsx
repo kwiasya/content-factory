@@ -7,16 +7,6 @@ import "./formats.css";
 const ROOT = "#/formats";
 const DOC = "#/doc/";
 
-function useHash(): string {
-  const [hash, setHash] = useState(window.location.hash);
-  useEffect(() => {
-    const onHash = () => setHash(window.location.hash);
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, []);
-  return hash;
-}
-
 function route(hash: string): { id: string | null } | null {
   if (hash === ROOT) {
     return { id: null };
@@ -24,8 +14,8 @@ function route(hash: string): { id: string | null } | null {
   return hash.startsWith(ROOT + "/") ? { id: decodeURIComponent(hash.slice(ROOT.length + 1)) } : null;
 }
 
-export function FormatsNav() {
-  const active = route(useHash()) !== null;
+export function FormatsNav({ hash }: { hash: string }) {
+  const active = route(hash) !== null;
   return (
     <section className="group">
       <h2>Shelves</h2>
@@ -40,8 +30,8 @@ export function FormatsNav() {
   );
 }
 
-export function FormatsRoute({ fallback }: { fallback: ReactNode }) {
-  const current = route(useHash());
+export function FormatsRoute({ hash, fallback }: { hash: string; fallback: ReactNode }) {
+  const current = route(hash);
   if (!current) {
     return <>{fallback}</>;
   }
