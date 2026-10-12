@@ -40,7 +40,7 @@ class StoreLocationTest(unittest.TestCase):
         with st.open_store(self.dir / "f.db") as s:
             self.assertLessEqual(
                 {"watchlist", "channel", "watchlist_channel", "video", "snapshot", "card",
-                 "idea", "hook", "taxonomy", "quota"},
+                 "idea", "hook", "taxonomy", "quota", "note"},
                 set(s.tables()))
 
     def test_reopening_keeps_the_schema_version(self):

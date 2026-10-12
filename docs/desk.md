@@ -1,6 +1,6 @@
 # Desk
 
-Desk is the Author's window over the files the Editor works with (ADR 0005, `GLOSSARY.md`: Desk). It reads and writes the same files in the repo; it has no database of its own, launches nothing and never commits. Code: `src/cf/desk/` (API), `web/` (frontend).
+Desk is the Author's window over the files the Editor works with (ADR 0005, `GLOSSARY.md`: Desk). It reads and writes the same files in the repo; it has no database of its own except the `note` table in `factory.db`, launches nothing and never commits. Code: `src/cf/desk/` (API), `web/` (frontend).
 
 ## Start
 
@@ -22,7 +22,7 @@ npm --prefix web run build               # after every frontend change
 | `--port PORT` | `8765` | Port. |
 | `--token T` | none | Shared token. When set, every request must carry it. |
 
-Footage root and `factory.db` follow `cf.research`: `CF_FOOTAGE_ROOT` (default `~/Movies/content-factory`) and `CF_FACTORY_DB` (default `<footage root>/factory.db`). Desk only reports them in `/api/meta` for now; it does not open the database (opening it migrates and seeds, which is a write).
+Footage root and `factory.db` follow `cf.research`: `CF_FOOTAGE_ROOT` (default `~/Movies/content-factory`) and `CF_FACTORY_DB` (default `<footage root>/factory.db`). Desk reports them in `/api/meta` and opens the database only for Notes, one connection per request (opening it migrates and seeds, which is a write).
 
 ## Security
 
@@ -56,10 +56,38 @@ The groups live in one place, `GROUPS` in `src/cf/desk/catalog.py`; a new group 
 | `GET /api/formats/{id}` | `format` (`path`, `text` of FORMAT.md; edit it through `PUT /api/doc`), `hook_library` (`path`, `text`, or null until `hooks export`), `topics` (two-digit numbers from the "Research rules that apply" line, each with its `docs/research/NN-*/rules.md` path or null), `rules` (rows of those tables: `topic`, `id`, `rule`, `scope`, `tag`, `source`, `confidence`, mapped by the table header), `videos` (`videos/*/video.json` under the footage root whose `format` is `id`: `slug`, `title`, `status`, `channel`, `path`) |
 | `GET /api/skills/lint` | `skills`: broken reference count per own skill, for the catalogue badge |
 | `GET /api/skills/{name}/lint` | `missing_paths` and `missing_skills` (`ref`, `file`, `line`) for one own skill; 404 for vendored or unknown skills |
+| `GET /api/notes[?kind=&key=&all=1]` | `notes`: open Notes (all with `all=1`), oldest first, optionally of one `kind` and `key` |
+| `POST /api/notes` | body `{kind, key, text}`: 201 with the Note; 422 for an unknown kind, a missing key or empty text |
+| `POST /api/notes/{id}/resolve` | the Note with `resolved_at` set; 404 for an unknown id |
+| `DELETE /api/notes/{id}` | the deleted Note; 404 for an unknown id |
 
 Skill lint reads every `.md` of the skill. A path is a token with `/` or ending in `.md`, `.json`, `.py`, without placeholders (`<>{}*$~:`) or `..`, whose first segment exists at the repo root, the skill folder or the file's folder; it is broken when it exists in none of those. A skill mention is `/name`; it is broken when `.claude/skills/<name>/` does not exist and `name` is not a Claude Code built-in command.
 
 Git is read-only: status, diff, log. Commits stay with the Author or the Editor.
+
+## Notes
+
+A Note is the Author's remark on one entity for the Editor (`GLOSSARY.md`: Note), the only channel from Desk to the Editor (ADR 0005). Table `note` in `factory.db` (store migration V5): `id`, `kind`, `key`, `text`, `created_at`, `resolved_at` (empty while open). Code: `cf.research.notes`.
+
+| Kind | Key |
+|---|---|
+| `document` | repo-relative path of a catalogued document, e.g. `.claude/skills/reel/SKILL.md` |
+| `skill` | skill name, e.g. `write-script` |
+| `video`, `card`, `idea` | the entity's id |
+| `general` | empty: applies to every skill |
+
+In Desk every document has a Notes box under it (add, resolve, delete), and the Notes page (`#/notes`) lists all open Notes grouped by kind and takes general Notes. The Editor uses the CLI:
+
+```sh
+python -m cf.research notes list [--kind K] [--key PATH|ID] [--all] [--json]
+python -m cf.research notes add <kind> <key> "<text>"     # "" as key for general
+python -m cf.research notes resolve <id>
+python -m cf.research notes delete <id>
+```
+
+### Skill hook
+
+`.claude/settings.json` runs `.claude/hooks/skill_notes.py` (with `.venv/bin/python`) on `PreToolUse` for the `Skill` tool and on `UserPromptExpansion` (a typed `/skill` bypasses `PreToolUse`). It hands the Editor, as `additionalContext`, the open Notes of kind `skill` for that skill, of kind `document` under `.claude/skills/<skill>/`, and the `general` ones, with the command to resolve them. It reads `factory.db` read-only with the stdlib (same path rules as `cf.research`) and never migrates it; with no db, no `note` table, no matching Notes or unexpected input it prints nothing and exits 0. The rule in `CLAUDE.md` (Agent skills, Notes) covers the entity a skill works on, which the hook cannot know.
 
 ## Frontend
 
@@ -67,4 +95,4 @@ Git is read-only: status, diff, log. Commits stay with the Author or the Editor.
 
 ## Tests
 
-`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_formats.py` (Format shelf and skill lint) and `tests/test_desk_cli.py` (flags). They do not need the frontend build.
+`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_formats.py` (Format shelf and skill lint), `tests/test_desk_notes.py` (Notes API, and the skill hook run against a temporary db), `tests/test_desk_cli.py` (flags) and `tests/test_research_notes_cli.py` (`notes` CLI). They do not need the frontend build.
