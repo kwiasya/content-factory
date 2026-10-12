@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { contourApi, type Idea, type IdeaAction } from "./api";
 import { BriefEditor } from "./BriefEditor";
 import { Cmd, ContourShell, Status } from "./ContourShell";
+import { NoteBox } from "../notes/NoteBox";
 import { cardHref, ideasHref } from "./routes";
 import { useLoad } from "./useLoad";
 
@@ -193,7 +194,7 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
         </div>
       </dl>
 
-      <h2 className="section">Notes</h2>
+      <h2 className="section">Idea notes</h2>
       {idea.notes.length === 0 ? (
         <p className="muted">No notes yet.</p>
       ) : (
@@ -224,6 +225,7 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
       ) : (
         <p className="muted">Shortlist the Idea first; a Brief is written from a shortlisted Idea.</p>
       )}
+      <NoteBox kind="idea" noteKey={String(idea.id)} />
     </section>
   );
 }

@@ -80,10 +80,10 @@ A Note is the Author's remark on one entity for the Editor (`GLOSSARY.md`: Note)
 |---|---|
 | `document` | repo-relative path of a catalogued document, e.g. `.claude/skills/reel/SKILL.md` |
 | `skill` | skill name, e.g. `write-script` |
-| `video`, `card`, `idea` | the entity's id |
+| `video`, `card`, `idea` | the entity's id: the Video slug (`<walk>~<reel>` for a legacy Reel), the Reference's YouTube video id, the Idea id |
 | `general` | empty: applies to every skill |
 
-In Desk every document has a Notes box under it (add, resolve, delete), and the Notes page (`#/notes`) lists all open Notes grouped by kind and takes general Notes. The Editor uses the CLI:
+In Desk every document, Video page, Reference card and Idea has a Notes box under it (add, resolve, delete), and the Notes page (`#/notes`) lists all open Notes grouped by kind and takes general Notes. The Editor uses the CLI:
 
 ```sh
 python -m cf.research notes list [--kind K] [--key PATH|ID] [--all] [--json]
@@ -111,7 +111,7 @@ Code: `src/cf/desk/videos_api.py`, `src/cf/desk/media.py`, `web/src/videos/`. De
 | `PUT /api/videos/{slug}/file` | body `{path, text, hash}`: the same hashed atomic write as documents; `brief.md` and `notes.md` can be created with `hash: ""`; the hash is checked first (409 on a stale one, before any JSON check); a `script*.json` must be a `cf-script/1` document (a missing or other `schema` is a violation) and is validated by `cf.script_schema` (with the Walk's `clip_manifest.json` and the repo `style.json` when present); 422 with `violations` writes nothing |
 | `GET /api/media?path=` | file streaming with HTTP Range (206) for paths relative to the footage root under `videos/<slug>/{renders,overlays,sources}/`, `<walk>/proxy/`, `<walk>/reels/<reel>/`, `references/<watchlist>/<id>/proxy.mp4`; `raw/`, symlinks out, directories and everything else are 404 |
 
-The web page lives at `#/videos` (list) and `#/videos/<slug>`. ProRes 4444 overlays play in Safari only.
+The web page lives at `#/videos` (list) and `#/videos/<slug>`; a Video page links its `video.json` `references` to their cards (`#/contour/cards/<id>`) and its `ideas` to the Idea inbox (`#/contour/ideas/<id>`). ProRes 4444 overlays play in Safari only.
 
 ## Research contour
 

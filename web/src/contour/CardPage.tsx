@@ -3,6 +3,7 @@ import { contourApi, mediaUrl, type Measured } from "./api";
 import { Cmd, ContourShell, Status } from "./ContourShell";
 import { plain, seconds, outlierText, viewsText } from "./format";
 import { Heatmap } from "./Heatmap";
+import { NoteBox } from "../notes/NoteBox";
 import { CONTOUR_PREFIX, taxonomyHref } from "./routes";
 import { useLoad } from "./useLoad";
 
@@ -213,6 +214,7 @@ export function CardPage({ id }: { id: string }) {
           — decide on the <a href={taxonomyHref()}>Taxonomy</a> page.
         </p>
       )}
+      <NoteBox kind="card" noteKey={data.external_id} />
     </ContourShell>
   );
 }

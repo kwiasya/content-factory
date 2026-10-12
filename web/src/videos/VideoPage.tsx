@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { cardHref, ideaHref } from "../contour/routes";
+import { NoteBox } from "../notes/NoteBox";
 import { formatSize, formatTime } from "./format";
 import { VIDEOS_PREFIX } from "./routes";
 import { TextFileEditor } from "./TextFileEditor";
@@ -67,6 +69,8 @@ export function VideoPage({ slug }: { slug: string }) {
 
       <StatusStrip detail={detail} onChanged={setDetail} onReload={load} />
 
+      <LinkedResearch references={video.references ?? []} ideas={video.ideas ?? []} />
+
       <nav className="tabs">
         {TABS.map((t) => (
           <button key={t.id} className={t.id === tab ? "active" : ""} onClick={() => setTab(t.id)}>
@@ -113,7 +117,40 @@ export function VideoPage({ slug }: { slug: string }) {
           <p className="muted">No references.md in this folder.</p>
         ))}
       {tab === "notes" && <TextFileEditor key="notes" slug={slug} path="notes.md" creatable onSaved={load} />}
+
+      <NoteBox kind="video" noteKey={detail.slug} />
     </main>
+  );
+}
+
+function LinkedResearch({ references, ideas }: { references: string[]; ideas: string[] }) {
+  return (
+    <dl className="facts linked">
+      <div>
+        <dt>References</dt>
+        <dd>
+          {references.length === 0
+            ? "—"
+            : references.map((id) => (
+                <a key={id} href={cardHref(id)}>
+                  <code>{id}</code>
+                </a>
+              ))}
+        </dd>
+      </div>
+      <div>
+        <dt>Ideas</dt>
+        <dd>
+          {ideas.length === 0
+            ? "—"
+            : ideas.map((id) => (
+                <a key={id} href={ideaHref(id)}>
+                  #{id}
+                </a>
+              ))}
+        </dd>
+      </div>
+    </dl>
   );
 }
 

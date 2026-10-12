@@ -228,3 +228,7 @@ button.link.active {
   flex-shrink: 0;
   white-space: nowrap;
 }
+
+.facts.linked dd a {
+  margin-right: 0.75rem;
+}

@@ -14,6 +14,7 @@ export const watchlistHref = (name: string) => `${CONTOUR_PREFIX}/watchlists/${e
 export const summaryHref = (name: string) => `${watchlistHref(name)}/summary`;
 export const cardHref = (id: string) => `${CONTOUR_PREFIX}/cards/${enc(id)}`;
 export const ideasHref = (id?: number) => `${CONTOUR_PREFIX}/ideas${id === undefined ? "" : `/${id}`}`;
+export const ideaHref = (id: string | number) => `${CONTOUR_PREFIX}/ideas/${enc(String(id))}`;
 export const taxonomyHref = () => `${CONTOUR_PREFIX}/taxonomy`;
 
 export function parseContour(hash: string): ContourView | null {
