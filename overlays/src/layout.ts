@@ -49,6 +49,22 @@ export const layoutText = (opts: {
   maxWidth: number;
   minScale?: number;
 }): TextLayout => {
+  // A "\n" in the text is a forced line break: each paragraph is laid out on its own
+  // lines (word and line limits apply per paragraph), all at one font size.
+  const paragraphs = opts.text.split(/\r?\n/).map((p) => p.trim()).filter(Boolean);
+  if (paragraphs.length > 1) {
+    const parts = paragraphs.map((p) => layoutText({ ...opts, text: p }));
+    const fontSize = Math.min(...parts.map((l) => l.fontSize));
+    const css = `${opts.fontStyle === "italic" ? "italic " : ""}${opts.fontWeight} ${fontSize}px ${opts.fontFamily}`;
+    const lines = parts.flatMap((l) => l.lines);
+    return {
+      lines,
+      fontSize,
+      width: Math.max(...lines.map((l) => measure(l, css, (opts.letterSpacingEm ?? 0) * fontSize))),
+      wordOverflow: parts.some((l) => l.wordOverflow),
+      shrunk: parts.some((l) => l.shrunk),
+    };
+  }
   const words = opts.text.trim().split(/\s+/).filter(Boolean);
   const css = (size: number) =>
     `${opts.fontStyle === "italic" ? "italic " : ""}${opts.fontWeight} ${size}px ${opts.fontFamily}`;

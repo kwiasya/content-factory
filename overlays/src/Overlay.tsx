@@ -208,16 +208,19 @@ export const Overlay: React.FC<OverlayProps> = ({
 
   // Animation: fade + slide up in, fade out. Squeezed if the clip is too short.
   const total = Math.max(1, durationInFrames);
-  const inF = Math.max(1, Math.min(style.animation.in.frames, Math.floor(total / 2)));
-  const outF = Math.max(1, Math.min(style.animation.out.frames, Math.floor(total / 2)));
+  // 0 frames = no animation on that side (a hard cut on: list items that pop in on the cut).
+  const inF = style.animation.in.frames <= 0 ? 0 : Math.max(1, Math.min(style.animation.in.frames, Math.floor(total / 2)));
+  const outF = style.animation.out.frames <= 0 ? 0 : Math.max(1, Math.min(style.animation.out.frames, Math.floor(total / 2)));
   const inEase = easingFromName(style.animation.in.ease);
   const outEase = easingFromName(style.animation.out.ease);
   const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
-  const inP = interpolate(frame, [0, inF], [0, 1], { ...clamp, easing: inEase });
-  const outP = interpolate(frame, [total - outF, total], [1, 0], {
-    ...clamp,
-    easing: outEase,
-  });
+  const inP = inF ? interpolate(frame, [0, inF], [0, 1], { ...clamp, easing: inEase }) : 1;
+  const outP = outF
+    ? interpolate(frame, [total - outF, total], [1, 0], {
+        ...clamp,
+        easing: outEase,
+      })
+    : 1;
   const opacity = Math.min(inP, outP);
   const slide = (1 - inP) * style.animation.in.distance_px;
 

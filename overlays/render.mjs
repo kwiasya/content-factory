@@ -14,7 +14,9 @@
 // reference_width (2 at 2160x3840 and at 3840x2160).
 // `preset` is optional; it defaults to style.json typography.preset, then "legacy".
 // Optional `anchor` (a slot name from src/slots.json, e.g. "lower-left") overrides
-// the preset's placement; optional `scrim` (0..1) overrides its scrim strength.
+// the preset's placement; optional `scrim` (0..1) overrides its scrim strength;
+// optional `in_frames` / `out_frames` (0 = none) override the fade lengths.
+// A "\n" in `text` is a forced line break.
 // Relative style_path resolves against the spec file's folder; relative --spec and
 // --out resolve against the caller's cwd (INIT_CWD under npm run).
 // Last stdout line is a JSON summary; exit 0 ok, 1 render failed, 2 bad input,
@@ -144,6 +146,18 @@ if (spec.anchor !== undefined && !knownSlots.includes(spec.anchor))
   die(2, `unknown anchor "${spec.anchor}"; known: ${knownSlots.join(", ")}`);
 if (spec.scrim !== undefined && !(typeof spec.scrim === "number" && spec.scrim >= 0 && spec.scrim <= 1))
   die(2, "spec.scrim must be a number in 0..1");
+
+// Optional in_frames / out_frames (int >= 0) replace style.animation in/out frames for
+// this overlay; 0 = no fade on that side (a list item that cuts on with its shot).
+for (const k of ["in_frames", "out_frames"])
+  if (spec[k] !== undefined && !(Number.isInteger(spec[k]) && spec[k] >= 0))
+    die(2, `spec.${k} must be an integer >= 0`);
+if (spec.in_frames !== undefined || spec.out_frames !== undefined)
+  style.animation = {
+    ...style.animation,
+    in: { ...style.animation.in, ...(spec.in_frames !== undefined ? { frames: spec.in_frames } : {}) },
+    out: { ...style.animation.out, ...(spec.out_frames !== undefined ? { frames: spec.out_frames } : {}) },
+  };
 
 const fps = style.canvas.fps;
 const durationInFrames = Math.round(spec.duration_s * fps);

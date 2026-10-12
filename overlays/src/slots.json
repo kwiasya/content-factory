@@ -50,5 +50,11 @@
     "y": 1400,
     "align": "left",
     "_note": "below the strict ads safe zone (y 1248) but inside the organic caption zone (~y 1490); author asked for it"
+  },
+  "list-center": {
+    "anchor": "top-center",
+    "y": 880,
+    "align": "center",
+    "_note": "top edge fixed at y 880 (below a face in the upper third, above the right rail at 1150 for up to 3 lines of tiktok-hype hook): a list header stays put while item lines are added under it (walk-2026-09-13 reel-01 'my type:')"
   }
 }

@@ -104,6 +104,28 @@ class BadScriptTest(unittest.TestCase):
         d["target_length_s"] = 8
         self.assertViolation(d, "overlay holds 1.80 s")
 
+    def test_script_overlay_min_hold_replaces_style(self):
+        d = good()
+        d["shots"][1]["out_s"] = 3.8  # 1.8 s
+        d["target_length_s"] = 8
+        d["overlay_min_hold_s"] = 1.2
+        self.assertEqual(problems(d), [])
+        d["shots"][1]["out_s"] = 3.0  # 1.0 s < 1.2 s
+        d["shots"][1]["role"] = "build"
+        self.assertViolation(d, "overlay holds 1.00 s")
+
+    def test_overlay_min_hold_must_be_positive(self):
+        d = good()
+        d["overlay_min_hold_s"] = 0
+        self.assertViolation(d, "overlay_min_hold_s: must be > 0")
+
+    def test_emoji_is_not_a_word(self):
+        d = good()
+        d["shots"][1]["overlay"]["text"] = "my type:\nand will touch grass with me \U0001f33e"
+        self.assertEqual(problems(d), [])
+        d["shots"][1]["overlay"]["text"] = "one two three four five six seven eight nine \U0001f33e"
+        self.assertViolation(d, "overlay has 9 words")
+
     def test_overlay_type(self):
         d = good()
         d["shots"][1]["overlay"]["type"] = "title"

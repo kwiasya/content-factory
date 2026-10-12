@@ -29,6 +29,7 @@ A Script is the text plan of one Reel, written before anything touches Resolve. 
 | `track` | path or null | The Track the user supplied (WAV; relative to the reel folder, e.g. `track/source.wav`); null until given. cf.build places it on A2 "music" |
 | `track_in_s` | number, optional | Where the Track starts at timeline frame 0, in Track seconds; default `intro_end` from `beats.json` (the quiet start skipped). Resolve snaps it to a whole timeline frame |
 | `track_fade_out_s` | number, optional | Fade-out of the Track at the end of the timeline, seconds (default 0.6) |
+| `overlay_min_hold_s` | number, optional | Minimum overlay hold for this Script, seconds; replaces `style.json` `animation.min_hold_s` (2 s) in the validator, for a fast list Reel the author planned with shorter text beats |
 | `metrics` | object or null | Reserved: `avg_watch_time`, `shares`, `saves`, `reach`, filled by hand after publishing |
 
 ## Writing rules
@@ -37,7 +38,7 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 
 - Hook text is 5–8 words and sits inside the safe zone from `style.json`; `hook.clip` is the first shot's clip.
 - A shot's `transition` is the one into that shot (on the first shot: from black). Durations are timeline seconds: `(out_s − in_s) / speed`.
-- One overlay per scene or location change; each overlay holds ≥2 s; ≤8 words.
+- One overlay per scene or location change; each overlay holds ≥2 s (or the Script's `overlay_min_hold_s`); ≤8 words (an emoji is not a word). A `\n` in overlay text is a forced line break.
 - `overlay.span` (int ≥ 1, default 1) stretches one overlay over this shot and the next span−1 shots (one label for a place cut into short shots): it starts at this shot's record frame and lasts the spanned shots' summed duration (from `cuts.json` record frames when present), which is what the ≥2 s hold checks; the spanned shots carry no overlay of their own, and a span never reaches the last shot of a `loop_seamless` Reel.
 - A `place` overlay says what the place is, not only its name: "Hotel: FlipFlop Cala Romantica", "Beach: Cala Romántica", "Park Babelsberg" is fine only when the name already says it (author rule, 2026-10-11).
 - Shots are ordered for impact: the Script reorders Clips freely, chronology is one option among many.

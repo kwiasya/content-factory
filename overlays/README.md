@@ -65,6 +65,7 @@ npx --no-install remotion render src/index.ts Overlay <out> --props=<tmp> \
 | `preset` | Optional. Overlay preset name (see Presets); defaults to `typography.preset` in style.json, then `legacy`. An unknown name exits 2 and lists the known ones. |
 | `anchor` | Optional. A named slot from `src/slots.json` (`lower-left`, `lower-center`, `mid-left`, `mid-center`, `high-left`, `high-center`, `upper-left`, `upper-center`) that replaces the preset role's placement, for example the calmest, darkest area of this shot that is clear of the face. Unknown → exit 2. |
 | `scrim` | Optional, 0..1. Overrides the preset role's scrim strength. |
+| `in_frames`, `out_frames` | Optional ints ≥ 0. Replace `animation.in/out.frames` for this overlay; 0 = no fade on that side (a list item that cuts on with its shot, a header that must not blink at the cut). |
 | `canvas` | Optional. A style.json `canvases` name (`portrait`, `landscape`) or `WxH`; `--canvas` on the command line wins. The preset's size, `reference_width`, `safe_zone`, `overlay_positions` and `slots` replace the top-level ones. On `landscape` (3840×2160, reference 1920×1080) every overlay preset keeps its type system and takes its placement from `canvases.landscape.overlay_positions`, and `anchor` names resolve against `canvases.landscape.slots`; `designScale` is 2 on both 4K canvases, so text is the same size relative to the frame's short side. |
 
 ## Presets
@@ -153,7 +154,7 @@ These are the `legacy` preset's inputs.
 (for example `out-cubic`). Not read: `colors.accent`, `typography.*.file`, and
 everything about pacing, look and audio.
 
-**Line breaking.** Words are split into the fewest lines that respect
+**Line breaking.** A `\n` in `text` is a forced break: each paragraph is laid out on its own lines with the rules below, all at one font size (a list header "my type:" over its item). Words are split into the fewest lines that respect
 `max_words_per_line`, and the text must also fit the width the safe zone
 leaves. Among the valid splits it picks the most balanced one, measured with
 the real font. If no split up to `max_lines` fits, it shrinks the font, to no

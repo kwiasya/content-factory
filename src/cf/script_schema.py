@@ -108,6 +108,7 @@ class Script:
     track_fade_out_s: float | None = None
     metrics: dict | None = None
     canvas: str | None = None  # style.json canvases name ('landscape') or 'WxH'; None = style.json canvas
+    overlay_min_hold_s: float | None = None  # replaces style.animation.min_hold_s for this Script
 
     @property
     def total_s(self) -> float:
@@ -209,6 +210,7 @@ def from_dict(d: dict) -> Script:
         track_fade_out_s=_opt_num(d, "track_fade_out_s", "script"),
         metrics=d.get("metrics"),
         canvas=_str(d, "canvas", "script", required=False),
+        overlay_min_hold_s=_opt_num(d, "overlay_min_hold_s", "script"),
     )
 
 
@@ -231,7 +233,8 @@ def manifest_clips(manifest: dict | None) -> dict[str, dict]:
 
 # -- validation ----------------------------------------------------------------
 def words(text: str) -> int:
-    return len(text.split())
+    """Words in ``text``; a token with no letter or digit (an emoji, a dash) is not a word."""
+    return sum(1 for t in text.split() if any(ch.isalnum() for ch in t))
 
 
 def overlay_cover(shots: list[Shot]) -> dict[int, int]:
@@ -252,6 +255,11 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
     shot_min = float(shot_s.get("min", SHOT_MIN_S))
     payoff_max = max(SHOT_MAX_S, float(shot_s.get("payoff_max", SHOT_MAX_S)))
     min_hold = float((style.get("animation") or {}).get("min_hold_s", 2.0))
+    if script.overlay_min_hold_s is not None:
+        if script.overlay_min_hold_s <= 0:
+            v.append(f"overlay_min_hold_s: must be > 0, got {script.overlay_min_hold_s:g}")
+        else:
+            min_hold = script.overlay_min_hold_s
     try:
         canvas_w, canvas_h = canvas_size(style, script.canvas)
     except ValueError as exc:
