@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from cf.desk import skills
+
 TEXT_SUFFIXES = (".md", ".json")
 
 
@@ -64,7 +66,7 @@ class Listing:
 
 
 def is_vendored_skill(rel: str) -> bool:
-    return rel.split("/")[2].startswith("remotion-")
+    return skills.is_vendored(rel.split("/")[2])
 
 
 skill_title = folder_title(2)
@@ -74,7 +76,7 @@ GROUPS: tuple[Group, ...] = (
         Source(".claude/skills/*/**/*", exclude=is_vendored_skill, title=skill_title, skill=True),
     )),
     Group("skills-vendored", "Vendored skills", (
-        Source(".claude/skills/remotion-*/**/*", editable=False, title=skill_title, skill=True),
+        Source(f".claude/skills/{skills.VENDORED_PREFIX}*/**/*", editable=False, title=skill_title, skill=True),
     ), hidden=True),
     Group("content", "Content", (
         Source("CLAUDE.md"),
@@ -123,10 +125,12 @@ def frontmatter_description(text: str) -> str | None:
     return None
 
 
-def skill_facts(path: Path) -> dict:
+def skill_facts(repo: Path, rel: str) -> dict:
+    path = repo / rel
     st = path.stat()
+    name = skills.name_of(rel) or ""
     description = frontmatter_description(path.read_text(encoding="utf-8")) if path.name == "SKILL.md" else None
-    return {"description": description, "size": st.st_size,
+    return {"skill": name, "vendored": skills.is_vendored(name), "description": description, "size": st.st_size,
             "mtime": datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat(timespec="seconds")}
 
 
@@ -164,7 +168,7 @@ def list_groups(repo: Path, *, include_hidden: bool = False) -> list[Listing]:
                 listing.empty.append({"glob": source.glob, "hint": source.empty_hint})
             for rel in rels:
                 title = source.title(rel) if source.title else rel
-                facts = skill_facts(repo / rel) if source.skill else None
+                facts = skill_facts(repo, rel) if source.skill else None
                 listing.entries.append(Entry(rel, group.id, title, kind_of(rel), source.editable, facts))
         listings.append(listing)
     return listings

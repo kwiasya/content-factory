@@ -121,6 +121,14 @@ class CatalogTest(DeskTestCase):
         self.assertIn("mtime", docs[".claude/skills/remotion-foo/SKILL.md"])
         self.assertNotIn("description", docs["CLAUDE.md"])
 
+    def test_skill_entries_name_their_skill_and_whether_it_is_vendored(self):
+        docs = {d["path"]: d for g in self.catalog(all=1).values() for d in g["docs"]}
+        self.assertEqual((docs[".claude/skills/beta/templates/x.md"]["skill"],
+                          docs[".claude/skills/beta/templates/x.md"]["vendored"]), ("beta", False))
+        self.assertEqual((docs[".claude/skills/remotion-foo/rules/a.md"]["skill"],
+                          docs[".claude/skills/remotion-foo/rules/a.md"]["vendored"]), ("remotion-foo", True))
+        self.assertNotIn("vendored", docs["CLAUDE.md"])
+
     def test_missing_author_folder_is_an_empty_state_pointing_to_author_setup(self):
         content = self.catalog()["content"]
         self.assertEqual(content["empty"][0]["glob"], "author/*.md")

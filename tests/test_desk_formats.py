@@ -169,6 +169,7 @@ class FormatVideosTest(FormatsTestCase):
                           ("w1~short-01", "script", str(reel))])
         self.assertEqual(self.get("/api/formats/tech-explainer")["videos"], [])
 
+
 class SkillLintTest(FormatsTestCase):
     def refs(self, items: list[dict]) -> list[str]:
         return [i["ref"] for i in items]

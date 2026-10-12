@@ -7,9 +7,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from cf.desk import catalog
+from cf.desk import catalog, skills
+from cf.desk.skills import SKILLS_DIR
 
-SKILLS = ".claude/skills"
 STORE = "src/cf/research/store.py"
 PATH_RE = re.compile(r"(?<![\w./~-])((?:[\w.-]+/)+[\w.-]*|[\w-]+\.(?:md|json|py|ts|tsx|toml|yaml|yml|cube))")
 COMMAND_RE = re.compile(r"\bcf\.research[ \t]+([a-z][a-z0-9_-]*)(?:[ \t]+([a-z][a-z0-9_-]*))?")
@@ -18,19 +18,14 @@ SKIPPED_SEGMENTS = {".git", ".venv", "node_modules", "__pycache__", ".."}
 
 
 def own_skill_texts(repo: Path) -> dict[str, str]:
+    own = set(skills.own_skills(repo))
     texts: dict[str, list[str]] = {}
     for listing in catalog.list_groups(repo):
-        if listing.group.id != "skills":
-            continue
         for entry in listing.entries:
-            name = entry.path.split("/")[2]
-            texts.setdefault(name, []).append((repo / entry.path).read_text(encoding="utf-8"))
+            name = skills.name_of(entry.path)
+            if name in own:
+                texts.setdefault(name, []).append((repo / entry.path).read_text(encoding="utf-8"))
     return {name: "\n".join(parts) for name, parts in sorted(texts.items())}
-
-
-def all_skill_names(repo: Path) -> list[str]:
-    root = repo / SKILLS
-    return sorted(p.name for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
 
 
 def store_tables(repo: Path) -> list[str]:
@@ -39,7 +34,7 @@ def store_tables(repo: Path) -> list[str]:
 
 
 def mentioned_paths(repo: Path, name: str, text: str) -> list[str]:
-    own = f"{SKILLS}/{name}"
+    own = f"{SKILLS_DIR}/{name}"
     found = set()
     for token in PATH_RE.findall(text):
         rel = token.rstrip(".,:;").removeprefix("./").rstrip("/")
@@ -69,19 +64,13 @@ def mentioned_tables(text: str, tables: list[str]) -> list[str]:
 
 
 def mentioned_skills(name: str, text: str, names: list[str]) -> list[str]:
-    found = []
-    for other in names:
-        if other == name:
-            continue
-        o = re.escape(other)
-        if re.search(rf"(?:(?<![\w/-])/|`|{re.escape(SKILLS)}/){o}(?![\w-])", text):
-            found.append(other)
-    return found
+    found = set(skills.mentions(text, names))
+    return [other for other in names if other != name and other in found]
 
 
 def link_map(repo: Path) -> list[dict]:
     texts = own_skill_texts(repo)
-    names = all_skill_names(repo)
+    names = skills.all_names(repo)
     tables = store_tables(repo)
     catalogued = {e.path for listing in catalog.list_groups(repo, include_hidden=True) for e in listing.entries}
     entries = []
@@ -89,7 +78,7 @@ def link_map(repo: Path) -> list[dict]:
         paths = mentioned_paths(repo, name, text)
         entries.append({
             "name": name,
-            "path": f"{SKILLS}/{name}/SKILL.md",
+            "path": f"{SKILLS_DIR}/{name}/SKILL.md",
             "paths": paths,
             "catalogued": [p for p in paths if p in catalogued],
             "commands": mentioned_commands(text),

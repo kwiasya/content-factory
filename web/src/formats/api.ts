@@ -64,10 +64,3 @@ export const formatsApi = {
   lintSummary: () => getJson<{ skills: Record<string, number> }>("/api/skills/lint").then((r) => r.skills),
   lint: (name: string) => getJson<SkillLint>(`/api/skills/${encodeURIComponent(name)}/lint`),
 };
-
-const SKILL_PATH = /^\.claude\/skills\/([^/]+)\//;
-
-export function skillOf(path: string): string | null {
-  const match = SKILL_PATH.exec(path);
-  return match && !match[1].startsWith("remotion-") ? match[1] : null;
-}

@@ -8,10 +8,10 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from cf.desk import videos_api
+from cf.desk.research_api import RESEARCH_DIR
 
 FORMATS_DIR = "formats"
 FORMAT_ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
-RESEARCH_DIR = "docs/research"
 RULES_LINE_RE = re.compile(r"^\W*Research rules that apply:\s*(.*)$", re.MULTILINE)
 RULE_ROW_RE = re.compile(r"^\|\s*R\d{2}-\d+\s*\|")
 RULE_FIELDS = ("id", "rule", "scope", "tag", "source", "confidence")

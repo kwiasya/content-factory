@@ -16,9 +16,19 @@ export interface CatalogEntry {
   kind: "markdown" | "json";
   editable: boolean;
   git: GitState;
+  skill?: string;
+  vendored?: boolean;
   description?: string | null;
   size?: number;
   mtime?: string;
+}
+
+export function ownSkill(entry: CatalogEntry): string | null {
+  return entry.skill && !entry.vendored ? entry.skill : null;
+}
+
+export function ownSkillPage(entry: CatalogEntry): string | null {
+  return entry.path.endsWith("/SKILL.md") ? ownSkill(entry) : null;
 }
 
 export interface CatalogGroup {

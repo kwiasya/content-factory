@@ -1,13 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { ownSkillPage, type CatalogEntry } from "../api";
 import { skillsApi, type SkillLinks as Links } from "./api";
-
-const SKILL_RE = /^\.claude\/skills\/([^/]+)\/SKILL\.md$/;
 
 const docHref = (path: string) => "#/doc/" + encodeURIComponent(path);
 const skillHref = (name: string) => docHref(`.claude/skills/${name}/SKILL.md`);
 
-export function SkillLinks({ path }: { path: string }) {
-  const name = SKILL_RE.exec(path)?.[1] ?? null;
+export function SkillLinks({ entry }: { entry: CatalogEntry }) {
+  const name = ownSkillPage(entry);
   return name ? <SkillLinksOf key={name} name={name} /> : null;
 }
 

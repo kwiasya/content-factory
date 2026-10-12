@@ -7,22 +7,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-SKILLS_DIR = ".claude/skills"
-SKILL_NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
+from cf.desk import skills
+from cf.desk.skills import SKILLS_DIR, own_skills
+
 TOKEN_RE = re.compile(r"[^\s`'\"()\[\],;|]+")
 PLACEHOLDER_CHARS = set("<>{}*$~:")
 PATH_SUFFIXES = (".md", ".json", ".py")
-MENTION_RE = re.compile(r"(?<![\w/.~-])/([a-z0-9][a-z0-9-]*)(?![\w/-]|\.\w)")
-BUILTIN_COMMANDS = frozenset({
-    "add-dir", "agents", "clear", "compact", "config", "context", "cost", "doctor", "exit", "help", "hooks",
-    "ide", "init", "login", "logout", "mcp", "memory", "model", "permissions", "plugin", "resume", "review",
-    "status", "vim",
-})
-
-
-def own_skills(repo: Path) -> list[str]:
-    return sorted(p.parent.name for p in (repo / SKILLS_DIR).glob("*/SKILL.md")
-                  if SKILL_NAME_RE.fullmatch(p.parent.name) and not p.parent.name.startswith("remotion-"))
 
 
 def path_candidate(token: str) -> str | None:
@@ -45,6 +35,7 @@ def lint_skill(repo: Path, name: str) -> dict:
     missing_paths: list[dict] = []
     missing_skills: list[dict] = []
     seen: set[tuple[str, str]] = set()
+    known = skills.all_names(repo)
     for md in sorted(skill_dir.rglob("*.md")):
         rel = md.relative_to(repo).as_posix()
         bases = [repo, skill_dir, md.parent]
@@ -54,9 +45,9 @@ def lint_skill(repo: Path, name: str) -> dict:
                 if ref and (ref, rel) not in seen and is_missing(ref, bases):
                     seen.add((ref, rel))
                     missing_paths.append({"ref": ref, "file": rel, "line": number})
-            for skill in MENTION_RE.findall(line):
+            for skill in skills.mentions(line, known):
                 ref = "/" + skill
-                if skill in BUILTIN_COMMANDS or (ref, rel) in seen or (repo / SKILLS_DIR / skill).is_dir():
+                if skill in known or (ref, rel) in seen:
                     continue
                 seen.add((ref, rel))
                 missing_skills.append({"ref": ref, "file": rel, "line": number})

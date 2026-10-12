@@ -261,6 +261,7 @@ class BriefTest(ContourCase):
                 self.send("PUT", self.url(self.briefed), 404, body={"text": "x", "hash": ""})
         self.assertEqual(inside.read_text(), "# other\n")
 
+
 class TaxonomyTest(ContourCase):
     PROPOSED = "/api/contour/taxonomy/editing_style/golden_hour_descent"
 

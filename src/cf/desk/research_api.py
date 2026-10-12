@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-RESEARCH = "docs/research"
+RESEARCH_DIR = "docs/research"
 TOPIC_RE = re.compile(r"^(\d{2})-(.+)$")
 ROW_RE = re.compile(r"^\|\s*(\d{2})\s*\|[^|]*\|([^|]*)\|([^|]*)\|")
 FILES = {"chatgpt": "chatgpt.md", "result_a": "result-a.md", "rules": "rules.md", "verification": "verification.md"}
@@ -25,7 +25,7 @@ def readme_rows(readme: Path) -> dict[str, tuple[str, str]]:
 
 
 def topics(repo: Path) -> dict:
-    root = repo / RESEARCH
+    root = repo / RESEARCH_DIR
     if not root.is_dir():
         return {"topics": [], "synthesis": [], "readme": None}
     rows = readme_rows(root / "README.md")
@@ -36,14 +36,14 @@ def topics(repo: Path) -> dict:
             continue
         number, slug = match.groups()
         title, status = rows.get(number, (slug, ""))
-        rel = f"{RESEARCH}/{folder.name}"
+        rel = f"{RESEARCH_DIR}/{folder.name}"
         notes = sorted(f"{rel}/notes/{p.name}" for p in (folder / "notes").glob("*.md") if p.is_file())
         docs = sorted(f"{rel}/{p.name}" for p in folder.glob("*.md") if p.is_file())
         found.append({"id": folder.name, "number": number, "slug": slug, "title": title, "status": status,
                       **{key: (folder / name).is_file() for key, name in FILES.items()},
                       "notes": notes, "docs": docs})
-    synthesis = sorted(f"{RESEARCH}/{p.name}" for p in root.glob("SYNTHESIS*.md") if p.is_file())
-    readme = f"{RESEARCH}/README.md" if (root / "README.md").is_file() else None
+    synthesis = sorted(f"{RESEARCH_DIR}/{p.name}" for p in root.glob("SYNTHESIS*.md") if p.is_file())
+    readme = f"{RESEARCH_DIR}/README.md" if (root / "README.md").is_file() else None
     return {"topics": found, "synthesis": synthesis, "readme": readme}
 
 

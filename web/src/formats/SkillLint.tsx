@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { formatsApi, skillOf, type BrokenRef, type SkillLint as Lint } from "./api";
+import { ownSkill, ownSkillPage, type CatalogEntry } from "../api";
+import { formatsApi, type BrokenRef, type SkillLint as Lint } from "./api";
 import { refreshLintSummary, useLintCount } from "./lintStore";
 import "./formats.css";
 
-export function LintBadge({ path }: { path: string }) {
-  const skill = path.endsWith("/SKILL.md") ? skillOf(path) : null;
+export function LintBadge({ entry }: { entry: CatalogEntry }) {
+  const skill = ownSkillPage(entry);
   const count = useLintCount(skill);
   if (!count) {
     return null;
@@ -37,8 +38,8 @@ function RefList({ title, refs }: { title: string; refs: BrokenRef[] }) {
   );
 }
 
-export function SkillLint({ path, version }: { path: string; version: string }) {
-  const skill = skillOf(path);
+export function SkillLint({ entry, version }: { entry: CatalogEntry; version: string }) {
+  const skill = ownSkill(entry);
   const [lint, setLint] = useState<Lint | null>(null);
 
   useEffect(() => {

@@ -97,7 +97,7 @@ export function App() {
                       <span className="name">{d.title}</span>
                       {!d.editable && <span className="lock">ro</span>}
                       <GitBadge state={d.git} compact />
-                      <LintBadge path={d.path} />
+                      <LintBadge entry={d} />
                     </a>
                   </li>
                 ))}

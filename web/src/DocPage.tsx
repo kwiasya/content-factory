@@ -84,9 +84,9 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
           {!doc.editable && <span className="badge readonly">read-only</span>}
         </div>
       </div>
-      <SkillLint path={doc.path} version={doc.hash} />
+      <SkillLint entry={doc} version={doc.hash} />
 
-      <SkillLinks path={doc.path} />
+      <SkillLinks entry={doc} />
 
       <nav className="tabs">
         {(["edit", "diff", "history"] as Tab[]).map((t) => (

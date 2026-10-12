@@ -213,6 +213,15 @@ class SkillLinksTest(ResearchTestCase):
         self.assertEqual(beta["paths"], [])
         self.assertEqual(beta["tables"], [])
 
+    def test_a_folder_without_skill_md_is_not_an_own_skill(self):
+        stray = self.repo / ".claude/skills/delta/notes.md"
+        stray.parent.mkdir(parents=True)
+        stray.write_text("Hand over to /alpha.\n")
+        skills = {s["name"]: s for s in self.get("/api/skills/links")["skills"]}
+        self.assertEqual(list(skills), ["alpha", "beta"])
+        self.assertEqual(skills["alpha"]["mentioned_by"], ["beta"])
+        self.assertEqual(self.client.get("/api/skills/delta/links").status_code, 404)
+
     def test_unknown_or_vendored_skill_is_404(self):
         for name in ["nope", "remotion-foo"]:
             with self.subTest(name=name):
