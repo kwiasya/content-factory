@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -21,6 +21,7 @@ from cf.desk.problems import Problem
 from cf.research import card, feed, ideas, outlier, quota, summary, taxonomy
 from cf.research import watchlist as watchlists
 from cf.research.cli import USER_ERRORS
+from cf.research.kinds import KINDS as FEED_KINDS
 from cf.research.store import Store
 
 FEED_LIMIT = 20
@@ -67,6 +68,18 @@ def _detail(e: Exception) -> str:
     return str(e) + "".join(f"\n- {v}" for v in violations)
 
 
+def _one_of(value: str | None, allowed, code: str, field: str) -> None:
+    if value and value not in allowed:
+        raise Problem(422, code, f"{field} must be one of {', '.join(allowed)}, got {value!r}", **{field: value})
+
+
+def _taxonomy_value(kind: str, value: str) -> None:
+    _one_of(kind, taxonomy.KINDS, "taxonomy_kind_invalid", "kind")
+    if not taxonomy.VALUE_RE.fullmatch(value):
+        raise Problem(422, "taxonomy_value_invalid", f"taxonomy value {value!r} must be snake_case (a-z, 0-9, _)",
+                      value=value)
+
+
 def router(db_path: Path, footage_root: Path) -> APIRouter:
     footage = Path(footage_root)
     api = APIRouter(prefix="/api/contour")
@@ -77,7 +90,7 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
             try:
                 yield s
             except (*USER_ERRORS, ValueError) as e:
-                raise HTTPException(422, _detail(e)) from None
+                raise Problem(422, "research_error", _detail(e), message=_detail(e)) from None
 
     def watchlist_of(s: Store, name: str) -> watchlists.Watchlist:
         try:
@@ -100,6 +113,7 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
     def get_feed(name: str, days: float = feed.DEFAULT_LOOKBACK_DAYS, min_outlier: float | None = None,
                  min_views: int | None = None, kind: str | None = None, max_duration: float | None = None,
                  limit: int = FEED_LIMIT) -> dict:
+        _one_of(kind, FEED_KINDS, "feed_kind_invalid", "kind")
         with store() as s:
             watchlist_of(s, name)
             rows = feed.feed(s, name, lookback_days=days, min_outlier=min_outlier, min_views=min_views,
@@ -129,6 +143,7 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
 
     @api.get("/watchlists/{name}/summary/{what}")
     def get_summary(name: str, what: str, days: float = summary.DEFAULT_DAYS) -> dict:
+        _one_of(what, summary.SECTIONS, "summary_invalid", "summary")
         with store() as s:
             watchlist_of(s, name)
             return summary.summarize(s, name, what, days=days, limit=SUMMARY_LIMIT).to_dict()
@@ -156,6 +171,7 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
 
     @api.get("/ideas")
     def get_ideas(watchlist: str | None = None, status: str | None = None) -> dict:
+        _one_of(status, ideas.STATUSES, "idea_status_invalid", "status")
         with store() as s:
             names = [watchlist_of(s, watchlist).name] if watchlist else \
                 [w.name for w in watchlists.list_watchlists(s)]
@@ -166,7 +182,7 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
     def move_idea(idea_id: int, action: str) -> dict:
         move = IDEA_MOVES.get(action)
         if move is None:
-            raise HTTPException(404, f"action must be one of {', '.join(IDEA_MOVES)}")
+            raise Problem(404, "idea_action_unknown", f"action must be one of {', '.join(IDEA_MOVES)}", action=action)
         with store(write=True) as s:
             current = idea_of(s, idea_id)
             try:
@@ -203,6 +219,8 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
 
     @api.get("/taxonomy")
     def get_taxonomy(kind: str | None = None, status: str | None = None) -> dict:
+        _one_of(kind, taxonomy.KINDS, "taxonomy_kind_invalid", "kind")
+        _one_of(status, taxonomy.STATUSES, "taxonomy_status_invalid", "status")
         with store() as s:
             vals = taxonomy.values(s, kind=kind or None, status=status or None)
             return {"values": [v.to_dict() for v in vals], "kinds": list(taxonomy.KINDS),
@@ -211,7 +229,8 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
     @api.post("/taxonomy/{kind}/{value}/{action}")
     def judge_taxonomy(kind: str, value: str, action: str) -> dict:
         if action not in ("approve", "reject"):
-            raise HTTPException(404, "action must be approve or reject")
+            raise Problem(404, "taxonomy_action_unknown", "action must be approve or reject", action=action)
+        _taxonomy_value(kind, value)
         with store(write=True) as s:
             if action == "approve":
                 return taxonomy.approve(s, kind, value, root=footage).to_dict()

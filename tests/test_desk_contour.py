@@ -1,10 +1,12 @@
 """Desk research contour API through the FastAPI TestClient on a temporary db and footage root."""
 
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -132,7 +134,8 @@ class FeedTest(ContourCase):
         self.assertEqual(self.ids(days=1.5), [BETA])
 
     def test_an_unknown_kind_is_422_and_an_unknown_watchlist_404(self):
-        self.get("/api/contour/watchlists/lisbon/feed", 422, kind="huge")
+        got = self.get("/api/contour/watchlists/lisbon/feed", 422, kind="huge")
+        self.assertEqual((got["code"], got["params"]), ("feed_kind_invalid", {"kind": "huge"}))
         self.get("/api/contour/watchlists/nowhere/feed", 404)
 
 
@@ -184,7 +187,8 @@ class SummaryTest(ContourCase):
         self.assertEqual(self.get("/api/contour/watchlists/lisbon/summary/topics", days=1)["carded"], 0)
 
     def test_an_unknown_summary_is_422_and_an_unknown_watchlist_404(self):
-        self.get("/api/contour/watchlists/lisbon/summary/music", 422)
+        got = self.get("/api/contour/watchlists/lisbon/summary/music", 422)
+        self.assertEqual((got["code"], got["params"]), ("summary_invalid", {"summary": "music"}))
         self.get("/api/contour/watchlists/nowhere/summary/hooks", 404)
 
 
@@ -196,7 +200,8 @@ class IdeasTest(ContourCase):
         self.assertEqual(self.statuses(), {self.briefed: "brief", self.inbox: "inbox"})
         self.assertEqual(self.statuses(watchlist="lisbon", status="inbox"), {self.inbox: "inbox"})
         self.assertEqual(self.statuses(watchlist="empty"), {})
-        self.get("/api/contour/ideas", 422, status="maybe")
+        got = self.get("/api/contour/ideas", 422, status="maybe")
+        self.assertEqual((got["code"], got["params"]), ("idea_status_invalid", {"status": "maybe"}))
         self.get("/api/contour/ideas", 404, watchlist="nowhere")
 
     def test_shortlist_discard_and_restore_persist(self):
@@ -218,7 +223,8 @@ class IdeasTest(ContourCase):
     def test_unknown_idea_or_action_is_404(self):
         unknown = self.send("POST", "/api/contour/ideas/999/shortlist", 404)
         self.assertEqual((unknown["code"], unknown["params"]), ("idea_not_found", {"id": 999}))
-        self.send("POST", f"/api/contour/ideas/{self.inbox}/promote", 404)
+        got = self.send("POST", f"/api/contour/ideas/{self.inbox}/promote", 404)
+        self.assertEqual((got["code"], got["params"]), ("idea_action_unknown", {"action": "promote"}))
 
     def test_a_note_is_appended_and_kept(self):
         got = self.send("PUT", f"/api/contour/ideas/{self.inbox}/notes", body={"text": "Shoot it at dawn"})
@@ -292,7 +298,10 @@ class TaxonomyTest(ContourCase):
                          [("golden_hour_descent", f"card:{V1}")])
         self.assertIn("hook_category", got["kinds"])
         self.assertGreater(len(self.get("/api/contour/taxonomy")["values"]), 1)
-        self.get("/api/contour/taxonomy", 422, kind="mood")
+        got = self.get("/api/contour/taxonomy", 422, kind="mood")
+        self.assertEqual((got["code"], got["params"]), ("taxonomy_kind_invalid", {"kind": "mood"}))
+        got = self.get("/api/contour/taxonomy", 422, status="maybe")
+        self.assertEqual((got["code"], got["params"]), ("taxonomy_status_invalid", {"status": "maybe"}))
 
     def test_approve_drops_the_proposed_prefix_in_the_stored_card_and_its_file(self):
         got = self.send("POST", self.PROPOSED + "/approve")
@@ -310,8 +319,12 @@ class TaxonomyTest(ContourCase):
         self.assertEqual(self.get("/api/contour/taxonomy", status="proposed")["values"], [])
 
     def test_bad_kind_is_422_and_unknown_action_404(self):
-        self.send("POST", "/api/contour/taxonomy/mood/calm/approve", 422)
-        self.send("POST", self.PROPOSED + "/maybe", 404)
+        got = self.send("POST", "/api/contour/taxonomy/mood/calm/approve", 422)
+        self.assertEqual((got["code"], got["params"]), ("taxonomy_kind_invalid", {"kind": "mood"}))
+        got = self.send("POST", "/api/contour/taxonomy/editing_style/Not%20Snake/approve", 422)
+        self.assertEqual((got["code"], got["params"]), ("taxonomy_value_invalid", {"value": "Not Snake"}))
+        got = self.send("POST", self.PROPOSED + "/maybe", 404)
+        self.assertEqual((got["code"], got["params"]), ("taxonomy_action_unknown", {"action": "maybe"}))
 
 
 class QuotaTest(ContourCase):
@@ -322,3 +335,9 @@ class QuotaTest(ContourCase):
         self.assertEqual(buckets["default"]["remaining"], buckets["default"]["limit"] - buckets["default"]["used"])
         self.assertEqual(buckets["default"]["used"], sum(m["units"] for m in got["by_method"]))
         self.assertRegex(got["day"], r"^\d{4}-\d{2}-\d{2}$")
+
+    def test_a_malformed_quota_override_is_422_with_the_research_message(self):
+        with mock.patch.dict(os.environ, {"CF_QUOTA_DEFAULT": "lots"}):
+            got = self.get("/api/contour/quota", 422)
+        self.assertEqual(got["code"], "research_error")
+        self.assertIn("lots", got["params"]["message"])

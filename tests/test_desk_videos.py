@@ -182,7 +182,8 @@ class MediaTest(VideosTestCase):
                      "videos/long-one/renders/../../../w1/raw/x.mp4", "/etc/hosts", "",
                      "references/wl/abc/abc.mp4", "videos/long-one/renders/link.mp4", "w1/proxy/missing.mp4"):
             with self.subTest(path):
-                self.assertEqual(self.media(path).status_code, 404)
+                r = self.media(path)
+                self.assertEqual((r.status_code, r.json()["code"]), (404, "media_not_found"))
 
 
 class DetailTest(VideosTestCase):

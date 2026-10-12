@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
@@ -24,3 +25,10 @@ def install(app: FastAPI) -> None:
     @app.exception_handler(Problem)
     async def problem(_: Request, exc: Problem) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content=body(exc.code, exc.detail, exc.params))
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid(_: Request, exc: RequestValidationError) -> JSONResponse:
+        errors = exc.errors()
+        where = [".".join(str(part) for part in e.get("loc", ())) for e in errors]
+        detail = "invalid request: " + "; ".join(f"{w}: {e.get('msg', '')}" for w, e in zip(where, errors))
+        return JSONResponse(status_code=422, content=body("request_invalid", detail, {"fields": ", ".join(where)}))

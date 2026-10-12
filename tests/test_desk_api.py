@@ -289,7 +289,8 @@ class FrontendTest(DeskTestCase):
         self.assertIn("<title>Desk</title>", self.client.get("/").text)
         self.assertEqual(self.client.get("/assets/app.js").text, "console.log(1)")
         self.assertIn("<title>Desk</title>", self.client.get("/doc/CLAUDE.md").text)
-        self.assertEqual(self.client.get("/api/nothing").status_code, 404)
+        r = self.client.get("/api/nothing")
+        self.assertEqual((r.status_code, r.json()["code"]), (404, "no_endpoint"))
 
     def test_built_frontend_does_not_serve_files_outside_dist(self):
         self.dist.mkdir()
@@ -305,7 +306,14 @@ class TokenTest(DeskTestCase):
         for path in ["/api/catalog", "/api/meta", "/"]:
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 401)
-        self.assertEqual(self.client.get("/api/meta", headers={"Authorization": "Bearer wrong"}).status_code, 401)
+        r = self.client.get("/api/meta", headers={"Authorization": "Bearer wrong"})
+        self.assertEqual((r.status_code, r.json()["code"]), (401, "token_required"))
+
+    def test_a_body_that_does_not_match_the_request_shape_is_422_naming_the_fields(self):
+        r = self.client.put("/api/doc", json={"path": "CLAUDE.md"}, headers={"Authorization": "Bearer s3cret"})
+        self.assertEqual((r.status_code, r.json()["code"]), (422, "request_invalid"))
+        self.assertEqual(r.json()["params"], {"fields": "body.text, body.hash"})
+        self.assertIsInstance(r.json()["detail"], str)
 
     def test_bearer_header_is_accepted(self):
         r = self.client.get("/api/meta", headers={"Authorization": "Bearer s3cret"})

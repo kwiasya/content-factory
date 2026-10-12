@@ -72,12 +72,15 @@ class NotesApiTest(unittest.TestCase):
         r = self.client.post("/api/notes/99/resolve")
         self.assertEqual((r.status_code, r.json()["code"], r.json()["params"]), (404, "note_not_found", {"id": 99}))
         self.assertEqual(self.client.delete("/api/notes/99").status_code, 404)
-        for body in ({"kind": "nope", "key": "x", "text": "t"}, {"kind": "skill", "key": "", "text": "t"},
-                     {"kind": "skill", "key": "x", "text": " "}):
+        for body, code in (({"kind": "nope", "key": "x", "text": "t"}, "note_kind_unknown"),
+                           ({"kind": "skill", "key": "", "text": "t"}, "note_key_missing"),
+                           ({"kind": "general", "key": "x", "text": "t"}, "note_general_key"),
+                           ({"kind": "skill", "key": "x", "text": " "}, "note_empty")):
             with self.subTest(body=body):
                 r = self.client.post("/api/notes", json=body)
                 self.assertEqual(r.status_code, 422, r.text)
                 self.assertIsInstance(r.json()["detail"], str)
+                self.assertEqual(r.json()["code"], code)
 
 
 class SkillHookTest(unittest.TestCase):

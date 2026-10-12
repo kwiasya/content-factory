@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from cf.desk import catalog
+from cf.desk.problems import Problem
 
 MAX_HITS = 200
 MAX_SNIPPETS = 3
@@ -69,7 +70,7 @@ def router(repo: Path) -> APIRouter:
     @r.get("/api/search")
     def get_search(q: str, all: int = 0) -> dict:
         if not q.strip():
-            raise HTTPException(422, "empty query")
+            raise Problem(422, "query_empty", "empty query")
         return search(repo, q, include_hidden=bool(all))
 
     return r

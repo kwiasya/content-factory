@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from cf.desk import skills
 from cf.desk.skills import SKILLS_DIR, own_skills
+from cf.desk.problems import Problem
 
 TOKEN_RE = re.compile(r"[^\s`'\"()\[\],;|]+")
 PLACEHOLDER_CHARS = set("<>{}*$~:")
@@ -68,7 +69,7 @@ def router(repo: Path) -> APIRouter:
     @r.get("/api/skills/{name}/lint")
     def get_lint(name: str) -> dict:
         if name not in own_skills(repo):
-            raise HTTPException(404, "no such own skill")
+            raise Problem(404, "skill_not_found", "no such own skill", name=name)
         return lint_skill(repo, name)
 
     return r

@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from cf.desk import catalog, skills
 from cf.desk.skills import SKILLS_DIR
+from cf.desk.problems import Problem
 
 STORE = "src/cf/research/store.py"
 PATH_RE = re.compile(r"(?<![\w./~-])((?:[\w.-]+/)+[\w.-]*|[\w-]+\.(?:md|json|py|ts|tsx|toml|yaml|yml|cube))")
@@ -102,6 +103,6 @@ def router(repo: Path) -> APIRouter:
         for entry in link_map(repo):
             if entry["name"] == name:
                 return entry
-        raise HTTPException(404, "no such own skill")
+        raise Problem(404, "skill_not_found", "no such own skill", name=name)
 
     return r

@@ -188,7 +188,8 @@ class SearchTest(ResearchTestCase):
         self.assertTrue(body["truncated"])
 
     def test_blank_query_is_refused(self):
-        self.assertEqual(self.client.get("/api/search", params={"q": "  "}).status_code, 422)
+        r = self.client.get("/api/search", params={"q": "  "})
+        self.assertEqual((r.status_code, r.json()["code"]), (422, "query_empty"))
         self.assertEqual(self.client.get("/api/search").status_code, 422)
 
 
@@ -225,7 +226,9 @@ class SkillLinksTest(ResearchTestCase):
     def test_unknown_or_vendored_skill_is_404(self):
         for name in ["nope", "remotion-foo"]:
             with self.subTest(name=name):
-                self.assertEqual(self.client.get(f"/api/skills/{name}/links").status_code, 404)
+                r = self.client.get(f"/api/skills/{name}/links")
+                self.assertEqual((r.status_code, r.json()["code"], r.json()["params"]),
+                                 (404, "skill_not_found", {"name": name}))
 
     def test_without_the_store_module_no_tables_are_found(self):
         (self.repo / "src/cf/research/store.py").unlink()

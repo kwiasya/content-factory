@@ -194,7 +194,8 @@ class SkillLintTest(FormatsTestCase):
 
     def test_vendored_unknown_and_malformed_skills_are_404(self):
         for name in ("remotion-foo", "nope", "Alpha"):
-            self.assertEqual(self.client.get(f"/api/skills/{name}/lint").status_code, 404, name)
+            r = self.client.get(f"/api/skills/{name}/lint")
+            self.assertEqual((r.status_code, r.json()["code"]), (404, "skill_not_found"), name)
 
     def test_summary_counts_broken_references_per_own_skill(self):
         self.assertEqual(self.get("/api/skills/lint"), {"skills": {"alpha": 3, "beta": 0}})

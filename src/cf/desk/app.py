@@ -6,7 +6,7 @@ import json
 import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -100,7 +100,7 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
 
     @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     def api_not_found(rest: str) -> None:
-        raise HTTPException(404, "no such API endpoint")
+        raise Problem(404, "no_endpoint", "no such API endpoint", path=rest)
 
     @app.get("/{rest:path}")
     def frontend(rest: str) -> Response:
@@ -144,7 +144,7 @@ def install_token_guard(app: FastAPI, token: str) -> None:
         bearer = header[7:] if header.lower().startswith("bearer ") else None
         query = request.query_params.get("token")
         if not (matches(bearer) or matches(request.cookies.get(COOKIE)) or matches(query)):
-            return JSONResponse(status_code=401, content={"detail": "Desk token required"})
+            return JSONResponse(status_code=401, content=problems.body("token_required", "Desk token required"))
         response = await call_next(request)
         if matches(query):
             response.set_cookie(COOKIE, token, httponly=True, samesite="strict")

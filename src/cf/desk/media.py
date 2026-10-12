@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
 from cf.desk import paths
+from cf.desk.problems import Problem
 
 VIDEO_SUBTREES = {"renders", "overlays", "sources"}
 NOT_WALKS = {"videos", "references", "channels"}
@@ -49,7 +50,7 @@ def router(footage_root: Path) -> APIRouter:
     def get_media(path: str) -> FileResponse:
         target = resolve(footage, path)
         if target is None:
-            raise HTTPException(404, "not a served media file")
+            raise Problem(404, "media_not_found", "not a served media file", path=path)
         return FileResponse(target)
 
     return api
