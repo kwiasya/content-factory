@@ -292,6 +292,12 @@ export const en = {
   "analysis.analysis": "Analysis",
   "analysis.visual_layout": "Visual layout",
   "analysis.sub_category": "Sub category",
+  "card.field.cut_count": "Cuts",
+  "card.field.first_person_s": "First person",
+  "card.field.speech_onset_s": "Speech onset",
+  "card.field.spoken_hook": "Spoken hook",
+  "card.field.first_text_s": "First text",
+  "summary.weight.outlier_sum": "sum of Outlier scores, unscored counted as 1",
 
   "heatmap.aria": "Heatmap peaks over the video's duration",
   "heatmap.noSpeech": "no speech in this peak",

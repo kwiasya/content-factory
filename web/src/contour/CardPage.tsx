@@ -4,7 +4,7 @@ import { contourApi, type Measured } from "./api";
 import { Cmd, ContourShell, Status } from "./ContourShell";
 import { plain, seconds, secondsText, outlierText, viewsText } from "./format";
 import { useT, type T } from "../i18n";
-import { formatDate } from "../format";
+import { formatDate, formatNumber } from "../format";
 import { Heatmap } from "./Heatmap";
 import { NoteBox } from "../notes/NoteBox";
 import { CONTOUR_PREFIX, taxonomyHref } from "./routes";
@@ -16,12 +16,16 @@ export function kindText(kind: string | null | undefined, t: T): string {
   return kind ? t.or(`card.kind.${kind}`, kind) : "—";
 }
 
+function numberText(n: number | null | undefined, t: T): string {
+  return n === null || n === undefined ? "—" : formatNumber(n, t);
+}
+
 function measuredRows(m: Measured, t: T): [string, ReactNode][] {
   return [
     [t("card.duration"), seconds(m.duration_s)],
     [t("card.kind"), kindText(m.kind, t)],
-    [t("card.cuts"), plain(m.cut_count)],
-    [t("card.cutsPerMinute"), plain(m.cuts_per_min)],
+    [t("card.cuts"), numberText(m.cut_count, t)],
+    [t("card.cutsPerMinute"), numberText(m.cuts_per_min, t)],
     [t("card.firstShot"), secondsText(m.first_shot_s, t)],
     [
       t("card.firstText"),
@@ -189,12 +193,14 @@ export function CardPage({ id }: { id: string }) {
             </ol>
           )}
 
-          {m.notes && m.notes.length > 0 && (
+          {m.notes && Object.keys(m.notes).length > 0 && (
             <>
               <h2 className="section">{t("card.measurementNotes")}</h2>
               <ul className="muted">
-                {m.notes.map((n) => (
-                  <li key={n}>{n}</li>
+                {Object.entries(m.notes).map(([field, note]) => (
+                  <li key={field}>
+                    {t.or(`card.field.${field}`, field)}: {note}
+                  </li>
                 ))}
               </ul>
             </>

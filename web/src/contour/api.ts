@@ -93,7 +93,7 @@ export interface Measured {
   sections?: Section[] | null;
   chapters?: Chapter[] | null;
   heatmap_peaks?: Peak[] | null;
-  notes?: string[] | null;
+  notes?: Record<string, string> | null;
 }
 
 export type Analysis = Record<string, unknown>;
@@ -153,6 +153,7 @@ export interface Summary {
   carded: number;
   min_outlier: number;
   weight: string;
+  weight_code?: string;
   sections: { kind: string; groups: Group[] }[];
   uncarded: Uncarded[];
 }

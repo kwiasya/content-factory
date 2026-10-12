@@ -292,6 +292,12 @@ export const ru: Dict = {
   "analysis.analysis": "Разбор",
   "analysis.visual_layout": "Визуальная схема",
   "analysis.sub_category": "Подкатегория",
+  "card.field.cut_count": "Склейки",
+  "card.field.first_person_s": "Первый человек",
+  "card.field.speech_onset_s": "Начало речи",
+  "card.field.spoken_hook": "Устный хук",
+  "card.field.first_text_s": "Первый текст",
+  "summary.weight.outlier_sum": "сумма Outlier score, Референс без оценки считается за 1",
 
   "heatmap.aria": "Пики тепловой карты по длительности видео",
   "heatmap.noSpeech": "в этом пике нет речи",

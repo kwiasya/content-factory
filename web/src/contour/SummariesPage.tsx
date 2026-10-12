@@ -55,7 +55,7 @@ function SummaryView({ summary }: { summary: Summary }) {
           refs: t("unit.references", { n: summary.references }),
           since: formatDate(summary.since, t),
           carded: formatNumber(summary.carded, t),
-          weight: summary.weight,
+          weight: t.or(`summary.weight.${summary.weight_code}`, summary.weight),
           cmd: <Cmd>/mine-hooks</Cmd>,
         })}
       </p>
