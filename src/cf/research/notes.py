@@ -19,6 +19,10 @@ class NoteError(Exception):
     """A Note request that cannot be carried out; the message says why."""
 
 
+class NoteNotFound(NoteError):
+    """No Note with this id."""
+
+
 @dataclass(frozen=True)
 class Note:
     id: int
@@ -39,7 +43,7 @@ def _note(row: dict) -> Note:
 def get(store: Store, note_id: int) -> Note:
     row = store.one("SELECT * FROM note WHERE id = ?", (note_id,))
     if row is None:
-        raise NoteError(f"no Note #{note_id}")
+        raise NoteNotFound(f"no Note #{note_id}")
     return _note(row)
 
 
