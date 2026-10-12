@@ -79,7 +79,7 @@ class DeskTestCase(unittest.TestCase):
 class CatalogTest(DeskTestCase):
     def test_groups_list_own_skills_content_and_formats_with_vendored_hidden(self):
         groups = self.catalog()
-        self.assertEqual(list(groups), ["skills", "content", "formats"])
+        self.assertEqual(list(groups), ["skills", "content", "formats", "research"])
         self.assertEqual(self.paths(groups["skills"]), [
             ".claude/skills/alpha/SKILL.md", ".claude/skills/beta/SKILL.md",
             ".claude/skills/beta/templates/x.md"])
@@ -91,7 +91,7 @@ class CatalogTest(DeskTestCase):
 
     def test_all_shows_the_vendored_skills(self):
         groups = self.catalog(all=1)
-        self.assertEqual(list(groups), ["skills", "skills-vendored", "content", "formats"])
+        self.assertEqual(list(groups), ["skills", "skills-vendored", "content", "formats", "research"])
         self.assertTrue(groups["skills-vendored"]["hidden"])
         self.assertEqual(self.paths(groups["skills-vendored"]), [
             ".claude/skills/remotion-foo/SKILL.md", ".claude/skills/remotion-foo/rules/a.md"])
