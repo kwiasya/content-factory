@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from cf.desk import media, storeuse
+from cf.desk import media, paths, storeuse
 from cf.desk.hashed import atomic_write, digest, stale
 from cf.research import card, feed, ideas, outlier, quota, summary, taxonomy
 from cf.research import watchlist as watchlists
@@ -140,10 +140,11 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
         if not idea.brief_path:
             raise HTTPException(404, f"Idea {idea.id} has no Brief yet; shortlist it, then run "
                                      f"python -m cf.research ideas brief {idea.id} (skill /suggest-ideas)")
-        path = Path(idea.brief_path)
-        root = footage.resolve()
-        if not path.resolve().is_relative_to(root) or path.suffix != ".md":
-            raise HTTPException(404, f"the Brief of Idea {idea.id} is not a .md file under the footage root")
+        rel = paths.relative_under(footage, Path(idea.brief_path))
+        path = paths.contained(footage, rel) if rel is not None else None
+        if path is None or path.suffix != ".md":
+            raise HTTPException(404, f"the Brief of Idea {idea.id} is not a .md file under the footage root "
+                                     "(no `..`, no symlink)")
         if not path.is_file():
             raise HTTPException(404, f"the Brief of Idea {idea.id} is missing on disk: {path}")
         return path

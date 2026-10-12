@@ -127,7 +127,7 @@ Code: `src/cf/desk/contour_api.py`, `web/src/contour/`. The research contour (`G
 | `GET /api/contour/ideas?watchlist=&status=` | `ideas` (of every Watchlist when `watchlist` is empty), `statuses`; 422 for an unknown status |
 | `POST /api/contour/ideas/{id}/{shortlist\|discard\|restore}` | the moved Idea; 422 when the status does not allow the move |
 | `PUT /api/contour/ideas/{id}/notes` | body `{text}`: appends a note `{at, text}` to the Idea (as `ideas note`) and returns it; 422 for empty text |
-| `GET /api/contour/ideas/{id}/brief` | `path` (`brief_path`), `text`, `hash`; 404 with the `ideas brief <id>` command while the Idea has no Brief, or when the file is missing or outside the footage root |
+| `GET /api/contour/ideas/{id}/brief` | `path` (`brief_path`), `text`, `hash`; 404 with the `ideas brief <id>` command while the Idea has no Brief, or when the file is missing or not a `.md` under the footage root by the same rule as Video texts and media (`src/cf/desk/paths.py`: no `..` or hidden part, no symlink on the way) |
 | `PUT /api/contour/ideas/{id}/brief` | body `{text, hash}`: the same hashed atomic write as documents (409 with the fresh `text` and `hash` on a stale hash) |
 | `GET /api/contour/taxonomy?kind=&status=` | `values` (`kind`, `value`, `status`, `source`, `label`, `note`), `kinds`, `statuses` |
 | `POST /api/contour/taxonomy/{kind}/{value}/{approve\|reject}` | the value with `cards`: approve drops the `proposed:` prefix in every card that proposed it (store and `card.json` under the footage root); reject lists the cards that now fail validation |

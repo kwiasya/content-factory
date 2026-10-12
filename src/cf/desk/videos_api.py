@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from cf import script_schema
-from cf.desk import media
+from cf.desk import media, paths
 from cf.desk.hashed import atomic_write, digest, stale
 
 SCHEMA = "cf-video/1"
@@ -188,14 +188,8 @@ def text_format(rel: str) -> str:
 
 def text_target(folder: Folder, rel: str, *, creating: bool = False) -> Path:
     missing = HTTPException(404, "not an editable text of this Video")
-    parts = rel.split("/")
-    if (not rel or rel.startswith("/") or any(p in ("", ".", "..") or p.startswith(".") for p in parts)
-            or kind_of(rel) not in EDITABLE):
-        raise missing
-    root = folder.path.resolve()
-    target = folder.path / rel
-    resolved = target.resolve()
-    if not resolved.is_relative_to(root) or resolved.relative_to(root).parts != tuple(parts):
+    target = paths.contained(folder.path, rel)
+    if target is None or kind_of(rel) not in EDITABLE:
         raise missing
     if target.is_file() or (creating and rel in CREATABLE and not target.exists()):
         return target

@@ -241,6 +241,26 @@ class BriefTest(ContourCase):
         self.assertEqual(self.brief_path.read_text(encoding="utf-8"), "# Brief\n\nnew\n")
 
 
+    def point_brief_at(self, path) -> None:
+        with st.open_store(self.db) as s:
+            with s.transaction() as conn:
+                conn.execute("UPDATE idea SET brief_path = ? WHERE id = ?", (str(path), self.briefed))
+
+    def test_a_brief_path_with_dot_dot_a_symlink_or_another_suffix_is_404_and_nothing_is_written(self):
+        inside = self.footage / "elsewhere.md"
+        inside.write_text("# other\n")
+        link = self.brief_path.parent / "link.md"
+        link.symlink_to(inside)
+        txt = self.brief_path.with_suffix(".txt")
+        txt.write_text("# txt\n")
+        dotted = self.brief_path.parent / ".." / self.brief_path.parent.name / self.brief_path.name
+        for path in (dotted, link, txt):
+            with self.subTest(path=str(path)):
+                self.point_brief_at(path)
+                self.get(self.url(self.briefed), 404)
+                self.send("PUT", self.url(self.briefed), 404, body={"text": "x", "hash": ""})
+        self.assertEqual(inside.read_text(), "# other\n")
+
 class TaxonomyTest(ContourCase):
     PROPOSED = "/api/contour/taxonomy/editing_style/golden_hour_descent"
 

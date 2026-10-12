@@ -12,12 +12,14 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
+from cf.desk import paths
+
 VIDEO_SUBTREES = {"renders", "overlays", "sources"}
 NOT_WALKS = {"videos", "references", "channels"}
 
 
 def _allowlisted(parts: tuple[str, ...]) -> bool:
-    if "raw" in parts or any(p in ("", ".", "..") or p.startswith(".") for p in parts):
+    if "raw" in parts:
         return False
     if len(parts) >= 4 and parts[0] == "videos" and parts[2] in VIDEO_SUBTREES:
         return True
@@ -32,14 +34,11 @@ def _allowlisted(parts: tuple[str, ...]) -> bool:
 
 def resolve(footage: Path, rel: str) -> Path | None:
     """The file a media path names, or None when it is outside the allowlist, missing or escapes the root."""
-    parts = tuple(rel.split("/"))
-    if not rel or rel.startswith("/") or not _allowlisted(parts):
+    parts = paths.plain_parts(rel)
+    if parts is None or not _allowlisted(parts):
         return None
-    root = footage.resolve()
-    target = (root / rel).resolve()
-    if not target.is_relative_to(root) or target.relative_to(root).parts != parts or not target.is_file():
-        return None
-    return target
+    target = paths.contained(footage, rel)
+    return target if target is not None and target.is_file() else None
 
 
 def router(footage_root: Path) -> APIRouter:
