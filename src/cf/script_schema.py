@@ -334,9 +334,11 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
             last = i + span - 1
             if last >= len(script.shots):
                 v.append(f"{w}: overlay span {span} runs past the last shot ({len(script.shots) - i} shot(s) left)")
-            elif span > 1 and script.ending == "loop_seamless" and last == len(script.shots) - 1:
-                v.append(f"{w}: overlay span {span} reaches the loop's last shot {script.shots[-1].id}, "
-                         "which must stay clean for the seam")
+            elif span > 1 and script.ending == "loop_seamless" and last == len(script.shots) - 1 \
+                    and s.overlay.type != "line":
+                v.append(f"{w}: overlay span {span} reaches the loop's last shot {script.shots[-1].id}; "
+                         "only a 'line' overlay may run into it (it ends on the last frame and hands over "
+                         "to the hook at frame 0)")
             held = sum(x.duration_s for x in script.shots[i:last + 1])
             if held < min_hold - EPS:
                 v.append(f"{w}: overlay holds {held:.2f} s"
@@ -415,9 +417,10 @@ def loop_seamless_problems(script: Script, clips: dict[str, dict], style: dict) 
         v.append(f"{w}: {first.id} fade_in_s must be 0, got {first.fade_in_s:g}")
     if last.fade_out_s > EPS:
         v.append(f"{w}: {last.id} fade_out_s must be 0, got {last.fade_out_s:g}")
-    if last.overlay is not None:
-        v.append(f"{w}: {last.id} must have overlay null: an overlay fills its shot, so it would "
-                 f"vanish at the seam ({last.overlay.text!r})")
+    if last.overlay is not None and last.overlay.type != "line":
+        v.append(f"{w}: {last.id} may only carry a 'line' overlay: it ends on the last frame and hands "
+                 f"over to the hook at frame 0; a {last.overlay.type!r} overlay would vanish at the seam "
+                 f"({last.overlay.text!r})")
     # The window must not jump at the seam: same reframe (explicit or the clip's default), and a
     # pan ends where the first shot's pan starts.
     try:

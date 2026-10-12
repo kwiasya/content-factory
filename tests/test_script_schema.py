@@ -318,10 +318,20 @@ class LoopSeamlessTest(unittest.TestCase):
         found = problems(d)
         self.assertTrue(any("reaches the loop's last shot" in p for p in found), found)
 
-    def test_no_overlay_on_the_last_shot(self):
+    def test_a_line_span_may_run_into_the_loop_shot(self):
         d = seamless()
-        d["shots"][-1]["overlay"] = {"text": "Again?", "type": "line"}
-        self.assertSeam(d, "s04 must have overlay null")
+        d["shots"][-2]["overlay"] = {"text": "my feet after five castles", "type": "line", "span": 2}
+        found = problems(d)
+        self.assertFalse(any("last shot" in p for p in found), found)
+
+    def test_only_a_line_overlay_on_the_last_shot(self):
+        d = seamless()
+        d["shots"][-1]["overlay"] = {"text": "Neues Palais", "type": "place"}
+        self.assertSeam(d, "s04 may only carry a 'line' overlay")
+        d["shots"][-1]["overlay"] = {"text": "Again?", "type": "fact"}
+        self.assertSeam(d, "s04 may only carry a 'line' overlay")
+        d["shots"][-1]["overlay"] = {"text": "my feet after five castles", "type": "line"}
+        self.assertEqual(self.found(d), [])
         # The hook overlay on the first shot is fine: it fades in after the seam.
         d = seamless()
         d["shots"][0]["overlay"] = {"text": "This lake hides a whole palace", "type": "line"}
