@@ -20,6 +20,11 @@ BUILTIN_COMMANDS = frozenset({
 })
 
 
+def own_skills(repo: Path) -> list[str]:
+    return sorted(p.parent.name for p in (repo / SKILLS_DIR).glob("*/SKILL.md")
+                  if SKILL_NAME_RE.fullmatch(p.parent.name) and not p.parent.name.startswith("remotion-"))
+
+
 def path_candidate(token: str) -> str | None:
     token = token.rstrip(".:!?")
     if not token or token.startswith(("/", "-")) or ".." in token or PLACEHOLDER_CHARS & set(token):
@@ -43,7 +48,7 @@ def lint_skill(repo: Path, name: str) -> dict:
     for md in sorted(skill_dir.rglob("*.md")):
         rel = md.relative_to(repo).as_posix()
         bases = [repo, skill_dir, md.parent]
-        for number, line in enumerate(md.read_text(encoding="utf-8").splitlines(), start=1):
+        for number, line in enumerate(md.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
             for token in TOKEN_RE.findall(line):
                 ref = path_candidate(token)
                 if ref and (ref, rel) not in seen and is_missing(ref, bases):
@@ -61,10 +66,17 @@ def lint_skill(repo: Path, name: str) -> dict:
 def router(repo: Path) -> APIRouter:
     r = APIRouter()
 
+    @r.get("/api/skills/lint")
+    def get_summary() -> dict:
+        counts = {}
+        for name in own_skills(repo):
+            lint = lint_skill(repo, name)
+            counts[name] = len(lint["missing_paths"]) + len(lint["missing_skills"])
+        return {"skills": counts}
+
     @r.get("/api/skills/{name}/lint")
     def get_lint(name: str) -> dict:
-        if not SKILL_NAME_RE.fullmatch(name) or name.startswith("remotion-") \
-                or not (repo / SKILLS_DIR / name / "SKILL.md").is_file():
+        if name not in own_skills(repo):
             raise HTTPException(404, "no such own skill")
         return lint_skill(repo, name)
 

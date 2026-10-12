@@ -182,6 +182,9 @@ class SkillLintTest(FormatsTestCase):
         for name in ("remotion-foo", "nope", "Alpha"):
             self.assertEqual(self.client.get(f"/api/skills/{name}/lint").status_code, 404, name)
 
+    def test_summary_counts_broken_references_per_own_skill(self):
+        self.assertEqual(self.get("/api/skills/lint"), {"skills": {"alpha": 3, "beta": 0}})
+
 
 if __name__ == "__main__":
     unittest.main()
