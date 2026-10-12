@@ -19,6 +19,7 @@ dependencies = [
 dev = ["pytest"]
 music = ["beat-this", "librosa", "all-in-one-infer"]  # cf.beats (torch comes with ultralytics)
 research = ["yt-dlp[default]"]  # cf.research fetch: download (needs deno for YouTube); transcription uses core stable-ts
+desk = ["fastapi", "uvicorn[standard]", "httpx2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
