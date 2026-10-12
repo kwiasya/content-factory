@@ -1,5 +1,6 @@
 import { useCallback, useRef, type ReactNode } from "react";
-import { contourApi, mediaUrl, type Measured } from "./api";
+import { mediaUrl } from "../api";
+import { contourApi, type Measured } from "./api";
 import { Cmd, ContourShell, Status } from "./ContourShell";
 import { plain, seconds, outlierText, viewsText } from "./format";
 import { Heatmap } from "./Heatmap";

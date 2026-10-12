@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { CodeEditor } from "../CodeEditor";
 import { Preview } from "../Preview";
-import { NotFound, videosApi, type TextFile } from "./videosApi";
+import { NotFound } from "../api";
+import { videosApi, type TextFile } from "./videosApi";
 
 interface Props {
   slug: string;

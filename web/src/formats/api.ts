@@ -1,3 +1,5 @@
+import { getJson } from "../api";
+
 export interface FormatSummary {
   id: string;
   title: string;
@@ -48,14 +50,6 @@ export interface SkillLint {
   name: string;
   missing_paths: BrokenRef[];
   missing_skills: BrokenRef[];
-}
-
-async function getJson<T>(url: string): Promise<T> {
-  const r = await fetch(url);
-  if (!r.ok) {
-    throw new Error(`${r.status} ${await r.text()}`);
-  }
-  return (await r.json()) as T;
 }
 
 export const formatsApi = {

@@ -58,18 +58,86 @@ export interface LogEntry {
   subject: string;
 }
 
-export type SaveResult =
-  | { status: "saved"; hash: string; git: GitState }
+export type SaveResult<Saved = object> =
+  | ({ status: "saved"; hash: string } & Saved)
   | { status: "conflict"; text: string; hash: string }
+  | { status: "invalid"; message: string; violations: string[] }
   | { status: "error"; message: string };
+
+export class NotFound extends Error {}
+
+export function message(detail: unknown): string {
+  return typeof detail === "string" ? detail : JSON.stringify(detail);
+}
 
 export async function getJson<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) {
-    throw new Error(`${r.status} ${await r.text()}`);
+    const text = await r.text();
+    let detail: string;
+    try {
+      detail = message(JSON.parse(text).detail);
+    } catch {
+      detail = `${r.status} ${text || r.statusText}`;
+    }
+    throw r.status === 404 ? new NotFound(detail) : new Error(detail);
   }
   return (await r.json()) as T;
 }
+
+export interface Sent {
+  ok: boolean;
+  status: number;
+  body: Record<string, unknown>;
+}
+
+export async function send(url: string, method: string, payload?: unknown): Promise<Sent> {
+  let r: Response;
+  try {
+    r = await fetch(url, {
+      method,
+      headers: payload === undefined ? undefined : { "Content-Type": "application/json" },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+    });
+  } catch (e) {
+    return { ok: false, status: 0, body: { detail: (e as Error).message } };
+  }
+  const text = await r.text();
+  try {
+    return { ok: r.ok, status: r.status, body: JSON.parse(text) };
+  } catch {
+    return { ok: false, status: r.status, body: { detail: `${r.status} ${text || r.statusText}` } };
+  }
+}
+
+export async function sendOrThrow<T>(url: string, method: string, payload?: unknown): Promise<T> {
+  const r = await send(url, method, payload);
+  if (!r.ok) {
+    throw new Error(message(r.body.detail));
+  }
+  return r.body as unknown as T;
+}
+
+export async function saveText<Saved = object>(
+  url: string,
+  method: string,
+  payload: unknown,
+  saved: (body: Record<string, unknown>) => Saved = () => ({}) as Saved,
+): Promise<SaveResult<Saved>> {
+  const r = await send(url, method, payload);
+  if (r.ok) {
+    return { status: "saved", hash: r.body.hash as string, ...saved(r.body) };
+  }
+  if (r.status === 409 && typeof r.body.hash === "string") {
+    return { status: "conflict", text: r.body.text as string, hash: r.body.hash };
+  }
+  if (r.status === 422 && Array.isArray(r.body.violations)) {
+    return { status: "invalid", message: message(r.body.detail), violations: r.body.violations as string[] };
+  }
+  return { status: "error", message: message(r.body.detail) };
+}
+
+export const mediaUrl = (path: string) => `/api/media?path=${encodeURIComponent(path)}`;
 
 const q = (path: string) => `path=${encodeURIComponent(path)}`;
 
@@ -80,19 +148,6 @@ export const api = {
   doc: (path: string) => getJson<Doc>(`/api/doc?${q(path)}`),
   diff: (path: string) => getJson<{ git: GitState; diff: string }>(`/api/doc/diff?${q(path)}`),
   log: (path: string) => getJson<{ entries: LogEntry[] }>(`/api/doc/log?${q(path)}`).then((r) => r.entries),
-  async save(path: string, text: string, hash: string): Promise<SaveResult> {
-    const r = await fetch("/api/doc", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, text, hash }),
-    });
-    const body = await r.json();
-    if (r.ok) {
-      return { status: "saved", hash: body.hash, git: body.git };
-    }
-    if (r.status === 409) {
-      return { status: "conflict", text: body.text, hash: body.hash };
-    }
-    return { status: "error", message: typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail) };
-  },
+  save: (path: string, text: string, hash: string) =>
+    saveText("/api/doc", "PUT", { path, text, hash }, (body) => ({ git: body.git as GitState })),
 };

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { NotFound } from "./api";
+import { NotFound } from "../api";
 
 export interface Loaded<T> {
   data: T | null;

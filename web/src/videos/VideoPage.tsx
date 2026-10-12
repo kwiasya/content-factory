@@ -4,7 +4,8 @@ import { NoteBox } from "../notes/NoteBox";
 import { formatSize, formatTime } from "../format";
 import { VIDEOS_PREFIX } from "./routes";
 import { TextFileEditor } from "./TextFileEditor";
-import { mediaUrl, videosApi, type VideoDetail, type VideoFile } from "./videosApi";
+import { mediaUrl } from "../api";
+import { videosApi, type VideoDetail, type VideoFile } from "./videosApi";
 
 type Tab = "script" | "brief" | "subtitles" | "renders" | "overlays" | "sources" | "files" | "references" | "notes";
 

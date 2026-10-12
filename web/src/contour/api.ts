@@ -1,3 +1,5 @@
+import { getJson, saveText, sendOrThrow } from "../api";
+
 export interface Watchlist {
   name: string;
   format_id: string;
@@ -178,11 +180,6 @@ export interface Brief {
   hash: string;
 }
 
-export type BriefSave =
-  | { status: "saved"; hash: string }
-  | { status: "conflict"; text: string; hash: string }
-  | { status: "error"; message: string };
-
 export interface TaxonomyValue {
   kind: string;
   value: string;
@@ -202,60 +199,6 @@ export interface Quota {
   by_method: { method: string; calls: number; units: number }[];
 }
 
-export class NotFound extends Error {}
-
-function message(detail: unknown): string {
-  return typeof detail === "string" ? detail : JSON.stringify(detail);
-}
-
-async function getJson<T>(url: string): Promise<T> {
-  const r = await fetch(url);
-  if (!r.ok) {
-    const text = await r.text();
-    let detail = text;
-    try {
-      detail = message(JSON.parse(text).detail);
-    } catch {
-      detail = `${r.status} ${text || r.statusText}`;
-    }
-    throw r.status === 404 ? new NotFound(detail) : new Error(detail);
-  }
-  return (await r.json()) as T;
-}
-
-interface Sent {
-  ok: boolean;
-  status: number;
-  body: Record<string, unknown>;
-}
-
-async function send(url: string, method: string, payload?: unknown): Promise<Sent> {
-  let r: Response;
-  try {
-    r = await fetch(url, {
-      method,
-      headers: payload === undefined ? undefined : { "Content-Type": "application/json" },
-      body: payload === undefined ? undefined : JSON.stringify(payload),
-    });
-  } catch (e) {
-    return { ok: false, status: 0, body: { detail: (e as Error).message } };
-  }
-  const text = await r.text();
-  try {
-    return { ok: r.ok, status: r.status, body: JSON.parse(text) };
-  } catch {
-    return { ok: false, status: r.status, body: { detail: `${r.status} ${text || r.statusText}` } };
-  }
-}
-
-async function sendOrThrow<T>(url: string, method: string, payload?: unknown): Promise<T> {
-  const r = await send(url, method, payload);
-  if (!r.ok) {
-    throw new Error(message(r.body.detail));
-  }
-  return r.body as unknown as T;
-}
-
 const BASE = "/api/contour";
 const wl = (name: string) => `${BASE}/watchlists/${encodeURIComponent(name)}`;
 
@@ -270,8 +213,6 @@ function query(params: Record<string, string>): string {
   return s ? `?${s}` : "";
 }
 
-export const mediaUrl = (path: string) => `/api/media?path=${encodeURIComponent(path)}`;
-
 export const contourApi = {
   watchlists: () => getJson<{ watchlists: Watchlist[] }>(`${BASE}/watchlists`).then((r) => r.watchlists),
   watchlist: (name: string) => getJson<{ watchlist: Watchlist; channels: ReferenceChannel[] }>(wl(name)),
@@ -285,16 +226,7 @@ export const contourApi = {
   move: (id: number, action: IdeaAction) => sendOrThrow<Idea>(`${BASE}/ideas/${id}/${action}`, "POST"),
   note: (id: number, text: string) => sendOrThrow<Idea>(`${BASE}/ideas/${id}/notes`, "PUT", { text }),
   brief: (id: number) => getJson<Brief>(`${BASE}/ideas/${id}/brief`),
-  async saveBrief(id: number, text: string, hash: string): Promise<BriefSave> {
-    const r = await send(`${BASE}/ideas/${id}/brief`, "PUT", { text, hash });
-    if (r.ok) {
-      return { status: "saved", hash: r.body.hash as string };
-    }
-    if (r.status === 409 && typeof r.body.hash === "string") {
-      return { status: "conflict", text: r.body.text as string, hash: r.body.hash };
-    }
-    return { status: "error", message: message(r.body.detail) };
-  },
+  saveBrief: (id: number, text: string, hash: string) => saveText(`${BASE}/ideas/${id}/brief`, "PUT", { text, hash }),
   taxonomy: (kind: string, status: string) =>
     getJson<{ values: TaxonomyValue[]; kinds: string[]; statuses: string[] }>(
       `${BASE}/taxonomy${query({ kind, status })}`,
