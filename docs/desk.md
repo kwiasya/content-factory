@@ -22,7 +22,7 @@ npm --prefix web run build               # after every frontend change
 | `--port PORT` | `8765` | Port. |
 | `--token T` | none | Shared token. When set, every request must carry it. |
 
-Footage root and `factory.db` follow `cf.research`: `CF_FOOTAGE_ROOT` (default `~/Movies/content-factory`) and `CF_FACTORY_DB` (default `<footage root>/factory.db`). Desk reports them in `/api/meta` and opens the database only for Notes, one connection per request (opening it migrates and seeds, which is a write).
+Footage root and `factory.db` follow `cf.research`: `CF_FOOTAGE_ROOT` (default `~/Movies/content-factory`) and `CF_FACTORY_DB` (default `<footage root>/factory.db`). Desk reports them in `/api/meta` and opens the database for Notes and the research contour, one connection per request (opening it migrates and seeds, which is a write).
 
 ## Security
 
@@ -113,10 +113,32 @@ Code: `src/cf/desk/videos_api.py`, `src/cf/desk/media.py`, `web/src/videos/`. De
 
 The web page lives at `#/videos` (list) and `#/videos/<slug>`. ProRes 4444 overlays play in Safari only.
 
+## Research contour
+
+Code: `src/cf/desk/contour_api.py`, `web/src/contour/`. The research contour (`GLOSSARY.md`, section Исследование) over `factory.db`: Watchlists, their feed, Reference cards, summaries, the Idea inbox with Briefs, the taxonomy and today's quota. Every endpoint calls `cf.research` modules directly (no subprocess, nothing on the network: scout, snapshot and fetch stay with the Editor) and opens a Store per request. An unknown Watchlist, Reference or Idea is 404; any other error the CLI reports as a user error (`USER_ERRORS` in `cf.research.cli`, plus a bad summary name) is 422 with the message, violations appended one per line.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/contour/watchlists` | `watchlists` (`name`, `format_id`, `author_channel`, `language`, `region`, `queries`, `channel_count`, `created_at`) |
+| `GET /api/contour/watchlists/{name}` | `watchlist` and its Reference `channels` |
+| `GET /api/contour/watchlists/{name}/feed?days=&min_outlier=&min_views=&kind=&max_duration=&limit=` | `rows` as `feed --json` prints them (Outlier score rounded to 2 places, `analyzed` false = `без разбора`, `candidate` = `кандидат`), with the CLI defaults: 30 days, limit 20, no other filter; 422 for a kind other than `short`/`long` |
+| `GET /api/contour/cards/{video_id}` | YouTube id or store id: `reference` (the feed row with its Outlier score), `card` (`schema`, `measured`, `analysis` or null), `sections` (the transcript sections of `measured`), `proposed` (category values of the analysis awaiting approval), `media` (`references/<watchlist>/<id>/proxy.mp4` for `/api/media` when the proxy exists, else null); 404 naming `fetch` when the Reference has no card |
+| `GET /api/contour/watchlists/{name}/summary/{hooks\|formats\|topics}?days=` | the summary as `summary <what> --json` prints it (default 14 days, outlier threshold 2, 10 groups and uncarded rows); 422 for another name |
+| `GET /api/contour/ideas?watchlist=&status=` | `ideas` (of every Watchlist when `watchlist` is empty), `statuses`; 422 for an unknown status |
+| `POST /api/contour/ideas/{id}/{shortlist\|discard\|restore}` | the moved Idea; 422 when the status does not allow the move |
+| `PUT /api/contour/ideas/{id}/notes` | body `{text}`: appends a note `{at, text}` to the Idea (as `ideas note`) and returns it; 422 for empty text |
+| `GET /api/contour/ideas/{id}/brief` | `path` (`brief_path`), `text`, `hash`; 404 with the `ideas brief <id>` command while the Idea has no Brief, or when the file is missing or outside the footage root |
+| `PUT /api/contour/ideas/{id}/brief` | body `{text, hash}`: the same hashed atomic write as documents (409 with the fresh `text` and `hash` on a stale hash) |
+| `GET /api/contour/taxonomy?kind=&status=` | `values` (`kind`, `value`, `status`, `source`, `label`, `note`), `kinds`, `statuses` |
+| `POST /api/contour/taxonomy/{kind}/{value}/{approve\|reject}` | the value with `cards`: approve drops the `proposed:` prefix in every card that proposed it (store and `card.json` under the footage root); reject lists the cards that now fail validation |
+| `GET /api/contour/quota` | `day` (Pacific), `buckets` (`bucket`, `limit`, `used`, `remaining`), `by_method`, `limits` |
+
+Pages: `#/contour` (Watchlists and quota), `#/contour/watchlists/<name>` (channels, queries, feed with the CLI filters), `#/contour/watchlists/<name>/summary` (hooks, formats, topics tabs), `#/contour/cards/<id>` (measured facts, heatmap peaks as an SVG bar chart over the duration with the quote on hover and seek on click, transcript sections and chapters next to the proxy player, the analysis), `#/contour/ideas[/<id>]` (inbox with filters and actions, the selected Idea with notes and the Brief editor), `#/contour/taxonomy` (values by kind, the proposed ones by default, with approve and reject). Empty states name the next skill or command: `/research-watchlist`, `/scout-references` (`scout`), `/analyze-reference`, `/suggest-ideas`, `ideas brief <id>`.
+
 ## Frontend
 
 `web/` is Vite + React + TypeScript + CodeMirror 6. Routes are hash routes: `#/doc/<path>` (document with Edit, Diff vs HEAD and History tabs; a skill's `SKILL.md` also shows what it mentions and who mentions it), `#/research` (topics with file flags, synthesis), `#/research/<NN-slug>` (`rules.md` with an editor, answers and notes in tabs with a contents list built from their headings), `#/search/<query>` (the header search box). `npm --prefix web run dev` starts Vite on its own port and proxies `/api` to `127.0.0.1:8765` (run `python -m cf.desk` alongside). `npm --prefix web run lint` runs eslint and tsc. The Format shelf (`#/formats`, `#/formats/<id>`) and the skill lint badge and list live in `web/src/formats/`. `npm --prefix web run build` writes `web/dist`, which `cf.desk` serves at `/`. `web/node_modules` and `web/dist` are gitignored.
 
 ## Tests
 
-`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_formats.py` (Format shelf and skill lint), `tests/test_desk_research.py` (research group, topics, search, skill link map), `tests/test_desk_notes.py` (Notes API, and the skill hook run against a temporary db), `tests/test_desk_videos.py` (Videos and media on a temporary footage root), `tests/test_desk_cli.py` (flags) and `tests/test_research_notes_cli.py` (`notes` CLI). They do not need the frontend build.
+`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_formats.py` (Format shelf and skill lint), `tests/test_desk_research.py` (research group, topics, search, skill link map), `tests/test_desk_notes.py` (Notes API, and the skill hook run against a temporary db), `tests/test_desk_videos.py` (Videos and media on a temporary footage root), `tests/test_desk_contour.py` (research contour on a temporary db seeded with `research_synth` helpers), `tests/test_desk_cli.py` (flags) and `tests/test_research_notes_cli.py` (`notes` CLI). They do not need the frontend build.
