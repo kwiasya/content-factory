@@ -52,13 +52,19 @@ The groups live in one place, `GROUPS` in `src/cf/desk/catalog.py`; a new group 
 | `PUT /api/doc` | body `{path, text, hash}`: writes atomically (temp file + rename) when `hash` matches the file; 409 with the fresh `text` and `hash` when the file changed since it was read; 403 for read-only; 422 for invalid JSON in a `json` document |
 | `GET /api/doc/diff?path=` | `git` state and unified `diff` against HEAD (untracked and ignored files diff against empty) |
 | `GET /api/doc/log?path=` | commits touching the file: `hash`, `date`, `author`, `subject` |
+| `GET /api/formats` | `formats`: one per `formats/*/FORMAT.md` (`id` = folder, `title` from the `# Format: …` heading, `path`, `has_hook_library`) |
+| `GET /api/formats/{id}` | `format` (`path`, `text` of FORMAT.md; edit it through `PUT /api/doc`), `hook_library` (`path`, `text`, or null until `hooks export`), `topics` (two-digit numbers from the "Research rules that apply" line, each with its `docs/research/NN-*/rules.md` path or null), `rules` (rows of those tables: `topic`, `id`, `rule`, `scope`, `tag`, `source`, `confidence`, mapped by the table header), `videos` (`videos/*/video.json` under the footage root whose `format` is `id`: `slug`, `title`, `status`, `channel`, `path`) |
+| `GET /api/skills/lint` | `skills`: broken reference count per own skill, for the catalogue badge |
+| `GET /api/skills/{name}/lint` | `missing_paths` and `missing_skills` (`ref`, `file`, `line`) for one own skill; 404 for vendored or unknown skills |
+
+Skill lint reads every `.md` of the skill. A path is a token with `/` or ending in `.md`, `.json`, `.py`, without placeholders (`<>{}*$~:`) or `..`, whose first segment exists at the repo root, the skill folder or the file's folder; it is broken when it exists in none of those. A skill mention is `/name`; it is broken when `.claude/skills/<name>/` does not exist and `name` is not a Claude Code built-in command.
 
 Git is read-only: status, diff, log. Commits stay with the Author or the Editor.
 
 ## Frontend
 
-`web/` is Vite + React + TypeScript + CodeMirror 6. `npm --prefix web run dev` starts Vite on its own port and proxies `/api` to `127.0.0.1:8765` (run `python -m cf.desk` alongside). `npm --prefix web run lint` runs eslint and tsc; `npm --prefix web run build` writes `web/dist`, which `cf.desk` serves at `/`. `web/node_modules` and `web/dist` are gitignored.
+`web/` is Vite + React + TypeScript + CodeMirror 6. `npm --prefix web run dev` starts Vite on its own port and proxies `/api` to `127.0.0.1:8765` (run `python -m cf.desk` alongside). `npm --prefix web run lint` runs eslint and tsc. The Format shelf (`#/formats`, `#/formats/<id>`) and the skill lint badge and list live in `web/src/formats/`. `npm --prefix web run build` writes `web/dist`, which `cf.desk` serves at `/`. `web/node_modules` and `web/dist` are gitignored.
 
 ## Tests
 
-`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path) and `tests/test_desk_cli.py` (flags). They do not need the frontend build.
+`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_formats.py` (Format shelf and skill lint) and `tests/test_desk_cli.py` (flags). They do not need the frontend build.
