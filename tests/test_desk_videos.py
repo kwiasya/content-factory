@@ -138,6 +138,38 @@ class ListTest(VideosTestCase):
         self.assertEqual(self.client.get("/api/videos/videos~x").status_code, 404)
 
 
+class MediaTest(VideosTestCase):
+    def media(self, path: str, **headers):
+        return self.client.get("/api/media", params={"path": path}, headers=headers)
+
+    def test_range_request_returns_206_with_the_slice(self):
+        r = self.media("videos/long-one/renders/v1.mp4", range="bytes=10-19")
+        self.assertEqual(r.status_code, 206)
+        self.assertEqual(r.content, MP4[10:20])
+        self.assertEqual(r.headers["content-range"], f"bytes 10-19/{len(MP4)}")
+
+    def test_allowlisted_files_stream_whole(self):
+        write(self.footage / "references" / "wl" / "abc" / "proxy.mp4", MP4)
+        write(self.reel / "out" / "short-01.mp4", MP4)
+        for path in ("videos/long-one/overlays/o1.mov", "w1/proxy/A.mp4", "references/wl/abc/proxy.mp4",
+                     "w1/reels/short-01/out/short-01.mp4"):
+            with self.subTest(path):
+                r = self.media(path)
+                self.assertEqual(r.status_code, 200)
+                self.assertEqual(r.content, MP4)
+                self.assertEqual(r.headers["accept-ranges"], "bytes")
+
+    def test_raw_and_everything_outside_the_allowlist_is_404(self):
+        write(self.footage / "references" / "wl" / "abc" / "abc.mp4", MP4)
+        (self.video / "renders" / "link.mp4").symlink_to(self.walk / "raw" / "x.mp4")
+        for path in ("w1/raw/x.mp4", "w1/clip_manifest.json", "videos/long-one/video.json",
+                     "videos/long-one/script.md", "videos/long-one/renders", "videos/long-one/renders/",
+                     "videos/long-one/renders/../../../w1/raw/x.mp4", "/etc/hosts", "",
+                     "references/wl/abc/abc.mp4", "videos/long-one/renders/link.mp4", "w1/proxy/missing.mp4"):
+            with self.subTest(path):
+                self.assertEqual(self.media(path).status_code, 404)
+
+
 class DetailTest(VideosTestCase):
     def test_video_detail_has_video_json_hash_and_file_tree_with_kinds(self):
         detail = self.ok(self.client.get("/api/videos/long-one"))
