@@ -46,6 +46,8 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 - A number in the hook comes with the mechanism in the same line.
 - The stake comes before any name: say what the viewer gets, then name the place.
 - Text reads without sound: overlays carry the story.
+- One self-ironic line about the author per Reel (beauty + self-irony is what people subscribe for), as a `line` overlay at the start or near the end, e.g. "me pretending I'm not freezing 🫠", "my feet after 5 castles 💀" (author rule, 2026-10-12).
+- Time-limited events get urgency in the caption with the end date verified on the official site that year, e.g. "Festival ends on 18 October — go this weekend".
 - Only the user's own footage; no watermarks.
 - No on-camera speech: a shot never overlaps a second flagged `speech_on_camera` in the Shot log (until the voiceover phase). Off-camera speech (the author filming) is allowed; music covers it.
 

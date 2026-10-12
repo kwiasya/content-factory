@@ -194,9 +194,9 @@
     },
     "cut_lead_frames": 1,
     "target_length_s": {
-      "min": 12,
-      "max": 18,
-      "default": 15
+      "min": 11,
+      "max": 14,
+      "default": 12.5
     }
   },
   "transitions": {
