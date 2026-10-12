@@ -195,5 +195,58 @@ class WriteTest(DeskTestCase):
         self.assertEqual((self.repo / "style.json").read_text(), '{"schema": "style/1"}\n')
 
 
+class GitTest(DeskTestCase):
+    def test_diff_against_head_shows_the_edit(self):
+        (self.repo / "CLAUDE.md").write_text("# Project\nNew rule\n")
+        r = self.client.get("/api/doc/diff", params={"path": "CLAUDE.md"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["git"], "modified")
+        self.assertIn("+New rule", r.json()["diff"])
+        self.assertIn("--- a/CLAUDE.md", r.json()["diff"])
+
+    def test_clean_file_has_an_empty_diff(self):
+        r = self.client.get("/api/doc/diff", params={"path": "CLAUDE.md"})
+        self.assertEqual(r.json(), {"path": "CLAUDE.md", "git": "clean", "diff": ""})
+
+    def test_untracked_file_diffs_as_all_added(self):
+        (self.repo / "docs/agents/new.md").write_text("fresh\n")
+        r = self.client.get("/api/doc/diff", params={"path": "docs/agents/new.md"}).json()
+        self.assertEqual(r["git"], "untracked")
+        self.assertIn("+fresh", r["diff"])
+
+    def test_log_lists_commits_touching_the_file(self):
+        (self.repo / "CLAUDE.md").write_text("# Project v2\n")
+        git(self.repo, "commit", "-q", "-am", "Reword the project rule")
+        (self.repo / "style.json").write_text("{}\n")
+        git(self.repo, "commit", "-q", "-am", "Unrelated style change")
+        entries = self.client.get("/api/doc/log", params={"path": "CLAUDE.md"}).json()["entries"]
+        self.assertEqual([e["subject"] for e in entries], ["Reword the project rule", "Initial tree"])
+        self.assertEqual(entries[0]["author"], "t")
+        self.assertEqual(len(entries[0]["hash"]), 40)
+
+    def test_diff_and_log_refuse_uncatalogued_paths(self):
+        for endpoint in ["/api/doc/diff", "/api/doc/log"]:
+            with self.subTest(endpoint=endpoint):
+                self.assertEqual(self.client.get(endpoint, params={"path": "secret.txt"}).status_code, 404)
+
+    def test_desk_never_commits(self):
+        read = self.doc("CLAUDE.md")
+        self.client.put("/api/doc", json={"path": "CLAUDE.md", "text": "# edit\n", "hash": read["hash"]})
+        self.assertEqual(git(self.repo, "rev-list", "--count", "HEAD").strip(), "1")
+
+
+class MetaTest(DeskTestCase):
+    def test_meta_names_the_checkout_and_the_data_roots(self):
+        r = self.client.get("/api/meta")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json(), {"repo": str(self.repo.resolve()), "branch": "main",
+                                    "footage_root": str(self.footage), "db_path": str(self.db)})
+
+    def test_desk_does_not_create_the_db(self):
+        self.client.get("/api/meta")
+        self.client.get("/api/catalog")
+        self.assertFalse(self.db.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

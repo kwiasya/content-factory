@@ -57,6 +57,22 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
         return {**entry.as_dict(), "git": git_state(entry.path), "text": data.decode("utf-8"),
                 "hash": digest(data)}
 
+    @app.get("/api/doc/diff")
+    def get_diff(path: str) -> dict:
+        entry = entry_of(path)
+        state = git_state(entry.path)
+        return {"path": entry.path, "git": state, "diff": gitread.diff(repo, entry.path, state)}
+
+    @app.get("/api/doc/log")
+    def get_log(path: str) -> dict:
+        entry = entry_of(path)
+        return {"path": entry.path, "entries": gitread.log(repo, entry.path)}
+
+    @app.get("/api/meta")
+    def get_meta() -> dict:
+        return {"repo": str(repo), "branch": gitread.branch(repo), "footage_root": str(footage_root),
+                "db_path": str(db_path)}
+
     @app.put("/api/doc")
     def put_doc(body: DocWrite) -> dict:
         entry = entry_of(body.path)
