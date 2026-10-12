@@ -66,6 +66,8 @@ The groups live in one place, `GROUPS` in `src/cf/desk/catalog.py`; a new group 
 | `GET /api/skills/links` | for every own skill: `paths` it mentions that exist in the repo (`catalogued` is the subset Desk can open), `commands` (`cf.research <group> [<cmd>]`), store `tables` (names from `CREATE TABLE` in `src/cf/research/store.py`, counted when written as `` `name` ``, `name table`, `name row(s)` or after `FROM`/`JOIN`/`INTO`/`UPDATE`), `skills` (folders under `.claude/skills/` mentioned as above) and `mentioned_by` |
 | `GET /api/skills/{name}/links` | the same entry for one own skill; 404 for a vendored or unknown one |
 
+Every error body is `{detail, code, params}` (`src/cf/desk/problems.py`): `detail` is English for the CLI and logs, `code` is stable and `params` carries what the message names (path, id, command). A body that does not match the request shape is 422 `request_invalid` with the `fields`. The frontend translates by `code` and falls back to `detail`. Other English sentences the UI shows carry a code too: the catalogue empty hint (`code`), a Video list entry with a broken `video.json` (`error_code`), the summary weight (`weight_code`). Script violations from `cf.script_schema` stay English.
+
 One module, `src/cf/desk/skills.py`, defines skills for the catalogue, lint and link map: a vendored skill is a folder named `remotion-*` (catalogue entries of skill files carry `skill` and `vendored`, which the frontend reads instead of re-deriving the rule); an own skill is a folder under `.claude/skills/` with a `SKILL.md`, a lowercase name and not vendored; a skill mention is `/name` (not a Claude Code built-in command), or a known skill name right after a backtick or as `.claude/skills/name`.
 
 Skill lint reads every `.md` of the skill. A path is a token with `/` or ending in `.md`, `.json`, `.py`, without placeholders (`<>{}*$~:`) or `..`, whose first segment exists at the repo root, the skill folder or the file's folder; it is broken when it exists in none of those. A skill mention (as above) is broken when `.claude/skills/<name>/` does not exist; only the `/name` form can name an unknown skill.
@@ -140,6 +142,12 @@ Pages: `#/contour` (Watchlists and quota), `#/contour/watchlists/<name>` (channe
 ## Frontend
 
 `web/` is Vite + React + TypeScript + CodeMirror 6. Routes are hash routes: `#/doc/<path>` (document with Edit, Diff vs HEAD and History tabs; a skill's `SKILL.md` also shows what it mentions and who mentions it), `#/research` (topics with file flags, synthesis), `#/research/<NN-slug>` (`rules.md` with an editor, answers and notes in tabs with a contents list built from their headings), `#/search/<query>` (the header search box). `npm --prefix web run dev` starts Vite on its own port and proxies `/api` to `127.0.0.1:8765` (run `python -m cf.desk` alongside). `npm --prefix web run lint` runs eslint and tsc. The Format shelf (`#/formats`, `#/formats/<id>`) and the skill lint badge and list live in `web/src/formats/`. `npm --prefix web run build` writes `web/dist`, which `cf.desk` serves at `/`. `web/node_modules` and `web/dist` are gitignored.
+
+## Language
+
+The UI speaks English (default) and Russian. The EN/RU switch in the header sets the language; the choice is kept in `localStorage` (`desk.lang`), and with no stored choice or no storage the UI is English. `<html lang>` and the page title follow it. Dates, numbers and sizes use `Intl` with `en-US` or `ru-RU`.
+
+Code: `web/src/i18n/`. `en.ts` holds every key and is the source of the `Key` type; `ru.ts` is typed `Dict`, so a key missing in either file is a type error. Components call `const t = useT()` and then `t("key", { name })`, `t("key", { n })` for counts (an entry `{ one, few, many }`; Russian picks one/few/many, English one/many), `t.rich("key", { cmd: <Cmd>…</Cmd> })` when a placeholder is markup, `t.or(dynamicKey, fallback)` for keys built from data, and `t.problem(error)` for an API error (`err.<code>`, else its `detail`). To add a string: add the key to `en.ts`, then to `ru.ts` (`npm --prefix web run lint` names the missing one), and use it through `t`. Russian taxonomy labels live in `i18n/taxonomy.ts` (English uses the label from the store), CodeMirror's own phrases in `i18n/codemirror.ts`. File names, paths, commands, skill names, taxonomy values and document contents are never translated.
 
 ## Tests
 
