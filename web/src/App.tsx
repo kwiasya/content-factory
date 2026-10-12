@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type CatalogGroup, type Meta } from "./api";
 import { DocPage } from "./DocPage";
 import { GitBadge } from "./GitBadge";
+import { VideosNav, VideosRoute } from "./videos/VideosRoute";
 
 const PREFIX = "#/doc/";
 
@@ -36,6 +37,7 @@ export function App() {
     <div className="app">
       <header className="top">
         <strong>Desk</strong>
+        <VideosNav />
         {meta && (
           <span className="checkout" title={`footage: ${meta.footage_root}\ndb: ${meta.db_path}`}>
             <code>{meta.repo}</code>
@@ -43,47 +45,49 @@ export function App() {
           </span>
         )}
       </header>
-      <div className="body">
-        <aside className="sidebar">
-          <label className="toggle">
-            <input type="checkbox" checked={showVendored} onChange={(e) => setShowVendored(e.target.checked)} />
-            Show vendored skills
-          </label>
-          {groups.map((g) => (
-            <section key={g.id} className="group">
-              <h2>{g.title}</h2>
-              {g.empty.map((e) => (
-                <p key={e.glob} className="empty">
-                  {e.hint}
-                </p>
-              ))}
-              <ul>
-                {g.docs.map((d) => (
-                  <li key={d.path}>
-                    <a
-                      href={PREFIX + encodeURIComponent(d.path)}
-                      className={d.path === path ? "active" : ""}
-                      title={d.path}
-                    >
-                      <span className="name">{d.title}</span>
-                      {!d.editable && <span className="lock">ro</span>}
-                      <GitBadge state={d.git} compact />
-                    </a>
-                  </li>
+      <VideosRoute>
+        <div className="body">
+          <aside className="sidebar">
+            <label className="toggle">
+              <input type="checkbox" checked={showVendored} onChange={(e) => setShowVendored(e.target.checked)} />
+              Show vendored skills
+            </label>
+            {groups.map((g) => (
+              <section key={g.id} className="group">
+                <h2>{g.title}</h2>
+                {g.empty.map((e) => (
+                  <p key={e.glob} className="empty">
+                    {e.hint}
+                  </p>
                 ))}
-              </ul>
-            </section>
-          ))}
-        </aside>
-        {error && !path && <p className="error">{error}</p>}
-        {path ? (
-          <DocPage key={path} path={path} onSaved={refresh} />
-        ) : (
-          <main className="doc">
-            <p className="muted">Pick a document on the left.</p>
-          </main>
-        )}
-      </div>
+                <ul>
+                  {g.docs.map((d) => (
+                    <li key={d.path}>
+                      <a
+                        href={PREFIX + encodeURIComponent(d.path)}
+                        className={d.path === path ? "active" : ""}
+                        title={d.path}
+                      >
+                        <span className="name">{d.title}</span>
+                        {!d.editable && <span className="lock">ro</span>}
+                        <GitBadge state={d.git} compact />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </aside>
+          {error && !path && <p className="error">{error}</p>}
+          {path ? (
+            <DocPage key={path} path={path} onSaved={refresh} />
+          ) : (
+            <main className="doc">
+              <p className="muted">Pick a document on the left.</p>
+            </main>
+          )}
+        </div>
+      </VideosRoute>
     </div>
   );
 }
