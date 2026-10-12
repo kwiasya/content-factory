@@ -97,6 +97,8 @@ def _matches(repo: Path, source: Source) -> list[str]:
     for path in repo.glob(source.glob):
         if not path.is_file() or path.suffix not in TEXT_SUFFIXES:
             continue
+        if not path.resolve().is_relative_to(repo):
+            continue
         rel = path.relative_to(repo).as_posix()
         if not source.exclude(rel):
             found.append(rel)

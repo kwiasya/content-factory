@@ -123,5 +123,77 @@ class CatalogTest(DeskTestCase):
         self.assertTrue(entry["editable"])
 
 
+class ReadTest(DeskTestCase):
+    def test_read_returns_text_hash_and_entry(self):
+        doc = self.doc("CLAUDE.md")
+        self.assertEqual(doc["text"], "# Project\n")
+        self.assertEqual(doc["hash"], "sha256:aef277fb6a70a89681a85e1b6d23f44ee2a6cc58490f9f5c95fc99db6d2d3542")
+        self.assertEqual(doc["group"], "content")
+        self.assertEqual(doc["git"], "clean")
+        self.assertTrue(doc["editable"])
+
+    def test_hidden_vendored_doc_reads_but_is_not_editable(self):
+        doc = self.doc(".claude/skills/remotion-foo/SKILL.md")
+        self.assertEqual(doc["text"], "# Remotion foo\n")
+        self.assertFalse(doc["editable"])
+
+    def test_uncatalogued_and_traversal_paths_are_404(self):
+        outside = Path(self.tmp.name) / "outside.md"
+        outside.write_text("outside\n")
+        for path in ["secret.txt", "docs/adr/0001-x.md", "../outside.md", "docs/../secret.txt",
+                     "/etc/passwd", str(outside), ".claude/skills/alpha/../../../CLAUDE.md", "nope.md"]:
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get("/api/doc", params={"path": path}).status_code, 404)
+
+    def test_symlink_out_of_the_repo_is_404(self):
+        outside = Path(self.tmp.name) / "outside.md"
+        outside.write_text("outside\n")
+        (self.repo / "docs" / "agents" / "link.md").symlink_to(outside)
+        self.assertEqual(self.client.get("/api/doc", params={"path": "docs/agents/link.md"}).status_code, 404)
+
+
+class WriteTest(DeskTestCase):
+    def put(self, path: str, text: str, hash: str):
+        return self.client.put("/api/doc", json={"path": path, "text": text, "hash": hash})
+
+    def test_write_with_the_read_hash_lands_in_the_same_file(self):
+        read = self.doc(".claude/skills/alpha/SKILL.md")
+        r = self.put(read["path"], "# Alpha v2\n", read["hash"])
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((self.repo / ".claude/skills/alpha/SKILL.md").read_text(), "# Alpha v2\n")
+        self.assertEqual(r.json()["hash"], self.doc(read["path"])["hash"])
+        self.assertEqual(r.json()["git"], "modified")
+        self.assertEqual(sorted(p.name for p in (self.repo / ".claude/skills/alpha").iterdir()), ["SKILL.md"])
+
+    def test_write_after_the_file_changed_on_disk_is_409_with_the_fresh_text(self):
+        read = self.doc("CLAUDE.md")
+        (self.repo / "CLAUDE.md").write_text("# Editor wrote this\n")
+        r = self.put("CLAUDE.md", "# Author's edit\n", read["hash"])
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()["text"], "# Editor wrote this\n")
+        self.assertEqual(r.json()["hash"], self.doc("CLAUDE.md")["hash"])
+        self.assertEqual((self.repo / "CLAUDE.md").read_text(), "# Editor wrote this\n")
+
+    def test_read_only_doc_is_refused(self):
+        read = self.doc("formats/walk-reel/hook-library.md")
+        r = self.put(read["path"], "# edited\n", read["hash"])
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual((self.repo / "formats/walk-reel/hook-library.md").read_text(), "# Hooks\n")
+
+    def test_uncatalogued_or_traversal_write_is_404_and_writes_nothing(self):
+        for path in ["secret.txt", "../outside.md", "docs/agents/new.md"]:
+            with self.subTest(path=path):
+                self.assertEqual(self.put(path, "x\n", "sha256:0").status_code, 404)
+        self.assertEqual((self.repo / "secret.txt").read_text(), "not catalogued\n")
+        self.assertFalse((Path(self.tmp.name) / "outside.md").exists())
+        self.assertFalse((self.repo / "docs/agents/new.md").exists())
+
+    def test_invalid_json_is_refused_for_a_json_doc(self):
+        read = self.doc("style.json")
+        r = self.put("style.json", '{"schema": ', read["hash"])
+        self.assertEqual(r.status_code, 422)
+        self.assertEqual((self.repo / "style.json").read_text(), '{"schema": "style/1"}\n')
+
+
 if __name__ == "__main__":
     unittest.main()
