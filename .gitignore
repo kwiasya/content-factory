@@ -13,3 +13,7 @@ author/
 
 # Secrets (YouTube Data API key); see .env.example
 .env
+
+# Desk frontend
+web/node_modules/
+web/dist/
