@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from cf.desk import catalog, formats_api, gitread, notes_api, skill_lint
+from cf.desk import catalog, formats_api, gitread, notes_api, research_api, search, skill_lint, skill_links
 
 WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
@@ -94,6 +94,9 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
         atomic_write(target, data)
         return {"path": entry.path, "hash": digest(data), "git": git_state(entry.path)}
 
+    app.include_router(research_api.router(repo))
+    app.include_router(search.router(repo))
+    app.include_router(skill_links.router(repo))
     app.include_router(formats_api.router(repo, footage_root))
     app.include_router(skill_lint.router(repo))
     app.include_router(notes_api.router(db_path))

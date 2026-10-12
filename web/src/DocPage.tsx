@@ -4,6 +4,7 @@ import { CodeEditor } from "./CodeEditor";
 import { DiffView } from "./DiffView";
 import { GitBadge } from "./GitBadge";
 import { Preview } from "./Preview";
+import { SkillLinks } from "./skills/SkillLinks";
 import { SkillLint } from "./formats/SkillLint";
 import { NoteBox } from "./notes/NoteBox";
 
@@ -81,6 +82,8 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
         </div>
       </div>
       <SkillLint path={doc.path} version={doc.hash} />
+
+      <SkillLinks path={doc.path} />
 
       <nav className="tabs">
         {(["edit", "diff", "history"] as Tab[]).map((t) => (
