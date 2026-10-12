@@ -19,6 +19,16 @@ README = """# Research
 | 09 | `prompts/09-storytelling.md` | Структуры сторителлинга | готово |
 """
 
+ALPHA = """---
+name: alpha
+---
+# Alpha
+Run `.venv/bin/python -m cf.research watchlist add <name>` then `python -m cf.research quota --json`.
+Writes one Watchlist row and reads the `idea` table. Then hand over to `/beta`.
+See docs/research/SYNTHESIS.md, `CLAUDE.md` and docs/research/09-storytelling/, not docs/missing.md.
+Hook first.
+"""
+
 TREE = {
     "docs/research/README.md": README,
     "docs/research/SYNTHESIS.md": "# Synthesis\nPipeline plan.\n",
@@ -29,11 +39,13 @@ TREE = {
     "docs/research/09-storytelling/result-a.md": "# Opus answer\n## Hooks\nA hook opens a loop.\n",
     "docs/research/09-storytelling/rules.md": "# 09 rules\n|id|rule|\n|---|---|\n|R09-01|Stakes first|\n",
     "docs/research/09-storytelling/notes/stakes.md": "# Stakes notes\n",
-    "docs/research/prompts/09-storytelling.md": "# Prompt, hidden\n",
+    "docs/research/prompts/09-storytelling.md": "# Prompt about a hook, hidden\n",
     "docs/research/prompts/_context.md": "# Context, hidden\n",
     "docs/research/loose-note.md": "# not catalogued\n",
-    ".claude/skills/alpha/SKILL.md": "# Alpha\n",
-    ".claude/skills/remotion-foo/SKILL.md": "# Remotion foo\n",
+    ".claude/skills/alpha/SKILL.md": ALPHA,
+    ".claude/skills/beta/SKILL.md": "# Beta\nBuilds on the `remotion-foo` skill.\n",
+    ".claude/skills/beta/templates/x.md": "Template for `alpha` output.\n",
+    ".claude/skills/remotion-foo/SKILL.md": "# Remotion foo\nA HOOK in a vendored skill.\n",
     "CLAUDE.md": "# Project\n",
     "src/cf/research/store.py": "V1 = \"\"\"\nCREATE TABLE watchlist (\n  id INTEGER\n);\nCREATE TABLE idea (\n  id INTEGER\n);\n\"\"\"\n",
 }
@@ -131,6 +143,53 @@ class ResearchTopicsTest(ResearchTestCase):
     def test_no_research_folder_is_an_empty_list(self):
         git(self.repo, "rm", "-rq", "docs/research")
         self.assertEqual(self.get("/api/research"), {"topics": [], "synthesis": [], "readme": None})
+
+
+class SearchTest(ResearchTestCase):
+    def search(self, q: str, **params) -> dict:
+        return self.get("/api/search", q=q, **params)
+
+    def hits(self, body: dict) -> dict:
+        return {h["path"]: h for g in body["groups"] for h in g["hits"]}
+
+    def test_case_insensitive_hits_are_grouped_by_group_and_path_with_line_snippets(self):
+        body = self.search("hook")
+        self.assertEqual([g["id"] for g in body["groups"]], ["skills", "research"])
+        self.assertEqual([h["path"] for h in body["groups"][1]["hits"]], [
+            "docs/research/09-storytelling/chatgpt.md", "docs/research/09-storytelling/result-a.md"])
+        result = self.hits(body)["docs/research/09-storytelling/result-a.md"]
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(result["snippets"], [{"line": 2, "text": "## Hooks"}, {"line": 3, "text": "A hook opens a loop."}])
+        self.assertEqual(result["title"], "09-storytelling · result-a.md")
+        self.assertEqual(body["total"], 3)
+        self.assertFalse(body["truncated"])
+
+    def test_hidden_groups_are_searched_only_with_all_and_prompts_never(self):
+        self.assertNotIn(".claude/skills/remotion-foo/SKILL.md", self.hits(self.search("hook")))
+        hits = self.hits(self.search("HOOK", all=1))
+        self.assertIn(".claude/skills/remotion-foo/SKILL.md", hits)
+        self.assertFalse([p for p in hits if "/prompts/" in p])
+
+    def test_snippets_stop_at_three_and_long_lines_are_cut_around_the_match(self):
+        line = "x" * 300 + " stakes " + "y" * 300
+        (self.repo / "docs/research/09-storytelling/notes/stakes.md").write_text("\n".join([line] * 5) + "\n")
+        hit = self.hits(self.search("Stakes"))["docs/research/09-storytelling/notes/stakes.md"]
+        self.assertEqual(hit["count"], 5)
+        self.assertEqual([s["line"] for s in hit["snippets"]], [1, 2, 3])
+        self.assertIn("stakes", hit["snippets"][0]["text"])
+        self.assertLess(len(hit["snippets"][0]["text"]), 200)
+
+    def test_hits_are_capped_at_200(self):
+        notes = self.repo / "docs/research/09-storytelling/notes"
+        for i in range(210):
+            (notes / f"n{i:03}.md").write_text("needle\n")
+        body = self.search("needle")
+        self.assertEqual(body["total"], 200)
+        self.assertTrue(body["truncated"])
+
+    def test_blank_query_is_refused(self):
+        self.assertEqual(self.client.get("/api/search", params={"q": "  "}).status_code, 422)
+        self.assertEqual(self.client.get("/api/search").status_code, 422)
 
 
 if __name__ == "__main__":
