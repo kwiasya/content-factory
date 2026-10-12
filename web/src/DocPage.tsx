@@ -7,7 +7,10 @@ import { Preview } from "./Preview";
 import { SkillLinks } from "./skills/SkillLinks";
 import { SkillLint } from "./formats/SkillLint";
 import { NoteBox } from "./notes/NoteBox";
-import { formatTime } from "./format";
+import { formatDate, formatTime } from "./format";
+import { useT, type Problem } from "./i18n";
+import { ErrorLine } from "./ErrorLine";
+import { ConflictBox } from "./ConflictBox";
 
 type Tab = "edit" | "diff" | "history";
 
@@ -17,9 +20,10 @@ interface Conflict {
 }
 
 export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }) {
+  const t = useT();
   const [doc, setDoc] = useState<Doc | null>(null);
   const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<Tab>("edit");
@@ -35,21 +39,21 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
         setConflict(null);
         setError(null);
       })
-      .catch((e: Error) => setError(e.message));
+      .catch(setError);
   }, [path]);
 
   useEffect(load, [load]);
 
   useEffect(() => {
     if (tab === "diff") {
-      api.diff(path).then((d) => setDiff(d.diff), (e: Error) => setError(e.message));
+      api.diff(path).then((d) => setDiff(d.diff), setError);
     } else if (tab === "history") {
-      api.log(path).then(setLog, (e: Error) => setError(e.message));
+      api.log(path).then(setLog, setError);
     }
   }, [tab, path, doc?.hash]);
 
   if (!doc) {
-    return <main className="doc">{error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>}</main>;
+    return <main className="doc">{error ? <ErrorLine error={error} /> : <p className="muted">{t("common.loading")}</p>}</main>;
   }
 
   const dirty = draft !== doc.text;
@@ -66,7 +70,7 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
     } else if (result.status === "conflict") {
       setConflict({ text: result.text, hash: result.hash });
     } else {
-      setError(result.message);
+      setError(result.problem);
     }
   };
 
@@ -77,11 +81,11 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
           <h1>{doc.title}</h1>
           <code className="path">{doc.path}</code>
           {doc.description && <p className="muted">{doc.description}</p>}
-          {doc.mtime && <p className="muted">Last change {formatTime(doc.mtime)}</p>}
+          {doc.mtime && <p className="muted">{t("app.lastChange", { time: formatTime(doc.mtime, t) })}</p>}
         </div>
         <div className="doc-badges">
           <GitBadge state={doc.git} />
-          {!doc.editable && <span className="badge readonly">read-only</span>}
+          {!doc.editable && <span className="badge readonly">{t("common.readOnly")}</span>}
         </div>
       </div>
       <SkillLint entry={doc} version={doc.hash} />
@@ -89,29 +93,22 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
       <SkillLinks entry={doc} />
 
       <nav className="tabs">
-        {(["edit", "diff", "history"] as Tab[]).map((t) => (
-          <button key={t} className={t === tab ? "active" : ""} onClick={() => setTab(t)}>
-            {t === "edit" ? (doc.editable ? "Edit" : "View") : t === "diff" ? "Diff vs HEAD" : "History"}
+        {(["edit", "diff", "history"] as Tab[]).map((id) => (
+          <button key={id} className={id === tab ? "active" : ""} onClick={() => setTab(id)}>
+            {id === "edit" ? t(doc.editable ? "doc.tab.edit" : "doc.tab.view") : t(id === "diff" ? "doc.tab.diff" : "doc.tab.history")}
           </button>
         ))}
       </nav>
 
-      {error && <p className="error">{error}</p>}
+      <ErrorLine error={error} />
 
       {conflict && (
-        <div className="conflict">
-          <p>
-            <strong>The file changed on disk since you opened it.</strong> Your text is still in the editor.
-          </p>
-          <div className="actions">
-            <button onClick={load}>Load the fresh version (drop my edit)</button>
-            <button onClick={() => save(conflict.hash)}>Overwrite with my edit</button>
-          </div>
-          <details>
-            <summary>Fresh version on disk</summary>
-            <pre>{conflict.text}</pre>
-          </details>
-        </div>
+        <ConflictBox
+          title="conflict.file"
+          fresh={conflict.text}
+          onReload={load}
+          onOverwrite={() => save(conflict.hash)}
+        />
       )}
 
       {tab === "edit" && (
@@ -124,15 +121,15 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
               {doc.editable ? (
                 <>
                   <button className="primary" disabled={!dirty || saving} onClick={() => save(doc.hash)}>
-                    {saving ? "Saving…" : "Save"}
+                    {saving ? t("common.saving") : t("common.save")}
                   </button>
                   <button disabled={!dirty || saving} onClick={() => setDraft(doc.text)}>
-                    Revert
+                    {t("common.revert")}
                   </button>
-                  <span className="muted">{dirty ? "unsaved changes" : "saved"}</span>
+                  <span className="muted">{dirty ? t("common.unsaved") : t("common.saved")}</span>
                 </>
               ) : (
-                <span className="muted">Read-only in Desk</span>
+                <span className="muted">{t("doc.readOnlyInDesk")}</span>
               )}
             </div>
             <CodeEditor value={draft} kind={doc.kind} readOnly={!doc.editable} onChange={setDraft} />
@@ -140,13 +137,13 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
         </div>
       )}
 
-      {tab === "diff" && (diff === null ? <p className="muted">Loading…</p> : <DiffView diff={diff} />)}
+      {tab === "diff" && (diff === null ? <p className="muted">{t("common.loading")}</p> : <DiffView diff={diff} />)}
 
       {tab === "history" &&
         (log === null ? (
-          <p className="muted">Loading…</p>
+          <p className="muted">{t("common.loading")}</p>
         ) : log.length === 0 ? (
-          <p className="muted">No commits touch this file.</p>
+          <p className="muted">{t("doc.noCommits")}</p>
         ) : (
           <table className="log">
             <tbody>
@@ -155,7 +152,7 @@ export function DocPage({ path, onSaved }: { path: string; onSaved: () => void }
                   <td>
                     <code>{e.hash.slice(0, 7)}</code>
                   </td>
-                  <td>{e.date.slice(0, 10)}</td>
+                  <td>{formatDate(e.date, t)}</td>
                   <td>{e.subject}</td>
                   <td className="muted">{e.author}</td>
                 </tr>

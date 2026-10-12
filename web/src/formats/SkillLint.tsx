@@ -2,28 +2,31 @@ import { useEffect, useState } from "react";
 import { ownSkill, ownSkillPage, type CatalogEntry } from "../api";
 import { formatsApi, type BrokenRef, type SkillLint as Lint } from "./api";
 import { refreshLintSummary, useLintCount } from "./lintStore";
+import { useT, type Key } from "../i18n";
 import "./formats.css";
 
 export function LintBadge({ entry }: { entry: CatalogEntry }) {
   const skill = ownSkillPage(entry);
   const count = useLintCount(skill);
+  const t = useT();
   if (!count) {
     return null;
   }
   return (
-    <span className="badge lint-broken" title={`${count} broken reference${count === 1 ? "" : "s"}`}>
+    <span className="badge lint-broken" title={t("lint.badge", { n: count })}>
       {count}
     </span>
   );
 }
 
-function RefList({ title, refs }: { title: string; refs: BrokenRef[] }) {
+function RefList({ title, refs }: { title: Key; refs: BrokenRef[] }) {
+  const t = useT();
   if (refs.length === 0) {
     return null;
   }
   return (
     <>
-      <h3>{title}</h3>
+      <h3>{t(title)}</h3>
       <ul>
         {refs.map((r) => (
           <li key={`${r.file}:${r.ref}`}>
@@ -40,6 +43,7 @@ function RefList({ title, refs }: { title: string; refs: BrokenRef[] }) {
 
 export function SkillLint({ entry, version }: { entry: CatalogEntry; version: string }) {
   const skill = ownSkill(entry);
+  const t = useT();
   const [lint, setLint] = useState<Lint | null>(null);
 
   useEffect(() => {
@@ -67,10 +71,10 @@ export function SkillLint({ entry, version }: { entry: CatalogEntry; version: st
   return (
     <details className="lint" open>
       <summary>
-        Broken references in /{lint.name}: {lint.missing_paths.length + lint.missing_skills.length}
+        {t("lint.summary", { name: lint.name, n: lint.missing_paths.length + lint.missing_skills.length })}
       </summary>
-      <RefList title="Paths that do not exist" refs={lint.missing_paths} />
-      <RefList title="Skills that do not exist" refs={lint.missing_skills} />
+      <RefList title="lint.paths" refs={lint.missing_paths} />
+      <RefList title="lint.skills" refs={lint.missing_skills} />
     </details>
   );
 }

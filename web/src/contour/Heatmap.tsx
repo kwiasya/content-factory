@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Chapter, Peak } from "./api";
 import { seconds } from "./format";
+import { useT } from "../i18n";
 
 const W = 600;
 const H = 120;
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function Heatmap({ duration, peaks, chapters, onSeek }: Props) {
+  const t = useT();
   const [hover, setHover] = useState<Peak | null>(null);
   const top = Math.max(...peaks.map((p) => p.value), 0) || 1;
   const x = (s: number) => (Math.min(Math.max(s, 0), duration) / duration) * W;
@@ -22,7 +24,7 @@ export function Heatmap({ duration, peaks, chapters, onSeek }: Props) {
 
   return (
     <figure className="heatmap">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Heatmap peaks over the video's duration">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t("heatmap.aria")}>
         <rect x={0} y={0} width={W} height={plot} className="heatmap-bg" />
         {chapters.map((c) => (
           <line key={`c${c.start_s}`} x1={x(c.start_s)} x2={x(c.start_s)} y1={0} y2={plot} className="heatmap-chapter">
@@ -67,10 +69,10 @@ export function Heatmap({ duration, peaks, chapters, onSeek }: Props) {
             <strong>
               {seconds(hover.start_s)}–{seconds(hover.end_s)}
             </strong>{" "}
-            {hover.quote ? `«${hover.quote}»` : "no speech in this peak"}
+            {hover.quote ? `«${hover.quote}»` : t("heatmap.noSpeech")}
           </>
         ) : (
-          "Most replayed moments (bar height: replay strength); hover a bar for its quote, click to seek."
+          t("heatmap.caption")
         )}
       </figcaption>
     </figure>

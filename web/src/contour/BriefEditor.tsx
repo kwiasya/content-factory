@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { CodeEditor } from "../CodeEditor";
 import { Preview } from "../Preview";
 import { contourApi, type Brief } from "./api";
+import { useT, type Problem } from "../i18n";
+import { ErrorLine } from "../ErrorLine";
+import { ConflictBox } from "../ConflictBox";
 
 interface Conflict {
   text: string;
@@ -9,9 +12,10 @@ interface Conflict {
 }
 
 export function BriefEditor({ ideaId }: { ideaId: number }) {
+  const t = useT();
   const [brief, setBrief] = useState<Brief | null>(null);
   const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -23,14 +27,14 @@ export function BriefEditor({ ideaId }: { ideaId: number }) {
         setConflict(null);
         setError(null);
       },
-      (e: Error) => setError(e.message),
+      setError,
     );
   }, [ideaId]);
 
   useEffect(load, [load]);
 
   if (!brief) {
-    return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
+    return error ? <ErrorLine error={error} /> : <p className="muted">{t("common.loading")}</p>;
   }
 
   const dirty = draft !== brief.text;
@@ -46,28 +50,21 @@ export function BriefEditor({ ideaId }: { ideaId: number }) {
     } else if (result.status === "conflict") {
       setConflict({ text: result.text, hash: result.hash });
     } else {
-      setError(result.message);
+      setError(result.problem);
     }
   };
 
   return (
     <div className="text-file">
       {conflict && (
-        <div className="conflict">
-          <p>
-            <strong>The Brief changed on disk since you opened it.</strong> Your text is still in the editor.
-          </p>
-          <div className="actions">
-            <button onClick={load}>Load the fresh version (drop my edit)</button>
-            <button onClick={() => save(conflict.hash)}>Overwrite with my edit</button>
-          </div>
-          <details>
-            <summary>Fresh version on disk</summary>
-            <pre>{conflict.text}</pre>
-          </details>
-        </div>
+        <ConflictBox
+          title="conflict.brief"
+          fresh={conflict.text}
+          onReload={load}
+          onOverwrite={() => save(conflict.hash)}
+        />
       )}
-      {error && <p className="error">{error}</p>}
+      <ErrorLine error={error} />
       <div className="split">
         <section className="pane preview">
           <Preview text={draft} kind="markdown" />
@@ -75,15 +72,15 @@ export function BriefEditor({ ideaId }: { ideaId: number }) {
         <section className="pane editor">
           <div className="toolbar">
             <button className="primary" disabled={!dirty || saving} onClick={() => save(brief.hash)}>
-              {saving ? "Saving…" : "Save"}
+              {saving ? t("common.saving") : t("common.save")}
             </button>
             <button disabled={!dirty || saving} onClick={() => setDraft(brief.text)}>
-              Revert
+              {t("common.revert")}
             </button>
             <code className="path brief-path" title={brief.path}>
               {brief.path}
             </code>
-            <span className="muted">{dirty ? "unsaved changes" : "saved"}</span>
+            <span className="muted">{dirty ? t("common.unsaved") : t("common.saved")}</span>
           </div>
           <CodeEditor value={draft} kind="markdown" readOnly={false} onChange={setDraft} />
         </section>

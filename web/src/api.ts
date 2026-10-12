@@ -1,3 +1,5 @@
+import type { Params, Problem } from "./i18n/core";
+
 export type GitState =
   | "clean"
   | "modified"
@@ -35,7 +37,7 @@ export interface CatalogGroup {
   id: string;
   title: string;
   hidden: boolean;
-  empty: { glob: string; hint: string }[];
+  empty: { glob: string; hint: string; code: string | null }[];
   docs: CatalogEntry[];
 }
 
@@ -61,26 +63,60 @@ export interface LogEntry {
 export type SaveResult<Saved = object> =
   | ({ status: "saved"; hash: string } & Saved)
   | { status: "conflict"; text: string; hash: string }
-  | { status: "invalid"; message: string; violations: string[] }
-  | { status: "error"; message: string };
+  | { status: "invalid"; problem: Problem; violations: string[] }
+  | { status: "error"; problem: Problem };
 
-export class NotFound extends Error {}
+export class ApiError extends Error implements Problem {
+  code?: string;
+  params?: Params;
+
+  constructor(problem: Problem) {
+    super(problem.message);
+    this.code = problem.code;
+    this.params = problem.params;
+  }
+}
+
+export class NotFound extends ApiError {}
 
 export function message(detail: unknown): string {
   return typeof detail === "string" ? detail : JSON.stringify(detail);
 }
 
+export function problemOf(body: Record<string, unknown>): Problem {
+  return {
+    message: message(body.detail),
+    code: typeof body.code === "string" ? body.code : undefined,
+    params: body.params && typeof body.params === "object" ? (body.params as Params) : undefined,
+  };
+}
+
+function failed(status: number, text: string, statusText: string): Problem {
+  try {
+    return problemOf(JSON.parse(text));
+  } catch {
+    return { message: `${status} ${text || statusText}` };
+  }
+}
+
+function offline(e: unknown): Problem {
+  const text = (e as Error).message;
+  return { message: text, code: "network", params: { message: text } };
+}
+
+export function toError(status: number, problem: Problem): ApiError {
+  return status === 404 ? new NotFound(problem) : new ApiError(problem);
+}
+
 export async function getJson<T>(url: string): Promise<T> {
-  const r = await fetch(url);
+  let r: Response;
+  try {
+    r = await fetch(url);
+  } catch (e) {
+    throw new ApiError(offline(e));
+  }
   if (!r.ok) {
-    const text = await r.text();
-    let detail: string;
-    try {
-      detail = message(JSON.parse(text).detail);
-    } catch {
-      detail = `${r.status} ${text || r.statusText}`;
-    }
-    throw r.status === 404 ? new NotFound(detail) : new Error(detail);
+    throw toError(r.status, failed(r.status, await r.text(), r.statusText));
   }
   return (await r.json()) as T;
 }
@@ -100,7 +136,8 @@ export async function send(url: string, method: string, payload?: unknown): Prom
       body: payload === undefined ? undefined : JSON.stringify(payload),
     });
   } catch (e) {
-    return { ok: false, status: 0, body: { detail: (e as Error).message } };
+    const p = offline(e);
+    return { ok: false, status: 0, body: { detail: p.message, code: p.code, params: p.params } };
   }
   const text = await r.text();
   try {
@@ -113,7 +150,7 @@ export async function send(url: string, method: string, payload?: unknown): Prom
 export async function sendOrThrow<T>(url: string, method: string, payload?: unknown): Promise<T> {
   const r = await send(url, method, payload);
   if (!r.ok) {
-    throw new Error(message(r.body.detail));
+    throw toError(r.status, problemOf(r.body));
   }
   return r.body as unknown as T;
 }
@@ -132,9 +169,9 @@ export async function saveText<Saved = object>(
     return { status: "conflict", text: r.body.text as string, hash: r.body.hash };
   }
   if (r.status === 422 && Array.isArray(r.body.violations)) {
-    return { status: "invalid", message: message(r.body.detail), violations: r.body.violations as string[] };
+    return { status: "invalid", problem: problemOf(r.body), violations: r.body.violations as string[] };
   }
-  return { status: "error", message: message(r.body.detail) };
+  return { status: "error", problem: problemOf(r.body) };
 }
 
 export const mediaUrl = (path: string) => `/api/media?path=${encodeURIComponent(path)}`;

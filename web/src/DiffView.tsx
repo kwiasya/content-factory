@@ -1,3 +1,5 @@
+import { useT } from "./i18n";
+
 function lineClass(line: string): string {
   if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") || line.startsWith("index ")) {
     return "diff-meta";
@@ -15,8 +17,9 @@ function lineClass(line: string): string {
 }
 
 export function DiffView({ diff }: { diff: string }) {
+  const t = useT();
   if (!diff) {
-    return <p className="muted">No changes against HEAD.</p>;
+    return <p className="muted">{t("diff.none")}</p>;
   }
   return (
     <pre className="diff">

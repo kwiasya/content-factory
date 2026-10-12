@@ -3,19 +3,24 @@ import { api, type Doc } from "../api";
 import { RulesSection } from "./RulesSection";
 import { TocDocument } from "./TocDocument";
 import type { Topic } from "./api";
+import { useT, type Problem, type T } from "../i18n";
+import { ErrorLine } from "../ErrorLine";
 
 const LABELS: Record<string, string> = {
   "chatgpt.md": "ChatGPT",
   "result-a.md": "Opus (result-a)",
-  "verification.md": "Verification",
 };
 
-function tabLabel(path: string): string {
+function tabLabel(path: string, t: T): string {
   const name = path.split("/").pop() ?? path;
-  return path.includes("/notes/") ? `notes/${name}` : (LABELS[name] ?? name);
+  if (path.includes("/notes/")) {
+    return `notes/${name}`;
+  }
+  return name === "verification.md" ? t("research.tab.verification") : (LABELS[name] ?? name);
 }
 
 export function TopicPage({ topic }: { topic: Topic }) {
+  const t = useT();
   const rules = topic.docs.find((p) => p.endsWith("/rules.md")) ?? null;
   const tabs = [...topic.docs.filter((p) => p !== rules), ...topic.notes];
   const [tab, setTab] = useState<string | null>(tabs[0] ?? null);
@@ -23,7 +28,7 @@ export function TopicPage({ topic }: { topic: Topic }) {
   return (
     <main className="doc">
       <p>
-        <a href="#/research">← Research</a>
+        <a href="#/research">{t("research.back")}</a>
       </p>
       <div className="doc-head">
         <div>
@@ -35,14 +40,14 @@ export function TopicPage({ topic }: { topic: Topic }) {
         </div>
       </div>
 
-      {rules ? <RulesSection path={rules} /> : <p className="muted">This topic has no rules.md.</p>}
+      {rules ? <RulesSection path={rules} /> : <p className="muted">{t("research.noRules")}</p>}
 
       {tabs.length > 0 && (
         <>
           <nav className="tabs">
             {tabs.map((p) => (
               <button key={p} className={p === tab ? "active" : ""} onClick={() => setTab(p)}>
-                {tabLabel(p)}
+                {tabLabel(p, t)}
               </button>
             ))}
           </nav>
@@ -54,23 +59,26 @@ export function TopicPage({ topic }: { topic: Topic }) {
 }
 
 function Answer({ path }: { path: string }) {
+  const t = useT();
   const [doc, setDoc] = useState<Doc | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   useEffect(() => {
-    api.doc(path).then(setDoc, (e: Error) => setError(e.message));
+    api.doc(path).then(setDoc, setError);
   }, [path]);
 
   if (error) {
-    return <p className="error">{error}</p>;
+    return <ErrorLine error={error} />;
   }
   if (!doc) {
-    return <p className="muted">Loading…</p>;
+    return <p className="muted">{t("common.loading")}</p>;
   }
   return (
     <>
       <p className="muted">
-        Read-only. <a href={"#/doc/" + encodeURIComponent(path)}>Open as document</a> for diff and history.
+        {t.rich("research.answerReadOnly", {
+          link: <a href={"#/doc/" + encodeURIComponent(path)}>{t("research.openAsDocument")}</a>,
+        })}
       </p>
       <TocDocument text={doc.text} prefix={path.replace(/[^a-z0-9]+/gi, "-")} />
     </>

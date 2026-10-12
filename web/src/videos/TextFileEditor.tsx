@@ -3,6 +3,9 @@ import { CodeEditor } from "../CodeEditor";
 import { Preview } from "../Preview";
 import { NotFound } from "../api";
 import { videosApi, type TextFile } from "./videosApi";
+import { useT, type Problem } from "../i18n";
+import { ErrorLine } from "../ErrorLine";
+import { ConflictBox } from "../ConflictBox";
 
 interface Props {
   slug: string;
@@ -21,10 +24,11 @@ function formatOf(path: string): TextFile["format"] {
 }
 
 export function TextFileEditor({ slug, path, creatable = false, onSaved }: Props) {
+  const t = useT();
   const [file, setFile] = useState<TextFile | null>(null);
   const [missing, setMissing] = useState(false);
   const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [violations, setViolations] = useState<string[] | null>(null);
   const [saving, setSaving] = useState(false);
@@ -45,7 +49,7 @@ export function TextFileEditor({ slug, path, creatable = false, onSaved }: Props
           setDraft("");
           setMissing(true);
         } else {
-          setError(e.message);
+          setError(e);
         }
       },
     );
@@ -54,7 +58,7 @@ export function TextFileEditor({ slug, path, creatable = false, onSaved }: Props
   useEffect(load, [load]);
 
   if (!file) {
-    return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
+    return error ? <ErrorLine error={error} /> : <p className="muted">{t("common.loading")}</p>;
   }
 
   const dirty = draft !== file.text;
@@ -73,10 +77,10 @@ export function TextFileEditor({ slug, path, creatable = false, onSaved }: Props
     } else if (result.status === "conflict") {
       setConflict({ text: result.text, hash: result.hash });
     } else if (result.status === "invalid") {
-      setError(result.message);
+      setError(result.problem);
       setViolations(result.violations);
     } else {
-      setError(result.message);
+      setError(result.problem);
     }
   };
 
@@ -90,21 +94,14 @@ export function TextFileEditor({ slug, path, creatable = false, onSaved }: Props
   return (
     <div className="text-file">
       {conflict && (
-        <div className="conflict">
-          <p>
-            <strong>The file changed on disk since you opened it.</strong> Your text is still in the editor.
-          </p>
-          <div className="actions">
-            <button onClick={load}>Load the fresh version (drop my edit)</button>
-            <button onClick={() => save(conflict.hash)}>Overwrite with my edit</button>
-          </div>
-          <details>
-            <summary>Fresh version on disk</summary>
-            <pre>{conflict.text}</pre>
-          </details>
-        </div>
+        <ConflictBox
+          title="conflict.file"
+          fresh={conflict.text}
+          onReload={load}
+          onOverwrite={() => save(conflict.hash)}
+        />
       )}
-      {error && <p className="error">{error}</p>}
+      <ErrorLine error={error} />
       {violations && (
         <ul className="violations">
           {violations.map((v) => (
@@ -121,13 +118,13 @@ export function TextFileEditor({ slug, path, creatable = false, onSaved }: Props
         <section className="pane editor">
           <div className="toolbar">
             <button className="primary" disabled={(!dirty && !missing) || saving} onClick={() => save(file.hash)}>
-              {saving ? "Saving…" : missing ? "Create" : "Save"}
+              {saving ? t("common.saving") : missing ? t("common.create") : t("common.save")}
             </button>
             <button disabled={!dirty || saving} onClick={() => setDraft(file.text)}>
-              Revert
+              {t("common.revert")}
             </button>
             <code className="path">{path}</code>
-            <span className="muted">{missing ? "not created yet" : dirty ? "unsaved changes" : "saved"}</span>
+            <span className="muted">{missing ? t("common.notCreated") : dirty ? t("common.unsaved") : t("common.saved")}</span>
           </div>
           {editor}
         </section>

@@ -3,14 +3,18 @@ import { api, type Doc } from "../api";
 import { CodeEditor } from "../CodeEditor";
 import { GitBadge } from "../GitBadge";
 import { Preview } from "../Preview";
+import { useT, type Problem } from "../i18n";
+import { ErrorLine } from "../ErrorLine";
+import { ConflictBox } from "../ConflictBox";
 
 export function RulesSection({ path }: { path: string }) {
+  const t = useT();
   const [doc, setDoc] = useState<Doc | null>(null);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState<{ text: string; hash: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   const load = useCallback(() => {
     api.doc(path).then(
@@ -20,14 +24,14 @@ export function RulesSection({ path }: { path: string }) {
         setConflict(null);
         setError(null);
       },
-      (e: Error) => setError(e.message),
+      setError,
     );
   }, [path]);
 
   useEffect(load, [load]);
 
   if (!doc) {
-    return error ? <p className="error">{error}</p> : <p className="muted">Loading rules…</p>;
+    return error ? <ErrorLine error={error} /> : <p className="muted">{t("research.loadingRules")}</p>;
   }
 
   const dirty = draft !== doc.text;
@@ -44,7 +48,7 @@ export function RulesSection({ path }: { path: string }) {
     } else if (result.status === "conflict") {
       setConflict({ text: result.text, hash: result.hash });
     } else {
-      setError(result.message);
+      setError(result.problem);
     }
   };
 
@@ -56,7 +60,7 @@ export function RulesSection({ path }: { path: string }) {
         {editing ? (
           <>
             <button className="primary" disabled={!dirty || saving} onClick={() => save(doc.hash)}>
-              {saving ? "Saving…" : "Save"}
+              {saving ? t("common.saving") : t("common.save")}
             </button>
             <button
               disabled={saving}
@@ -65,29 +69,19 @@ export function RulesSection({ path }: { path: string }) {
                 setEditing(false);
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
-            <span className="muted">{dirty ? "unsaved changes" : "no changes"}</span>
+            <span className="muted">{dirty ? t("common.unsaved") : t("common.noChanges")}</span>
           </>
         ) : (
-          doc.editable && <button onClick={() => setEditing(true)}>Edit</button>
+          doc.editable && <button onClick={() => setEditing(true)}>{t("common.edit")}</button>
         )}
         <a className="muted" href={"#/doc/" + encodeURIComponent(doc.path)}>
-          open as document
+          {t("common.openAsDocument")}
         </a>
       </div>
-      {error && <p className="error">{error}</p>}
-      {conflict && (
-        <div className="conflict">
-          <p>
-            <strong>rules.md changed on disk since you opened it.</strong> Your text is still in the editor.
-          </p>
-          <div className="actions">
-            <button onClick={load}>Load the fresh version (drop my edit)</button>
-            <button onClick={() => save(conflict.hash)}>Overwrite with my edit</button>
-          </div>
-        </div>
-      )}
+      <ErrorLine error={error} />
+      {conflict && <ConflictBox title="conflict.rules" onReload={load} onOverwrite={() => save(conflict.hash)} />}
       {editing ? (
         <div className="split">
           <section className="pane preview">

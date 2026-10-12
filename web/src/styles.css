@@ -642,3 +642,23 @@ mark {
     width: 140px;
   }
 }
+
+.lang-switch {
+  display: inline-flex;
+  flex: none;
+}
+
+.lang-switch button {
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lang-switch button + button {
+  margin-left: -1px;
+}
+
+.lang-switch button.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}

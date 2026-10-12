@@ -5,12 +5,14 @@ import { CONTOUR_PREFIX, parseContour } from "./routes";
 import { SummariesPage } from "./SummariesPage";
 import { TaxonomyPage } from "./TaxonomyPage";
 import { WatchlistPage } from "./WatchlistPage";
+import { useT } from "../i18n";
 import "./contour.css";
 
 export function ContourNav({ hash }: { hash: string }) {
+  const t = useT();
   return (
     <a href={CONTOUR_PREFIX} className={parseContour(hash) ? "nav active" : "nav"}>
-      Contour
+      {t("contour.nav")}
     </a>
   );
 }

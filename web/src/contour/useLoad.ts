@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { NotFound } from "../api";
+import type { Problem } from "../i18n";
 
 export interface Loaded<T> {
   data: T | null;
-  error: string | null;
+  error: Problem | null;
   missing: boolean;
   reload: () => void;
 }
 
 export function useLoad<T>(loader: () => Promise<T>): Loaded<T> {
   const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [missing, setMissing] = useState(false);
 
   const reload = useCallback(() => {
@@ -21,7 +22,7 @@ export function useLoad<T>(loader: () => Promise<T>): Loaded<T> {
         setMissing(false);
       },
       (e: Error) => {
-        setError(e.message);
+        setError(e);
         setMissing(e instanceof NotFound);
       },
     );

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ownSkillPage, type CatalogEntry } from "../api";
 import { skillsApi, type SkillLinks as Links } from "./api";
+import { useT } from "../i18n";
 
 const docHref = (path: string) => "#/doc/" + encodeURIComponent(path);
 const skillHref = (name: string) => docHref(`.claude/skills/${name}/SKILL.md`);
@@ -11,18 +12,19 @@ export function SkillLinks({ entry }: { entry: CatalogEntry }) {
 }
 
 function SkillLinksOf({ name }: { name: string }) {
+  const t = useT();
   const [links, setLinks] = useState<Links | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    skillsApi.links(name).then(setLinks, (e: Error) => setError(e.message));
+    skillsApi.links(name).then(setLinks, setError);
   }, [name]);
 
   if (error) {
     return null;
   }
   if (!links) {
-    return <p className="muted">Loading links…</p>;
+    return <p className="muted">{t("links.loading")}</p>;
   }
 
   const catalogued = new Set(links.catalogued);
@@ -32,9 +34,9 @@ function SkillLinksOf({ name }: { name: string }) {
   return (
     <section className="skill-links">
       <div>
-        <h3>Mentions</h3>
-        {nothing && <p className="muted">No repo files, commands, tables or skills.</p>}
-        <Row label="Files">
+        <h3>{t("links.mentions")}</h3>
+        {nothing && <p className="muted">{t("links.nothing")}</p>}
+        <Row label={t("links.files")}>
           {links.paths.map((p) =>
             catalogued.has(p) ? (
               <a key={p} href={docHref(p)}>
@@ -45,17 +47,17 @@ function SkillLinksOf({ name }: { name: string }) {
             ),
           )}
         </Row>
-        <Row label="Commands">
+        <Row label={t("links.commands")}>
           {links.commands.map((c) => (
             <code key={c}>{c}</code>
           ))}
         </Row>
-        <Row label="Tables">
+        <Row label={t("links.tables")}>
           {links.tables.map((t) => (
             <code key={t}>{t}</code>
           ))}
         </Row>
-        <Row label="Skills">
+        <Row label={t("links.skills")}>
           {links.skills.map((s) => (
             <a key={s} href={skillHref(s)}>
               /{s}
@@ -64,11 +66,11 @@ function SkillLinksOf({ name }: { name: string }) {
         </Row>
       </div>
       <div>
-        <h3>Mentioned by</h3>
+        <h3>{t("links.mentionedBy")}</h3>
         {links.mentioned_by.length === 0 ? (
-          <p className="muted">No other skill mentions /{name}.</p>
+          <p className="muted">{t("links.noneMention", { name })}</p>
         ) : (
-          <Row label="Skills">
+          <Row label={t("links.skills")}>
             {links.mentioned_by.map((s) => (
               <a key={s} href={skillHref(s)}>
                 /{s}

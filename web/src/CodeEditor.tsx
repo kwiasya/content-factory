@@ -4,6 +4,8 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
+import { useT } from "./i18n";
+import { CODEMIRROR_RU } from "./i18n/codemirror";
 
 interface Props {
   value: string;
@@ -16,6 +18,7 @@ export function CodeEditor({ value, kind, readOnly, onChange }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const changed = useRef(onChange);
+  const lang = useT().lang;
 
   useEffect(() => {
     changed.current = onChange;
@@ -33,6 +36,7 @@ export function CodeEditor({ value, kind, readOnly, onChange }: Props) {
           basicSetup,
           kind === "json" ? json() : markdown(),
           EditorView.lineWrapping,
+          EditorState.phrases.of(lang === "ru" ? CODEMIRROR_RU : {}),
           EditorState.readOnly.of(readOnly),
           EditorView.editable.of(!readOnly),
           EditorView.updateListener.of((update) => {
@@ -48,14 +52,14 @@ export function CodeEditor({ value, kind, readOnly, onChange }: Props) {
       editor.destroy();
       view.current = null;
     };
-  }, [kind, readOnly]);
+  }, [kind, readOnly, lang]);
 
   useEffect(() => {
     const editor = view.current;
     if (editor && editor.state.doc.toString() !== value) {
       editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: value } });
     }
-  }, [value, kind, readOnly]);
+  }, [value, kind, readOnly, lang]);
 
   return <div className="code" ref={host} />;
 }

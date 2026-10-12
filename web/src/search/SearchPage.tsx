@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { searchApi, type SearchResult } from "./api";
+import { useT, type Problem } from "../i18n";
+import { ErrorLine } from "../ErrorLine";
 
 const PREFIX = "#/search/";
 
@@ -14,6 +16,7 @@ export function searchRoute(hash: string) {
 }
 
 export function SearchBox() {
+  const t = useT();
   const [q, setQ] = useState("");
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -23,15 +26,16 @@ export function SearchBox() {
   };
   return (
     <form className="search-box" onSubmit={submit} role="search">
-      <input type="search" placeholder="Search documents" value={q} onChange={(e) => setQ(e.target.value)} />
+      <input type="search" placeholder={t("search.placeholder")} aria-label={t("search.placeholder")} value={q} onChange={(e) => setQ(e.target.value)} />
     </form>
   );
 }
 
 function SearchPage({ q }: { q: string }) {
+  const t = useT();
   const [all, setAll] = useState(false);
   const [result, setResult] = useState<SearchResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   useEffect(() => {
     searchApi.search(q, all).then(
@@ -39,36 +43,36 @@ function SearchPage({ q }: { q: string }) {
         setResult(r);
         setError(null);
       },
-      (e: Error) => setError(e.message),
+      setError,
     );
   }, [q, all]);
 
   return (
     <main className="doc">
       <div className="doc-head">
-        <h1>Search: {q}</h1>
+        <h1>{t("search.title", { q })}</h1>
         <label className="toggle">
           <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />
-          Include hidden groups
+          {t("search.hidden")}
         </label>
       </div>
-      {error && <p className="error">{error}</p>}
-      {!result && !error && <p className="muted">Searching…</p>}
+      <ErrorLine error={error} />
+      {!result && !error && <p className="muted">{t("search.searching")}</p>}
       {result && (
         <>
           <p className="muted">
             {result.total === 0
-              ? "No document contains this text."
-              : `${result.total} document${result.total === 1 ? "" : "s"}${result.truncated ? " (first 200 shown)" : ""}`}
+              ? t("search.none")
+              : t("search.total", { n: result.total }) + (result.truncated ? t("search.truncated") : "")}
           </p>
           {result.groups.map((g) => (
             <section key={g.id} className="search-group">
-              <h2>{g.title}</h2>
+              <h2>{t.or(`group.${g.id}`, g.title)}</h2>
               {g.hits.map((h) => (
                 <div key={h.path} className="hit">
                   <a href={"#/doc/" + encodeURIComponent(h.path)}>{h.title}</a>{" "}
                   <span className="muted">
-                    <code>{h.path}</code> · {h.count} match{h.count === 1 ? "" : "es"}
+                    <code>{h.path}</code> · {t("search.matches", { n: h.count })}
                   </span>
                   {h.snippets.map((s) => (
                     <div key={s.line} className="snippet">

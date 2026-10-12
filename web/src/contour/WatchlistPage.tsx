@@ -4,16 +4,21 @@ import { Cmd, ContourShell, Status } from "./ContourShell";
 import { outlierText, seconds, viewsText } from "./format";
 import { CONTOUR_PREFIX, cardHref, ideasHref, summaryHref } from "./routes";
 import { useLoad } from "./useLoad";
+import { useT, type Key } from "../i18n";
+import { ErrorLine } from "../ErrorLine";
+import { formatDate, formatNumber } from "../format";
+import { kindText } from "./CardPage";
 
-const FIELDS: { key: keyof FeedFilters; label: string; placeholder: string }[] = [
-  { key: "days", label: "Days", placeholder: "30" },
-  { key: "min_outlier", label: "Min outlier", placeholder: "any" },
-  { key: "min_views", label: "Min views", placeholder: "any" },
-  { key: "max_duration", label: "Max duration, s", placeholder: "any" },
-  { key: "limit", label: "Limit", placeholder: "20" },
+const FIELDS: { key: keyof FeedFilters; label: Key; placeholder: string | null }[] = [
+  { key: "days", label: "watchlist.filter.days", placeholder: "30" },
+  { key: "min_outlier", label: "watchlist.filter.minOutlier", placeholder: null },
+  { key: "min_views", label: "watchlist.filter.minViews", placeholder: null },
+  { key: "max_duration", label: "watchlist.filter.maxDuration", placeholder: null },
+  { key: "limit", label: "watchlist.filter.limit", placeholder: "20" },
 ];
 
 export function WatchlistPage({ name }: { name: string }) {
+  const t = useT();
   const loadWatchlist = useCallback(() => contourApi.watchlist(name), [name]);
   const watchlist = useLoad(loadWatchlist);
   const [draft, setDraft] = useState<FeedFilters>(DEFAULT_FILTERS);
@@ -34,8 +39,8 @@ export function WatchlistPage({ name }: { name: string }) {
   if (watchlist.missing) {
     return (
       <ContourShell active={null}>
-        <a href={CONTOUR_PREFIX}>← Watchlists</a>
-        <p className="error">{watchlist.error}</p>
+        <a href={CONTOUR_PREFIX}>{t("contour.back")}</a>
+        <ErrorLine error={watchlist.error} />
       </ContourShell>
     );
   }
@@ -45,17 +50,17 @@ export function WatchlistPage({ name }: { name: string }) {
 
   return (
     <ContourShell active={null}>
-      <a href={CONTOUR_PREFIX}>← Watchlists</a>
+      <a href={CONTOUR_PREFIX}>{t("contour.back")}</a>
       <div className="doc-head">
         <div>
           <h1>{name}</h1>
           {w && (
             <span className="muted">
-              Format <code>{w.format_id}</code>
+              {t.rich("watchlist.format", { format: <code>{w.format_id}</code> })}
               {w.author_channel && (
                 <>
                   {" "}
-                  · Channel <code>{w.author_channel}</code>
+                  · {t.rich("watchlist.channel", { channel: <code>{w.author_channel}</code> })}
                 </>
               )}{" "}
               · {w.language}
@@ -64,26 +69,28 @@ export function WatchlistPage({ name }: { name: string }) {
           )}
         </div>
         <div className="doc-badges">
-          <a href={summaryHref(name)}>Summaries</a>
-          <a href={ideasHref()}>Ideas</a>
+          <a href={summaryHref(name)}>{t("contour.summaries")}</a>
+          <a href={ideasHref()}>{t("contour.ideas")}</a>
         </div>
       </div>
       <Status error={watchlist.error} loading={watchlist.data === null} />
 
-      <h2 className="section">Reference channels</h2>
+      <h2 className="section">{t("watchlist.referenceChannels")}</h2>
       {watchlist.data && channels.length === 0 && (
         <p className="muted">
-          No Reference channels: <Cmd>{`python -m cf.research watchlist add-channel ${name} <handle>`}</Cmd>.
+          {t.rich("watchlist.noChannels", {
+            cmd: <Cmd>{`python -m cf.research watchlist add-channel ${name} <handle>`}</Cmd>,
+          })}
         </p>
       )}
       {channels.length > 0 && (
         <table className="contour-table">
           <thead>
             <tr>
-              <th>Handle</th>
-              <th>Title</th>
-              <th className="num">Subscribers</th>
-              <th className="num">Videos</th>
+              <th>{t("watchlist.col.handle")}</th>
+              <th>{t("watchlist.col.title")}</th>
+              <th className="num">{t("watchlist.col.subscribers")}</th>
+              <th className="num">{t("watchlist.col.videos")}</th>
               <th />
             </tr>
           </thead>
@@ -96,17 +103,17 @@ export function WatchlistPage({ name }: { name: string }) {
                   </a>
                 </td>
                 <td>{c.title ?? "—"}</td>
-                <td className="num">{viewsText(c.subscriber_count)}</td>
-                <td className="num">{c.video_count?.toLocaleString() ?? "—"}</td>
-                <td>{c.own && <span className="badge">own</span>}</td>
+                <td className="num">{viewsText(c.subscriber_count, t)}</td>
+                <td className="num">{c.video_count === null ? "—" : formatNumber(c.video_count, t)}</td>
+                <td>{c.own && <span className="badge">{t("watchlist.own")}</span>}</td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
 
-      <h2 className="section">Search queries</h2>
-      {w && w.queries.length === 0 && <p className="muted">No search queries.</p>}
+      <h2 className="section">{t("watchlist.queries")}</h2>
+      {w && w.queries.length === 0 && <p className="muted">{t("watchlist.noQueries")}</p>}
       {w && w.queries.length > 0 && (
         <ul className="queries">
           {w.queries.map((q) => (
@@ -117,34 +124,34 @@ export function WatchlistPage({ name }: { name: string }) {
         </ul>
       )}
 
-      <h2 className="section">Feed</h2>
+      <h2 className="section">{t("watchlist.feed")}</h2>
       <form className="filters" onSubmit={apply}>
         {FIELDS.map((f) => (
           <label key={f.key}>
-            {f.label}
+            {t(f.label)}
             <input
               type="number"
               min="0"
               step="any"
               value={draft[f.key]}
-              placeholder={f.placeholder}
+              placeholder={f.placeholder ?? t("common.any")}
               onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
             />
           </label>
         ))}
         <label>
-          Kind
+          {t("watchlist.filter.kind")}
           <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })}>
-            <option value="">any</option>
-            <option value="short">short</option>
-            <option value="long">long</option>
+            <option value="">{t("common.any")}</option>
+            <option value="short">{t("card.kind.short")}</option>
+            <option value="long">{t("card.kind.long")}</option>
           </select>
         </label>
         <button className="primary" type="submit">
-          Apply
+          {t("common.apply")}
         </button>
         <button type="button" onClick={reset}>
-          Reset
+          {t("common.reset")}
         </button>
       </form>
       <Status error={feed.error} loading={feed.data === null} />
@@ -154,11 +161,15 @@ export function WatchlistPage({ name }: { name: string }) {
 }
 
 function FeedTable({ name, rows, days }: { name: string; rows: FeedRow[]; days: string }) {
+  const t = useT();
   if (rows.length === 0) {
     return (
       <p className="muted">
-        Nothing in the last {days} days with these filters. Refresh the Watchlist with <Cmd>/scout-references</Cmd>{" "}
-        (<Cmd>{`python -m cf.research scout ${name}`}</Cmd>).
+        {t.rich("watchlist.feedEmpty", {
+          days: t("unit.days", { n: Number(days) }),
+          cmd: <Cmd>/scout-references</Cmd>,
+          cli: <Cmd>{`python -m cf.research scout ${name}`}</Cmd>,
+        })}
       </p>
     );
   }
@@ -166,18 +177,22 @@ function FeedTable({ name, rows, days }: { name: string; rows: FeedRow[]; days: 
   return (
     <>
       <p className="muted">
-        {rows.length} Reference, {pending} without analysis. Analyze one with <Cmd>/analyze-reference</Cmd>.
+        {t.rich("watchlist.feedSummary", {
+          refs: t("unit.references", { n: rows.length }),
+          pending: formatNumber(pending, t),
+          cmd: <Cmd>/analyze-reference</Cmd>,
+        })}
       </p>
       <table className="contour-table feed">
         <thead>
           <tr>
-            <th className="num">#</th>
-            <th className="num">Outlier</th>
-            <th className="num">Views</th>
-            <th>Date</th>
-            <th>Title</th>
-            <th>Handle</th>
-            <th>Link</th>
+            <th className="num">{t("research.col.number")}</th>
+            <th className="num">{t("watchlist.col.outlier")}</th>
+            <th className="num">{t("watchlist.col.views")}</th>
+            <th>{t("watchlist.col.date")}</th>
+            <th>{t("watchlist.col.title")}</th>
+            <th>{t("watchlist.col.handle")}</th>
+            <th>{t("watchlist.col.link")}</th>
             <th />
           </tr>
         </thead>
@@ -186,14 +201,14 @@ function FeedTable({ name, rows, days }: { name: string; rows: FeedRow[]; days: 
             <tr key={r.external_id}>
               <td className="num muted">{i + 1}</td>
               <td className="num">
-                <strong>{outlierText(r.outlier)}</strong>
+                <strong>{outlierText(r.outlier, t)}</strong>
               </td>
-              <td className="num">{viewsText(r.views)}</td>
-              <td className="when">{r.date ?? "—"}</td>
+              <td className="num">{viewsText(r.views, t)}</td>
+              <td className="when">{formatDate(r.date, t)}</td>
               <td>
-                <a href={cardHref(r.external_id)}>{r.title || "untitled"}</a>
+                <a href={cardHref(r.external_id)}>{r.title || t("watchlist.untitled")}</a>
                 <div className="muted small">
-                  {r.kind ?? "—"} · {seconds(r.duration_s)}
+                  {kindText(r.kind, t)} · {seconds(r.duration_s)}
                 </div>
               </td>
               <td>{r.handle ?? r.channel_title ?? "—"}</td>
@@ -207,8 +222,8 @@ function FeedTable({ name, rows, days }: { name: string; rows: FeedRow[]; days: 
                 )}
               </td>
               <td className="feed-flags">
-                {!r.analyzed && <span className="flag pending">без разбора</span>}
-                {r.candidate && <span className="flag candidate">кандидат</span>}
+                {!r.analyzed && <span className="flag pending">{t("card.notAnalyzed")}</span>}
+                {r.candidate && <span className="flag candidate">{t("card.candidate")}</span>}
               </td>
             </tr>
           ))}

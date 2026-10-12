@@ -2,7 +2,9 @@ import { useCallback, useRef, type ReactNode } from "react";
 import { mediaUrl } from "../api";
 import { contourApi, type Measured } from "./api";
 import { Cmd, ContourShell, Status } from "./ContourShell";
-import { plain, seconds, outlierText, viewsText } from "./format";
+import { plain, seconds, secondsText, outlierText, viewsText } from "./format";
+import { useT, type T } from "../i18n";
+import { formatDate } from "../format";
 import { Heatmap } from "./Heatmap";
 import { NoteBox } from "../notes/NoteBox";
 import { CONTOUR_PREFIX, taxonomyHref } from "./routes";
@@ -10,28 +12,32 @@ import { useLoad } from "./useLoad";
 
 const PROPOSED = "proposed:";
 
-function measuredRows(m: Measured): [string, ReactNode][] {
+export function kindText(kind: string | null | undefined, t: T): string {
+  return kind ? t.or(`card.kind.${kind}`, kind) : "—";
+}
+
+function measuredRows(m: Measured, t: T): [string, ReactNode][] {
   return [
-    ["Duration", seconds(m.duration_s)],
-    ["Kind", plain(m.kind)],
-    ["Cuts", plain(m.cut_count)],
-    ["Cuts per minute", plain(m.cuts_per_min)],
-    ["First shot", m.first_shot_s === null || m.first_shot_s === undefined ? "—" : `${m.first_shot_s} s`],
+    [t("card.duration"), seconds(m.duration_s)],
+    [t("card.kind"), kindText(m.kind, t)],
+    [t("card.cuts"), plain(m.cut_count)],
+    [t("card.cutsPerMinute"), plain(m.cuts_per_min)],
+    [t("card.firstShot"), secondsText(m.first_shot_s, t)],
     [
-      "First text",
+      t("card.firstText"),
       m.first_text ? (
         <>
-          «{m.first_text}» <span className="muted">at {m.first_text_s ?? "—"} s</span>
+          «{m.first_text}» <span className="muted">{t("card.at", { s: secondsText(m.first_text_s, t) })}</span>
         </>
       ) : (
         "—"
       ),
     ],
-    ["First person", m.first_person_s === null || m.first_person_s === undefined ? "—" : `${m.first_person_s} s`],
-    ["First face", m.first_face_s === null || m.first_face_s === undefined ? "—" : `${m.first_face_s} s`],
-    ["Speech onset", m.speech_onset_s === null || m.speech_onset_s === undefined ? "—" : `${m.speech_onset_s} s`],
-    ["Spoken hook (first 3 s)", m.spoken_hook ? `«${m.spoken_hook}»` : "—"],
-    ["Language", plain(m.language)],
+    [t("card.firstPerson"), secondsText(m.first_person_s, t)],
+    [t("card.firstFace"), secondsText(m.first_face_s, t)],
+    [t("card.speechOnset"), secondsText(m.speech_onset_s, t)],
+    [t("card.spokenHook"), m.spoken_hook ? `«${m.spoken_hook}»` : "—"],
+    [t("card.language"), plain(m.language)],
   ];
 }
 
@@ -41,12 +47,13 @@ function label(key: string): string {
 }
 
 function AnalysisValue({ value }: { value: unknown }) {
+  const t = useT();
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     return (
       <dl className="facts nested">
         {Object.entries(value as Record<string, unknown>).map(([k, v]) => (
           <div key={k}>
-            <dt>{label(k)}</dt>
+            <dt>{t.or(`analysis.${k}`, label(k))}</dt>
             <dd>
               <AnalysisValue value={v} />
             </dd>
@@ -58,7 +65,7 @@ function AnalysisValue({ value }: { value: unknown }) {
   if (typeof value === "string" && value.startsWith(PROPOSED)) {
     return (
       <>
-        <code>{value.slice(PROPOSED.length)}</code> <span className="flag pending">proposed</span>
+        <code>{value.slice(PROPOSED.length)}</code> <span className="flag pending">{t("card.proposed")}</span>
       </>
     );
   }
@@ -66,6 +73,7 @@ function AnalysisValue({ value }: { value: unknown }) {
 }
 
 export function CardPage({ id }: { id: string }) {
+  const t = useT();
   const loader = useCallback(() => contourApi.card(id), [id]);
   const { data, error } = useLoad(loader);
   const video = useRef<HTMLVideoElement>(null);
@@ -80,12 +88,10 @@ export function CardPage({ id }: { id: string }) {
   if (!data) {
     return (
       <ContourShell active={null}>
-        <a href={CONTOUR_PREFIX}>← Watchlists</a>
+        <a href={CONTOUR_PREFIX}>{t("contour.back")}</a>
         <Status error={error} loading={!error} />
         {error && (
-          <p className="muted">
-            A card appears once the Reference is fetched and measured: <Cmd>/analyze-reference</Cmd>.
-          </p>
+          <p className="muted">{t.rich("card.hint", { cmd: <Cmd>/analyze-reference</Cmd> })}</p>
         )}
       </ContourShell>
     );
@@ -99,7 +105,7 @@ export function CardPage({ id }: { id: string }) {
 
   return (
     <ContourShell active={null}>
-      <a href={CONTOUR_PREFIX}>← Watchlists</a>
+      <a href={CONTOUR_PREFIX}>{t("contour.back")}</a>
       <div className="doc-head">
         <div>
           <h1>{ref?.title || data.external_id}</h1>
@@ -108,8 +114,8 @@ export function CardPage({ id }: { id: string }) {
             {ref && (
               <>
                 {" "}
-                · {ref.handle ?? ref.channel_title ?? "—"} · {ref.date ?? "—"} · {viewsText(ref.views)} views ·{" "}
-                <strong>{outlierText(ref.outlier)}</strong>
+                · {ref.handle ?? ref.channel_title ?? "—"} · {formatDate(ref.date, t)} ·{" "}
+                {t("card.views", { views: viewsText(ref.views, t) })} · <strong>{outlierText(ref.outlier, t)}</strong>
               </>
             )}
           </span>
@@ -120,7 +126,7 @@ export function CardPage({ id }: { id: string }) {
               YouTube
             </a>
           )}
-          {card.analysis === null && <span className="flag pending">без разбора</span>}
+          {card.analysis === null && <span className="flag pending">{t("card.notAnalyzed")}</span>}
         </div>
       </div>
 
@@ -134,9 +140,9 @@ export function CardPage({ id }: { id: string }) {
           </figure>
         )}
         <div>
-          <h2 className="section">Measured</h2>
+          <h2 className="section">{t("card.measured")}</h2>
           <dl className="facts">
-            {measuredRows(m).map(([k, v]) => (
+            {measuredRows(m, t).map(([k, v]) => (
               <div key={k}>
                 <dt>{k}</dt>
                 <dd>{v}</dd>
@@ -144,16 +150,16 @@ export function CardPage({ id }: { id: string }) {
             ))}
           </dl>
 
-          <h2 className="section">Heatmap peaks</h2>
+          <h2 className="section">{t("card.peaks")}</h2>
           {peaks.length > 0 && duration ? (
             <Heatmap duration={duration} peaks={peaks} chapters={chapters} onSeek={media ? seek : undefined} />
           ) : (
-            <p className="muted">No heatmap: YouTube shows one only for videos with enough replays.</p>
+            <p className="muted">{t("card.noHeatmap")}</p>
           )}
 
-          <h2 className="section">Transcript sections</h2>
+          <h2 className="section">{t("card.sections")}</h2>
           {sections.length === 0 ? (
-            <p className="muted">No transcript sections (no speech, or the transcript was not made).</p>
+            <p className="muted">{t("card.noSections")}</p>
           ) : (
             <ol className="sections">
               {sections.map((s) => (
@@ -167,9 +173,9 @@ export function CardPage({ id }: { id: string }) {
             </ol>
           )}
 
-          <h2 className="section">Chapters</h2>
+          <h2 className="section">{t("card.chapters")}</h2>
           {chapters.length === 0 ? (
-            <p className="muted">No chapters.</p>
+            <p className="muted">{t("card.noChapters")}</p>
           ) : (
             <ol className="sections">
               {chapters.map((c) => (
@@ -185,7 +191,7 @@ export function CardPage({ id }: { id: string }) {
 
           {m.notes && m.notes.length > 0 && (
             <>
-              <h2 className="section">Measurement notes</h2>
+              <h2 className="section">{t("card.measurementNotes")}</h2>
               <ul className="muted">
                 {m.notes.map((n) => (
                   <li key={n}>{n}</li>
@@ -196,23 +202,24 @@ export function CardPage({ id }: { id: string }) {
         </div>
       </div>
 
-      <h2 className="section">Analysis</h2>
+      <h2 className="section">{t("card.analysis")}</h2>
       {card.analysis === null ? (
         <p className="muted">
-          Not analyzed yet: run <Cmd>/analyze-reference</Cmd> with <code>{data.external_id}</code>.
+          {t.rich("card.notAnalyzedYet", { cmd: <Cmd>/analyze-reference</Cmd>, id: <code>{data.external_id}</code> })}
         </p>
       ) : (
         <AnalysisValue value={card.analysis} />
       )}
       {proposed.length > 0 && (
         <p className="warn-box">
-          Values awaiting approval:{" "}
-          {proposed.map((p) => (
-            <code key={`${p.kind}:${p.value}`}>
-              {p.kind} {p.value}{" "}
-            </code>
-          ))}
-          — decide on the <a href={taxonomyHref()}>Taxonomy</a> page.
+          {t.rich("card.awaiting", {
+            values: proposed.map((p) => (
+              <code key={`${p.kind}:${p.value}`}>
+                {p.kind} {p.value}{" "}
+              </code>
+            )),
+            link: <a href={taxonomyHref()}>{t("contour.taxonomy")}</a>,
+          })}
         </p>
       )}
       <NoteBox kind="card" noteKey={data.external_id} />

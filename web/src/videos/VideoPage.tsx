@@ -1,32 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { cardHref, ideaHref } from "../contour/routes";
 import { NoteBox } from "../notes/NoteBox";
-import { formatSize, formatTime } from "../format";
+import { formatDate, formatSize, formatTime } from "../format";
 import { VIDEOS_PREFIX } from "./routes";
 import { TextFileEditor } from "./TextFileEditor";
 import { mediaUrl } from "../api";
 import { videosApi, type VideoDetail, type VideoFile } from "./videosApi";
+import { useT, type Key, type Problem } from "../i18n";
+import { ErrorLine } from "../ErrorLine";
 
-type Tab = "script" | "text" | "brief" | "subtitles" | "renders" | "overlays" | "sources" | "files" | "references" | "notes";
+const TABS = ["script", "text", "brief", "subtitles", "renders", "overlays", "sources", "files", "references", "notes"] as const;
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "script", label: "Script" },
-  { id: "text", label: "Text" },
-  { id: "brief", label: "Brief" },
-  { id: "subtitles", label: "Subtitles" },
-  { id: "renders", label: "Renders" },
-  { id: "overlays", label: "Overlays" },
-  { id: "sources", label: "Sources & proxies" },
-  { id: "files", label: "Files" },
-  { id: "references", label: "References" },
-  { id: "notes", label: "Notes" },
-];
+type Tab = (typeof TABS)[number];
 
 const byVersion = (a: VideoFile, b: VideoFile) => b.path.localeCompare(a.path, undefined, { numeric: true });
 
 export function VideoPage({ slug }: { slug: string }) {
+  const t = useT();
   const [detail, setDetail] = useState<VideoDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [tab, setTab] = useState<Tab>("script");
 
   const load = useCallback(() => {
@@ -35,7 +27,7 @@ export function VideoPage({ slug }: { slug: string }) {
         setDetail(d);
         setError(null);
       },
-      (e: Error) => setError(e.message),
+      setError,
     );
   }, [slug]);
 
@@ -44,8 +36,8 @@ export function VideoPage({ slug }: { slug: string }) {
   if (!detail) {
     return (
       <main className="doc videos">
-        <a href={VIDEOS_PREFIX}>← Videos</a>
-        {error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>}
+        <a href={VIDEOS_PREFIX}>{t("videos.back")}</a>
+        {error ? <ErrorLine error={error} /> : <p className="muted">{t("common.loading")}</p>}
       </main>
     );
   }
@@ -55,7 +47,7 @@ export function VideoPage({ slug }: { slug: string }) {
 
   return (
     <main className="doc videos">
-      <a href={VIDEOS_PREFIX}>← Videos</a>
+      <a href={VIDEOS_PREFIX}>{t("videos.back")}</a>
       <div className="doc-head">
         <div>
           <h1>{video.title_working || detail.slug}</h1>
@@ -65,7 +57,7 @@ export function VideoPage({ slug }: { slug: string }) {
           {video.format && <span className="badge">{video.format}</span>}
           {video.channel && <span className="badge">{video.channel}</span>}
           {video.language && <span className="badge">{video.language}</span>}
-          {detail.legacy && <span className="badge readonly">legacy Reel</span>}
+          {detail.legacy && <span className="badge readonly">{t("videos.legacy")}</span>}
         </div>
       </div>
 
@@ -74,39 +66,39 @@ export function VideoPage({ slug }: { slug: string }) {
       <LinkedResearch references={video.references ?? []} ideas={video.ideas ?? []} />
 
       <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t.id} className={t.id === tab ? "active" : ""} onClick={() => setTab(t.id)}>
-            {t.label}
+        {TABS.map((id) => (
+          <button key={id} className={id === tab ? "active" : ""} onClick={() => setTab(id)}>
+            {t(`videos.tab.${id}`)}
           </button>
         ))}
       </nav>
 
-      {error && <p className="error">{error}</p>}
+      <ErrorLine error={error} />
 
-      {tab === "script" && <Picker slug={slug} files={ofKind("script")} empty="No script.* in this folder yet." onSaved={load} />}
+      {tab === "script" && <Picker slug={slug} files={ofKind("script")} empty="videos.noScript" onSaved={load} />}
       {tab === "text" && <TextFileEditor key="voiceover" slug={slug} path="voiceover.md" creatable onSaved={load} />}
       {tab === "brief" && <TextFileEditor key="brief" slug={slug} path="brief.md" creatable onSaved={load} />}
       {tab === "subtitles" && (
-        <Picker slug={slug} files={ofKind("subtitle")} empty="No .srt or .vtt files in this folder." onSaved={load} />
+        <Picker slug={slug} files={ofKind("subtitle")} empty="videos.noSubtitles" onSaved={load} />
       )}
-      {tab === "renders" && <MediaList files={ofKind("render").sort(byVersion)} empty="No renders yet." />}
+      {tab === "renders" && <MediaList files={ofKind("render").sort(byVersion)} empty="videos.noRenders" />}
       {tab === "overlays" && (
         <MediaList
           files={ofKind("overlay")}
-          empty="No overlays yet."
-          hint="ProRes 4444 .mov overlays play in Safari; other browsers may only offer the download."
+          empty="videos.noOverlays"
+          hint="videos.overlayHint"
         />
       )}
       {tab === "sources" && (
         <>
-          <MediaList files={ofKind("source")} empty="No sources in sources/." />
-          <h2 className="section">Walk proxies</h2>
+          <MediaList files={ofKind("source")} empty="videos.noSources" />
+          <h2 className="section">{t("videos.walkProxies")}</h2>
           {detail.proxies.length === 0 ? (
-            <p className="muted">No proxies in the linked Walks.</p>
+            <p className="muted">{t("videos.noProxies")}</p>
           ) : (
             <div className="media-grid">
               {detail.proxies.map((p) => (
-                <Player key={p.media} title={`${p.walk} / ${p.name}`} media={p.media} meta={formatSize(p.size)} />
+                <Player key={p.media} title={`${p.walk} / ${p.name}`} media={p.media} meta={formatSize(p.size, t)} />
               ))}
             </div>
           )}
@@ -117,7 +109,7 @@ export function VideoPage({ slug }: { slug: string }) {
         (files.some((f) => f.path === "references.md") ? (
           <TextFileEditor key="references" slug={slug} path="references.md" onSaved={load} />
         ) : (
-          <p className="muted">No references.md in this folder.</p>
+          <p className="muted">{t("videos.noReferences")}</p>
         ))}
       {tab === "notes" && <TextFileEditor key="notes" slug={slug} path="notes.md" creatable onSaved={load} />}
 
@@ -127,10 +119,11 @@ export function VideoPage({ slug }: { slug: string }) {
 }
 
 function LinkedResearch({ references, ideas }: { references: string[]; ideas: string[] }) {
+  const t = useT();
   return (
     <dl className="facts linked">
       <div>
-        <dt>References</dt>
+        <dt>{t("videos.references")}</dt>
         <dd>
           {references.length === 0
             ? "—"
@@ -142,7 +135,7 @@ function LinkedResearch({ references, ideas }: { references: string[]; ideas: st
         </dd>
       </div>
       <div>
-        <dt>Ideas</dt>
+        <dt>{t("videos.ideas")}</dt>
         <dd>
           {ideas.length === 0
             ? "—"
@@ -166,9 +159,10 @@ function StatusStrip({
   onChanged: (d: VideoDetail) => void;
   onReload: () => void;
 }) {
+  const t = useT();
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const current = detail.video.status ?? null;
   const index = current ? detail.statuses.indexOf(current) : -1;
   const next = index + 1 < detail.statuses.length ? detail.statuses[index + 1] : null;
@@ -186,10 +180,10 @@ function StatusStrip({
       setNote("");
       onChanged(result.detail);
     } else if (result.status === "conflict") {
-      setError("video.json changed on disk; reloaded it, check the status and try again.");
+      setError({ message: "", code: "statusConflict" });
       onReload();
     } else {
-      setError(result.message);
+      setError(result.problem);
     }
   };
 
@@ -198,42 +192,45 @@ function StatusStrip({
       <ol className="status-strip">
         {detail.statuses.map((s, i) => (
           <li key={s} className={i < index ? "done" : i === index ? "current" : ""}>
-            {s}
+            {t(`videos.status.${s}`)}
           </li>
         ))}
       </ol>
       {detail.legacy ? (
         <p className="muted">
-          Legacy Reel: the status is derived from its folder (script → edit with cuts.json or overlays → review with a
-          render in out/).
+          {t("videos.legacyStatus", {
+            script: t("videos.status.script"),
+            edit: t("videos.status.edit"),
+            review: t("videos.status.review"),
+          })}
         </p>
       ) : next ? (
         <div className="advance">
           <input
             type="text"
-            placeholder="Note (optional)"
+            placeholder={t("videos.notePlaceholder")}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && advance()}
           />
           <button className="primary" disabled={busy} onClick={advance}>
-            {busy ? "Saving…" : `Advance to ${next}`}
+            {busy ? t("common.saving") : t("videos.advance", { status: t(`videos.status.${next}`) })}
           </button>
         </div>
       ) : (
-        <p className="muted">Published.</p>
+        <p className="muted">{t("videos.published")}</p>
       )}
-      {error && <p className="error">{error}</p>}
+      <ErrorLine error={error} />
       {history.length > 0 && (
         <details className="history">
-          <summary>History ({history.length})</summary>
+          <summary>{t("videos.history", { n: history.length })}</summary>
           <table className="log">
             <tbody>
               {history.map((h, i) => (
                 <tr key={i}>
-                  <td>{h.at}</td>
+                  <td>{formatDate(h.at, t)}</td>
                   <td>
-                    <span className={`status-pill status-${h.status}`}>{h.status}</span>
+                    <span className={`status-pill status-${h.status}`}>{t.or(`videos.status.${h.status}`, h.status)}</span>
                   </td>
                   <td>{h.note}</td>
                 </tr>
@@ -254,13 +251,14 @@ function Picker({
 }: {
   slug: string;
   files: VideoFile[];
-  empty: string;
+  empty: Key;
   onSaved: () => void;
 }) {
+  const t = useT();
   const [picked, setPicked] = useState<string | null>(null);
   const path = picked && files.some((f) => f.path === picked) ? picked : (files[0]?.path ?? null);
   if (path === null) {
-    return <p className="muted">{empty}</p>;
+    return <p className="muted">{t(empty)}</p>;
   }
   return (
     <>
@@ -292,20 +290,21 @@ function Player({ title, media, meta }: { title: string; media: string; meta: st
   );
 }
 
-function MediaList({ files, empty, hint }: { files: VideoFile[]; empty: string; hint?: string }) {
+function MediaList({ files, empty, hint }: { files: VideoFile[]; empty: Key; hint?: Key }) {
+  const t = useT();
   if (files.length === 0) {
-    return <p className="muted">{empty}</p>;
+    return <p className="muted">{t(empty)}</p>;
   }
   return (
     <>
-      {hint && <p className="muted">{hint}</p>}
+      {hint && <p className="muted">{t(hint)}</p>}
       <div className="media-grid">
         {files.map((f) =>
           f.media ? (
-            <Player key={f.path} title={f.path} media={f.media} meta={`${formatSize(f.size)} · ${formatTime(f.mtime)}`} />
+            <Player key={f.path} title={f.path} media={f.media} meta={`${formatSize(f.size, t)} · ${formatTime(f.mtime, t)}`} />
           ) : (
             <p key={f.path} className="muted">
-              {f.path} is not served
+              {t("videos.notServed", { path: f.path })}
             </p>
           ),
         )}
@@ -337,8 +336,9 @@ function treeRows(files: VideoFile[]): TreeRow[] {
 function FileTree({ slug, files, onSaved }: { slug: string; files: VideoFile[]; onSaved: () => void }) {
   const [open, setOpen] = useState<string | null>(null);
   const openFile = files.find((f) => f.path === open && f.editable) ?? null;
+  const t = useT();
   if (files.length === 0) {
-    return <p className="muted">The folder is empty.</p>;
+    return <p className="muted">{t("videos.emptyFolder")}</p>;
   }
   return (
     <>
@@ -367,8 +367,8 @@ function FileTree({ slug, files, onSaved }: { slug: string; files: VideoFile[]; 
               ) : (
                 <span>{name}</span>
               )}
-              <span className="badge">{f.kind}</span>
-              <span className="muted">{formatSize(f.size)}</span>
+              <span className="badge">{t.or(`videos.kind.${f.kind}`, f.kind)}</span>
+              <span className="muted">{formatSize(f.size, t)}</span>
             </li>
           );
         })}

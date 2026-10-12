@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import type { Note } from "./notesApi";
+import { useT } from "../i18n";
+import { formatTime } from "../format";
 
 export function NoteItem({
   note,
@@ -14,26 +16,27 @@ export function NoteItem({
   onDelete: () => void;
   context?: ReactNode;
 }) {
+  const t = useT();
   return (
     <li className="note">
       <div className="note-body">
         {context && <div className="note-context">{context}</div>}
         <p className="note-text">{note.text}</p>
         <span className="muted note-date">
-          #{note.id} · {note.created_at.slice(0, 16).replace("T", " ")}
+          #{note.id} · {formatTime(note.created_at, t)}
         </span>
       </div>
       <div className="note-actions">
         <button disabled={busy} onClick={onResolve}>
-          Resolve
+          {t("notes.resolve")}
         </button>
         <button
           disabled={busy}
           onClick={() => {
-            if (window.confirm("Delete this Note?")) onDelete();
+            if (window.confirm(t("notes.confirmDelete"))) onDelete();
           }}
         >
-          Delete
+          {t("notes.delete")}
         </button>
       </div>
     </li>

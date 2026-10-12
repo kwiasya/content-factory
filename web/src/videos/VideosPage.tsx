@@ -2,34 +2,35 @@ import { useEffect, useState } from "react";
 import { formatTime } from "../format";
 import { videoHref } from "./routes";
 import { videosApi, type VideoSummary } from "./videosApi";
+import { useT, type Problem } from "../i18n";
+import { ErrorLine } from "../ErrorLine";
 
 export function VideosPage() {
+  const t = useT();
   const [videos, setVideos] = useState<VideoSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   useEffect(() => {
-    videosApi.list().then(setVideos, (e: Error) => setError(e.message));
+    videosApi.list().then(setVideos, setError);
   }, []);
 
   return (
     <main className="doc videos">
-      <h1>Videos</h1>
-      {error && <p className="error">{error}</p>}
+      <h1>{t("videos.title")}</h1>
+      <ErrorLine error={error} />
       {videos === null ? (
-        !error && <p className="muted">Loading…</p>
+        !error && <p className="muted">{t("common.loading")}</p>
       ) : videos.length === 0 ? (
-        <p className="muted">
-          No Videos yet: create <code>videos/&lt;slug&gt;/video.json</code> in the footage root.
-        </p>
+        <p className="muted">{t.rich("videos.empty", { path: <code>videos/&lt;slug&gt;/video.json</code> })}</p>
       ) : (
         <table className="video-table">
           <thead>
             <tr>
-              <th>Title</th>
-              <th>Format</th>
-              <th>Channel</th>
-              <th>Status</th>
-              <th>Last change</th>
+              <th>{t("videos.col.title")}</th>
+              <th>{t("videos.col.format")}</th>
+              <th>{t("videos.col.channel")}</th>
+              <th>{t("videos.col.status")}</th>
+              <th>{t("videos.col.updated")}</th>
             </tr>
           </thead>
           <tbody>
@@ -37,13 +38,13 @@ export function VideosPage() {
               <tr key={v.slug}>
                 <td>
                   <a href={videoHref(v.slug)}>{v.title}</a>
-                  {v.legacy && <span className="badge">legacy Reel</span>}
-                  {v.error && <div className="error">{v.error}</div>}
+                  {v.legacy && <span className="badge">{t("videos.legacy")}</span>}
+                  {v.error && <div className="error">{t.problem({ message: v.error, code: v.error_code ?? undefined })}</div>}
                 </td>
                 <td>{v.format ?? "—"}</td>
                 <td>{v.channel ?? "—"}</td>
-                <td>{v.status ? <span className={`status-pill status-${v.status}`}>{v.status}</span> : "—"}</td>
-                <td className="muted when">{formatTime(v.updated)}</td>
+                <td>{v.status ? <span className={`status-pill status-${v.status}`}>{t(`videos.status.${v.status}`)}</span> : "—"}</td>
+                <td className="muted when">{formatTime(v.updated, t)}</td>
               </tr>
             ))}
           </tbody>

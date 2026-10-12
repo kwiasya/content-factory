@@ -1,4 +1,5 @@
-import { getJson, message, saveText, send } from "../api";
+import { getJson, problemOf, saveText, send } from "../api";
+import type { Problem } from "../i18n";
 
 export type VideoStatus = "idea" | "brief" | "script" | "recording" | "edit" | "review" | "published";
 
@@ -11,6 +12,7 @@ export interface VideoSummary {
   legacy: boolean;
   updated: string;
   error: string | null;
+  error_code: string | null;
 }
 
 export interface HistoryEntry {
@@ -39,6 +41,7 @@ export type FileKind =
   | "video"
   | "script"
   | "brief"
+  | "voiceover"
   | "notes"
   | "references"
   | "subtitle"
@@ -86,7 +89,7 @@ export interface TextFile {
 export type StatusResult =
   | { status: "saved"; detail: VideoDetail }
   | { status: "conflict" }
-  | { status: "error"; message: string };
+  | { status: "error"; problem: Problem };
 
 const v = (slug: string) => `/api/videos/${encodeURIComponent(slug)}`;
 
@@ -104,6 +107,6 @@ export const videosApi = {
     if (r.status === 409 && typeof r.body.hash === "string") {
       return { status: "conflict" };
     }
-    return { status: "error", message: message(r.body.detail) };
+    return { status: "error", problem: problemOf(r.body) };
   },
 };

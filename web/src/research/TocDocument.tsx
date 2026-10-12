@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
+import { useT } from "../i18n";
 
 interface Heading {
   id: string;
@@ -21,6 +22,7 @@ function render(text: string, prefix: string): { html: string; toc: Heading[] } 
 }
 
 export function TocDocument({ text, prefix }: { text: string; prefix: string }) {
+  const t = useT();
   const { html, toc } = useMemo(() => render(text, prefix), [text, prefix]);
   const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
@@ -28,7 +30,7 @@ export function TocDocument({ text, prefix }: { text: string; prefix: string }) 
     <div className="toc-doc">
       {toc.length > 1 && (
         <nav className="toc">
-          <h3>Contents</h3>
+          <h3>{t("research.contents")}</h3>
           <ul>
             {toc.map((h) => (
               <li key={h.id} className={`toc-${h.level}`}>

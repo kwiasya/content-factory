@@ -1,18 +1,25 @@
-export function outlierText(score: number | null | undefined): string {
-  return score === null || score === undefined ? "—" : `${score.toFixed(1)}x`;
+import type { T } from "../i18n";
+
+export function outlierText(score: number | null | undefined, t: T): string {
+  if (score === null || score === undefined) {
+    return "—";
+  }
+  const n = new Intl.NumberFormat(t.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(score);
+  return t("unit.outlier", { n });
 }
 
-export function viewsText(views: number | null | undefined): string {
+export function viewsText(views: number | null | undefined, t: T): string {
   if (views === null || views === undefined) {
     return "—";
   }
-  if (views >= 1_000_000) {
-    return `${(views / 1_000_000).toFixed(1)}M`;
+  return new Intl.NumberFormat(t.locale, { notation: "compact", maximumFractionDigits: 1 }).format(views);
+}
+
+export function secondsText(s: number | null | undefined, t: T): string {
+  if (s === null || s === undefined) {
+    return "—";
   }
-  if (views >= 1_000) {
-    return `${(views / 1_000).toFixed(1)}K`;
-  }
-  return String(views);
+  return t("unit.s", { n: new Intl.NumberFormat(t.locale).format(s) });
 }
 
 export function seconds(s: number | null | undefined): string {

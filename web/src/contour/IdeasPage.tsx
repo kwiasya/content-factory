@@ -5,26 +5,27 @@ import { Cmd, ContourShell, Status } from "./ContourShell";
 import { NoteBox } from "../notes/NoteBox";
 import { cardHref, ideasHref } from "./routes";
 import { useLoad } from "./useLoad";
+import { useT, type Problem } from "../i18n";
+import { ErrorLine } from "../ErrorLine";
+import { formatTime } from "../format";
 
-const ACTIONS: Record<string, { action: IdeaAction; label: string }[]> = {
-  inbox: [
-    { action: "shortlist", label: "Shortlist" },
-    { action: "discard", label: "Discard" },
-  ],
-  discarded: [{ action: "restore", label: "Restore" }],
+const ACTIONS: Record<string, IdeaAction[]> = {
+  inbox: ["shortlist", "discard"],
+  discarded: ["restore"],
 };
 
 export function IdeasPage({ selected }: { selected: number | null }) {
+  const t = useT();
   const [watchlist, setWatchlist] = useState("");
   const [status, setStatus] = useState("");
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<Problem | null>(null);
   const watchlists = useLoad(contourApi.watchlists);
   const loader = useCallback(() => contourApi.ideas(watchlist, status), [watchlist, status]);
   const { data, error, reload } = useLoad(loader);
 
   const act = (id: number, action: IdeaAction) => {
     setActionError(null);
-    contourApi.move(id, action).then(reload, (e: Error) => setActionError(e.message));
+    contourApi.move(id, action).then(reload, setActionError);
   };
 
   const ideas = data?.ideas ?? [];
@@ -32,12 +33,12 @@ export function IdeasPage({ selected }: { selected: number | null }) {
 
   return (
     <ContourShell active="ideas">
-      <h1>Ideas</h1>
+      <h1>{t("ideas.title")}</h1>
       <form className="filters" onSubmit={(e) => e.preventDefault()}>
         <label>
-          Watchlist
+          {t("ideas.watchlist")}
           <select value={watchlist} onChange={(e) => setWatchlist(e.target.value)}>
-            <option value="">all</option>
+            <option value="">{t("common.all")}</option>
             {(watchlists.data ?? []).map((w) => (
               <option key={w.name} value={w.name}>
                 {w.name}
@@ -46,34 +47,38 @@ export function IdeasPage({ selected }: { selected: number | null }) {
           </select>
         </label>
         <label>
-          Status
+          {t("ideas.status")}
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">all</option>
+            <option value="">{t("common.all")}</option>
             {(data?.statuses ?? ["inbox", "shortlisted", "discarded", "brief"]).map((s) => (
               <option key={s} value={s}>
-                {s}
+                {t.or(`ideas.status.${s}`, s)}
               </option>
             ))}
           </select>
         </label>
       </form>
       <Status error={error} loading={data === null && !error} />
-      {actionError && <p className="error">{actionError}</p>}
+      <ErrorLine error={actionError} />
       {data && ideas.length === 0 && (
         <p className="muted">
-          No Ideas{status ? ` with status ${status}` : ""}. Fill the inbox with <Cmd>/suggest-ideas</Cmd> from the
-          analyzed outliers of a Watchlist.
+          {status
+            ? t.rich("ideas.emptyStatus", {
+                status: t.or(`ideas.status.${status}`, status),
+                cmd: <Cmd>/suggest-ideas</Cmd>,
+              })
+            : t.rich("ideas.empty", { cmd: <Cmd>/suggest-ideas</Cmd> })}
         </p>
       )}
       {ideas.length > 0 && (
         <table className="contour-table">
           <thead>
             <tr>
-              <th className="num">#</th>
-              <th>Idea</th>
-              <th>Watchlist</th>
-              <th>Status</th>
-              <th className="num">Notes</th>
+              <th className="num">{t("research.col.number")}</th>
+              <th>{t("ideas.col.idea")}</th>
+              <th>{t("ideas.watchlist")}</th>
+              <th>{t("ideas.status")}</th>
+              <th className="num">{t("ideas.col.notes")}</th>
               <th />
             </tr>
           </thead>
@@ -86,14 +91,14 @@ export function IdeasPage({ selected }: { selected: number | null }) {
                 </td>
                 <td>{i.watchlist}</td>
                 <td>
-                  <span className={`status-pill idea-${i.status}`}>{i.status}</span>
+                  <span className={`status-pill idea-${i.status}`}>{t.or(`ideas.status.${i.status}`, i.status)}</span>
                 </td>
                 <td className="num">{i.notes.length}</td>
                 <td>
                   <div className="row-actions">
                     {(ACTIONS[i.status] ?? []).map((a) => (
-                      <button key={a.action} onClick={() => act(i.id, a.action)}>
-                        {a.label}
+                      <button key={a} onClick={() => act(i.id, a)}>
+                        {t(`ideas.action.${a}`)}
                       </button>
                     ))}
                   </div>
@@ -104,7 +109,7 @@ export function IdeasPage({ selected }: { selected: number | null }) {
         </table>
       )}
       {selected !== null && data && !current && (
-        <p className="muted">Idea {selected} is not in this list; clear the filters to see it.</p>
+        <p className="muted">{t("ideas.notInList", { id: selected })}</p>
       )}
       {current && <IdeaDetail key={current.id} idea={current} onChanged={reload} />}
     </ContourShell>
@@ -116,8 +121,9 @@ function text(value: unknown): string {
 }
 
 function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
+  const t = useT();
   const [note, setNote] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
   const [saving, setSaving] = useState(false);
   const f = idea.fields;
   const format = (f.storytelling_format ?? {}) as Record<string, unknown>;
@@ -135,7 +141,7 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
       },
       (e: Error) => {
         setSaving(false);
-        setError(e.message);
+        setError(e);
       },
     );
   };
@@ -143,37 +149,41 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
   return (
     <section className="idea-detail">
       <h2>
-        {idea.title} <span className={`status-pill idea-${idea.status}`}>{idea.status}</span>
+        {idea.title}{" "}
+        <span className={`status-pill idea-${idea.status}`}>{t.or(`ideas.status.${idea.status}`, idea.status)}</span>
       </h2>
       <dl className="facts">
         <div>
-          <dt>Summary</dt>
+          <dt>{t("ideas.summary")}</dt>
           <dd>{text(f.summary) || "—"}</dd>
         </div>
         <div>
-          <dt>Positioning</dt>
+          <dt>{t("ideas.positioning")}</dt>
           <dd>{text(f.content_positioning) || "—"}</dd>
         </div>
         <div>
-          <dt>Storytelling format</dt>
+          <dt>{t("ideas.storytelling")}</dt>
           <dd>
             <code>{text(format.category) || "—"}</code> {text(format.why)}
           </dd>
         </div>
         <div>
-          <dt>Contrast</dt>
+          <dt>{t("ideas.contrast")}</dt>
           <dd>
             {contrast
-              ? `Common belief: ${text(contrast.common_belief)}. Reality: ${text(contrast.contrarian_reality)}.`
-              : "none"}
+              ? t("ideas.contrastText", {
+                  belief: text(contrast.common_belief),
+                  reality: text(contrast.contrarian_reality),
+                })
+              : t("common.none")}
           </dd>
         </div>
         <div>
-          <dt>Hook alignment</dt>
+          <dt>{t("ideas.hookAlignment")}</dt>
           <dd>{text(f.hook_alignment) || "—"}</dd>
         </div>
         <div>
-          <dt>Personalizations</dt>
+          <dt>{t("ideas.personalizations")}</dt>
           <dd>
             <ol>
               {personalizations.map((p, n) => (
@@ -183,7 +193,7 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
           </dd>
         </div>
         <div>
-          <dt>Sources</dt>
+          <dt>{t("ideas.sources")}</dt>
           <dd>
             {idea.sources.map((s) => (
               <div key={s.id}>
@@ -194,36 +204,38 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
         </div>
       </dl>
 
-      <h2 className="section">Idea notes</h2>
+      <h2 className="section">{t("ideas.notes")}</h2>
       {idea.notes.length === 0 ? (
-        <p className="muted">No notes yet.</p>
+        <p className="muted">{t("ideas.noNotes")}</p>
       ) : (
         <ul className="idea-notes">
           {idea.notes.map((n) => (
             <li key={`${n.at}${n.text}`}>
-              <span className="muted">{n.at.replace("T", " ").replace("Z", "")}</span> {n.text}
+              <span className="muted">{formatTime(n.at, t)}</span> {n.text}
             </li>
           ))}
         </ul>
       )}
       <div className="note-add">
-        <textarea value={note} rows={2} placeholder="Add a note to this Idea" onChange={(e) => setNote(e.target.value)} />
+        <textarea value={note} rows={2} placeholder={t("ideas.notePlaceholder")} onChange={(e) => setNote(e.target.value)} />
         <button className="primary" disabled={!note.trim() || saving} onClick={addNote}>
-          {saving ? "Adding…" : "Add note"}
+          {saving ? t("ideas.adding") : t("ideas.addNote")}
         </button>
       </div>
-      {error && <p className="error">{error}</p>}
+      <ErrorLine error={error} />
 
-      <h2 className="section">Brief</h2>
+      <h2 className="section">{t("ideas.brief")}</h2>
       {idea.status === "brief" ? (
         <BriefEditor ideaId={idea.id} />
       ) : idea.status === "shortlisted" ? (
         <p className="muted">
-          No Brief yet: <Cmd>{`python -m cf.research ideas brief ${idea.id}`}</Cmd> (or ask{" "}
-          <Cmd>/suggest-ideas</Cmd>) writes it.
+          {t.rich("ideas.noBrief", {
+            cmd: <Cmd>{`python -m cf.research ideas brief ${idea.id}`}</Cmd>,
+            skill: <Cmd>/suggest-ideas</Cmd>,
+          })}
         </p>
       ) : (
-        <p className="muted">Shortlist the Idea first; a Brief is written from a shortlisted Idea.</p>
+        <p className="muted">{t("ideas.shortlistFirst")}</p>
       )}
       <NoteBox kind="idea" noteKey={String(idea.id)} />
     </section>

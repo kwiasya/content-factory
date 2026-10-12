@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { NoteItem } from "./NoteItem";
 import { notesApi, type Note, type NoteKind } from "./notesApi";
+import { useT, type Problem } from "../i18n";
+import { ErrorLine } from "../ErrorLine";
 import "./notes.css";
 
 export function NoteBox({ kind, noteKey }: { kind: NoteKind; noteKey: string }) {
+  const t = useT();
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Problem | null>(null);
 
   const load = useCallback(() => {
-    notesApi.list({ kind, key: noteKey }).then(setNotes, (e: Error) => setError(e.message));
+    notesApi.list({ kind, key: noteKey }).then(setNotes, setError);
   }, [kind, noteKey]);
 
   useEffect(load, [load]);
@@ -22,7 +25,7 @@ export function NoteBox({ kind, noteKey }: { kind: NoteKind; noteKey: string }) 
       await action();
       load();
     } catch (e) {
-      setError((e as Error).message);
+      setError(e as Error);
     } finally {
       setBusy(false);
     }
@@ -37,10 +40,10 @@ export function NoteBox({ kind, noteKey }: { kind: NoteKind; noteKey: string }) 
   return (
     <section className="note-box">
       <h2>
-        Notes for the Editor
+        {t("notes.box")}
         {notes && notes.length > 0 && <span className="note-count">{notes.length}</span>}
       </h2>
-      {error && <p className="error">{error}</p>}
+      <ErrorLine error={error} />
       {notes && notes.length > 0 && (
         <ul className="note-list">
           {notes.map((n) => (
@@ -64,7 +67,7 @@ export function NoteBox({ kind, noteKey }: { kind: NoteKind; noteKey: string }) 
         <textarea
           value={draft}
           rows={2}
-          placeholder="What should the Editor change here?"
+          placeholder={t("notes.boxPlaceholder")}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && draft.trim()) {
@@ -74,7 +77,7 @@ export function NoteBox({ kind, noteKey }: { kind: NoteKind; noteKey: string }) 
           }}
         />
         <button type="submit" className="primary" disabled={busy || !draft.trim()}>
-          Add Note
+          {t("notes.add")}
         </button>
       </form>
     </section>

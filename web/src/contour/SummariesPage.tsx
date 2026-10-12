@@ -4,22 +4,13 @@ import { Cmd, ContourShell, Status } from "./ContourShell";
 import { outlierText, viewsText } from "./format";
 import { cardHref, watchlistHref } from "./routes";
 import { useLoad } from "./useLoad";
+import { useT } from "../i18n";
+import { formatDate, formatNumber } from "../format";
 
-const TABS: { id: SummaryKind; label: string }[] = [
-  { id: "hooks", label: "Hooks" },
-  { id: "formats", label: "Formats" },
-  { id: "topics", label: "Topics" },
-];
-
-const SECTION_TITLES: Record<string, string> = {
-  hook_category: "Hook categories",
-  hook_formula: "Hook formulas",
-  storytelling_format: "Storytelling formats",
-  visual_layout: "Visual layouts",
-  topic: "Topics",
-};
+const TABS: SummaryKind[] = ["hooks", "formats", "topics"];
 
 export function SummariesPage({ name }: { name: string }) {
+  const t = useT();
   const [tab, setTab] = useState<SummaryKind>("hooks");
   const [draft, setDraft] = useState("14");
   const [days, setDays] = useState("14");
@@ -34,20 +25,20 @@ export function SummariesPage({ name }: { name: string }) {
   return (
     <ContourShell active={null}>
       <a href={watchlistHref(name)}>← {name}</a>
-      <h1>Summaries: {name}</h1>
+      <h1>{t("summary.title", { name })}</h1>
       <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t.id} className={t.id === tab ? "active" : ""} onClick={() => setTab(t.id)}>
-            {t.label}
+        {TABS.map((id) => (
+          <button key={id} className={id === tab ? "active" : ""} onClick={() => setTab(id)}>
+            {t(`summary.tab.${id}`)}
           </button>
         ))}
       </nav>
       <form className="filters" onSubmit={apply}>
         <label>
-          Days
+          {t("summary.days")}
           <input type="number" min="0" step="any" value={draft} onChange={(e) => setDraft(e.target.value)} />
         </label>
-        <button type="submit">Apply</button>
+        <button type="submit">{t("common.apply")}</button>
       </form>
       <Status error={error} loading={data === null && !error} />
       {data && data.summary === tab && <SummaryView summary={data} />}
@@ -56,41 +47,49 @@ export function SummariesPage({ name }: { name: string }) {
 }
 
 function SummaryView({ summary }: { summary: Summary }) {
+  const t = useT();
   return (
     <>
       <p className="muted">
-        {summary.references} Reference since {summary.since.slice(0, 10)}, {summary.carded} with an analysis. Weight:{" "}
-        {summary.weight}. Save the hooks worth keeping with <Cmd>/mine-hooks</Cmd>.
+        {t.rich("summary.intro", {
+          refs: t("unit.references", { n: summary.references }),
+          since: formatDate(summary.since, t),
+          carded: formatNumber(summary.carded, t),
+          weight: summary.weight,
+          cmd: <Cmd>/mine-hooks</Cmd>,
+        })}
       </p>
       {summary.carded === 0 && (
-        <p className="muted">
-          No analyzed Reference in this window: analyze the outliers below with <Cmd>/analyze-reference</Cmd>.
-        </p>
+        <p className="muted">{t.rich("summary.noneCarded", { cmd: <Cmd>/analyze-reference</Cmd> })}</p>
       )}
       {summary.sections.map((sec) => (
         <section key={sec.kind}>
-          <h2 className="section">{SECTION_TITLES[sec.kind] ?? sec.kind}</h2>
-          {sec.groups.length === 0 && <p className="muted">Nothing yet.</p>}
+          <h2 className="section">{t.or(`summary.section.${sec.kind}`, sec.kind)}</h2>
+          {sec.groups.length === 0 && <p className="muted">{t("summary.nothing")}</p>}
           {sec.groups.map((g) => (
             <div key={g.value} className="summary-group">
               <div className="summary-head">
-                <strong>{g.label || g.value}</strong>
+                <strong>{t.taxonomyLabel(sec.kind, g.value, g.label) || g.value}</strong>
                 {g.label && g.label.toLowerCase() !== g.value && <code>{g.value}</code>}
-                {g.proposed && <span className="flag pending">proposed</span>}
+                {g.proposed && <span className="flag pending">{t("card.proposed")}</span>}
                 <span className="muted">
-                  {g.count} Reference · weight {g.weight} · best {outlierText(g.best_outlier)}
+                  {t("summary.groupMeta", {
+                    refs: t("unit.references", { n: g.count }),
+                    weight: formatNumber(g.weight, t),
+                    best: outlierText(g.best_outlier, t),
+                  })}
                 </span>
               </div>
               <ul className="examples">
                 {g.examples.map((e) => (
                   <li key={e.external_id}>
-                    <strong>{outlierText(e.outlier)}</strong> · {viewsText(e.views)} · {e.date ?? "—"} ·{" "}
+                    <strong>{outlierText(e.outlier, t)}</strong> · {viewsText(e.views, t)} · {formatDate(e.date, t)} ·{" "}
                     <a href={cardHref(e.external_id)}>{e.title || e.external_id}</a> · {e.handle ?? "—"}
                     {(e.spoken_hook || e.formula) && (
                       <div className="muted small">
                         {e.spoken_hook && <>«{e.spoken_hook}»</>}
                         {e.spoken_hook && e.formula && " · "}
-                        {e.formula && <>formula: {e.formula}</>}
+                        {e.formula && t("summary.formula", { formula: e.formula })}
                       </div>
                     )}
                   </li>
@@ -100,16 +99,16 @@ function SummaryView({ summary }: { summary: Summary }) {
           ))}
         </section>
       ))}
-      <h2 className="section">Outliers without analysis (≥ {summary.min_outlier}x)</h2>
+      <h2 className="section">{t("summary.uncarded", { n: outlierText(summary.min_outlier, t) })}</h2>
       {summary.uncarded.length === 0 ? (
-        <p className="muted">None: the summary covers every outlier of the window.</p>
+        <p className="muted">{t("summary.allCarded")}</p>
       ) : (
         <ul className="examples">
           {summary.uncarded.map((u) => (
             <li key={u.external_id}>
-              <strong>{outlierText(u.outlier)}</strong> · {viewsText(u.views)} · {u.date ?? "—"} ·{" "}
+              <strong>{outlierText(u.outlier, t)}</strong> · {viewsText(u.views, t)} · {formatDate(u.date, t)} ·{" "}
               <a href={cardHref(u.external_id)}>{u.title || u.external_id}</a> · {u.handle ?? "—"} ·{" "}
-              <span className="flag pending">{u.measured ? "measured, no analysis" : "no card"}</span>
+              <span className="flag pending">{t(u.measured ? "summary.measuredOnly" : "summary.noCard")}</span>
             </li>
           ))}
         </ul>
