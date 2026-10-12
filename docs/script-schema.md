@@ -38,6 +38,7 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 - Hook text is 5–8 words and sits inside the safe zone from `style.json`; `hook.clip` is the first shot's clip.
 - A shot's `transition` is the one into that shot (on the first shot: from black). Durations are timeline seconds: `(out_s − in_s) / speed`.
 - One overlay per scene or location change; each overlay holds ≥2 s; ≤8 words.
+- `overlay.span` (int ≥ 1, default 1) stretches one overlay over this shot and the next span−1 shots (one label for a place cut into short shots): it starts at this shot's record frame and lasts the spanned shots' summed duration (from `cuts.json` record frames when present), which is what the ≥2 s hold checks; the spanned shots carry no overlay of their own, and a span never reaches the last shot of a `loop_seamless` Reel.
 - A `place` overlay says what the place is, not only its name: "Hotel: FlipFlop Cala Romantica", "Beach: Cala Romántica", "Park Babelsberg" is fine only when the name already says it (author rule, 2026-10-11).
 - Shots are ordered for impact: the Script reorders Clips freely, chronology is one option among many.
 - Every `in_s`/`out_s` lies inside the Clip's duration and the shot lasts 1.5–5 s, longer only for `payoff`.

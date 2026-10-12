@@ -175,6 +175,42 @@ class RecordFrameTest(unittest.TestCase):
             plan_shots(s, MANIFEST, START, 30, cuts=cuts)
 
 
+class OverlaySpanTest(unittest.TestCase):
+    def test_overlay_length_is_the_shot_by_default(self):
+        s = script([shot("C30.mov", 0.0, 2.0, role="hook", overlay={"text": "Lake", "type": "place"}),
+                    shot("C30.mov", 5.0, 6.0)])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        self.assertEqual((plan[0].overlay_span, plan[0].overlay_frames), (1, 60))
+        self.assertEqual(plan[1].overlay_frames, 0)
+
+    def test_span_sums_the_spanned_shots(self):
+        s = script([shot("C30.mov", 0.0, 1.0, role="hook"),
+                    shot("C30.mov", 2.0, 3.0, overlay={"text": "Column: Siegessäule", "type": "place", "span": 2}),
+                    shot("B24.MOV", 1.0, 2.5), shot("C30.mov", 9.0, 10.0)])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        self.assertEqual(plan[1].record_frame, START + 30)
+        self.assertEqual((plan[1].overlay_span, plan[1].overlay_frames), (2, 30 + 45))
+
+    def test_span_takes_record_frames_from_cuts_json(self):
+        s = script([shot("C30.mov", 0.0, 1.0, role="hook",
+                         overlay={"text": "TV Tower: Fernsehturm", "type": "place", "span": 3}),
+                    shot("C30.mov", 2.0, 3.0), shot("C30.mov", 4.0, 5.5), shot("C30.mov", 9.0, 10.0)])
+        cuts = {"fps": 30, "shots": [
+            {"id": "s01", "record_frame_offset": 0, "duration_frames": 31},
+            {"id": "s02", "record_frame_offset": 31, "duration_frames": 30},
+            {"id": "s03", "record_frame_offset": 61, "duration_frames": 41},
+            {"id": "s04", "record_frame_offset": 102, "duration_frames": 30}]}
+        plan, _ = plan_shots(s, MANIFEST, START, 30, cuts=cuts)
+        self.assertEqual((plan[0].overlay_span, plan[0].overlay_frames), (3, 102))
+
+    def test_span_past_the_end_is_clipped_and_noted(self):
+        s = script([shot("C30.mov", 0.0, 1.0, role="hook"),
+                    shot("C30.mov", 2.0, 3.0, overlay={"text": "Lake", "type": "place", "span": 4})])
+        plan, notes = plan_shots(s, MANIFEST, START, 30)
+        self.assertEqual((plan[1].overlay_span, plan[1].overlay_frames), (1, 30))
+        self.assertTrue(any("runs past the last shot" in n for n in notes))
+
+
 class LoopSeamTest(unittest.TestCase):
     def cuts(self, last_frames: int) -> dict:
         return {"fps": 30, "shots": [

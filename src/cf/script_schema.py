@@ -56,6 +56,7 @@ class ScriptError(ValueError):
 class Overlay:
     text: str
     type: str
+    span: int = 1  # shots it covers: this one and the next span-1 (one label across a place's shots)
 
 
 @dataclass
@@ -147,7 +148,11 @@ def shot_from_dict(d: dict, index: int) -> Shot:
     if ov is not None:
         if not isinstance(ov, dict):
             raise ScriptError(f"{where}.overlay: must be an object or null")
-        overlay = Overlay(text=_str(ov, "text", f"{where}.overlay"), type=_str(ov, "type", f"{where}.overlay"))
+        span = ov.get("span", 1)
+        if isinstance(span, bool) or not isinstance(span, int) or span < 1:
+            raise ScriptError(f"{where}.overlay: 'span' must be an int >= 1, got {span!r}")
+        overlay = Overlay(text=_str(ov, "text", f"{where}.overlay"), type=_str(ov, "type", f"{where}.overlay"),
+                          span=span)
     try:
         reframe = rf.from_shot(d.get("reframe"), f"{where}.reframe")
     except ValueError as exc:
@@ -229,6 +234,16 @@ def words(text: str) -> int:
     return len(text.split())
 
 
+def overlay_cover(shots: list[Shot]) -> dict[int, int]:
+    """Shot index -> index of the earlier shot whose spanning overlay covers it (span > 1 only)."""
+    cover: dict[int, int] = {}
+    for i, s in enumerate(shots):
+        if s.overlay is not None and s.overlay.span > 1:
+            for j in range(i + 1, min(i + s.overlay.span, len(shots))):
+                cover.setdefault(j, i)
+    return cover
+
+
 def validate(script: Script, manifest: dict | None = None, style: dict | None = None) -> list[str]:
     """Return the list of rule violations (empty when the Script is valid)."""
     v: list[str] = []
@@ -271,6 +286,7 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
 
     # Shots.
     seen: set[str] = set()
+    covered = overlay_cover(script.shots)
     for i, s in enumerate(script.shots):
         w = f"shots[{i}] ({s.id})"
         if s.id in seen:
@@ -314,8 +330,19 @@ def validate(script: Script, manifest: dict | None = None, style: dict | None = 
             ow = words(s.overlay.text)
             if ow == 0 or ow > OVERLAY_MAX_WORDS:
                 v.append(f"{w}: overlay has {ow} words, must be 1-{OVERLAY_MAX_WORDS}: {s.overlay.text!r}")
-            if d < min_hold - EPS:
-                v.append(f"{w}: overlay holds {d:.2f} s, must hold >= {min_hold:g} s")
+            span = s.overlay.span
+            last = i + span - 1
+            if last >= len(script.shots):
+                v.append(f"{w}: overlay span {span} runs past the last shot ({len(script.shots) - i} shot(s) left)")
+            elif span > 1 and script.ending == "loop_seamless" and last == len(script.shots) - 1:
+                v.append(f"{w}: overlay span {span} reaches the loop's last shot {script.shots[-1].id}, "
+                         "which must stay clean for the seam")
+            held = sum(x.duration_s for x in script.shots[i:last + 1])
+            if held < min_hold - EPS:
+                v.append(f"{w}: overlay holds {held:.2f} s"
+                         + (f" over {span} shots" if span > 1 else "") + f", must hold >= {min_hold:g} s")
+        if covered.get(i) is not None and s.overlay is not None:
+            v.append(f"{w}: has its own overlay inside the span of {script.shots[covered[i]].id}'s overlay")
 
     if script.ending == "loop_seamless":
         v.extend(loop_seamless_problems(script, clips, style))

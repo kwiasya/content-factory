@@ -136,6 +136,8 @@ class PlannedShot:
     src_end_after_speed: float  # exclusive; the source range once SetSpeed applies
     fade_in: int = 0
     fade_out: int = 0
+    overlay_span: int = 1       # shots the overlay covers, this one first (script overlay.span)
+    overlay_frames: int = 0     # V2 length: from this shot's record frame to the end of the last spanned shot
 
     @property
     def record_end(self) -> int:
@@ -237,6 +239,15 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
     for a, b in zip(out, out[1:]):
         if b.record_offset < a.record_offset + a.duration:
             raise BuildError(f"shots {a.id} and {b.id} overlap on V1")
+    for i, (s, p) in enumerate(zip(script.shots, out)):
+        if s.overlay is None:
+            continue
+        span = max(1, int(s.overlay.span))
+        last = min(i + span, len(out)) - 1
+        if i + span > len(out):
+            notes.append(f"{p.id}: overlay span {span} runs past the last shot; it ends with {out[last].id}")
+        p.overlay_span = last - i + 1
+        p.overlay_frames = out[last].record_end - p.record_frame
     if script.ending == "loop_seamless" and len(out) > 1:
         first, last = out[0], out[-1]
         if first.clip == last.clip and abs(first.speed - 1) < 1e-9 and abs(last.speed - 1) < 1e-9:
@@ -1092,9 +1103,12 @@ class Builder:
             if res and res != f"{self.width}x{self.height}":
                 r.notes.append(f"{s.id}: overlay is {res}, the canvas {self.width}x{self.height}; Resolve scales "
                                "it to fit (soft text when upscaled): re-render the overlay at the canvas size")
-            if frames != s.duration:
-                r.notes.append(f"{s.id}: overlay is {frames} frames, the shot {s.duration}; "
-                               "re-render the overlay with the shot's duration")
+            want = s.overlay_frames or s.duration
+            if frames != want:
+                span = f" ({s.overlay_span} shots)" if s.overlay_span > 1 else ""
+                r.notes.append(f"{s.id}: overlay is {frames} frames, the shot{span} {want}; "
+                               "re-render the overlay with that duration")
+            r.check(f"{s.id} overlay frames = spanned duration", want, frames)
             (it,) = d.append([{"mediaPoolItem": mpi, "startFrame": 0, "endFrame": frames, "mediaType": 1,
                                "trackIndex": 2, "recordFrame": s.record_frame}])
             got = [int(d.call(it.GetStart)), int(d.call(it.GetEnd))]

@@ -109,10 +109,46 @@ class BadScriptTest(unittest.TestCase):
         d["shots"][1]["overlay"]["type"] = "title"
         self.assertViolation(d, "overlay.type 'title'")
 
+    def test_overlay_span_holds_over_the_spanned_shots(self):
+        d = good()
+        d["shots"][0]["out_s"] = 2.0  # 1.0 s hook shot
+        d["shots"][1]["in_s"], d["shots"][1]["out_s"] = 2.0, 3.2  # 1.2 s
+        d["target_length_s"] = 6
+        self.assertViolation(d, "overlay holds 1.20 s")
+        d["shots"][1]["overlay"]["span"] = 2  # 1.2 s + the 3 s payoff
+        self.assertEqual(problems(d), [])
+        self.assertEqual(from_dict(d).shots[1].overlay.span, 2)
+
+    def test_overlay_span_too_short_still_fails(self):
+        d = good()
+        for sh, (a, b) in zip(d["shots"], [(1.0, 2.0), (2.0, 2.5), (0.0, 1.0)]):
+            sh["in_s"], sh["out_s"] = a, b
+        d["shots"][1]["overlay"]["span"] = 2
+        d["target_length_s"] = 3
+        self.assertViolation(d, "overlay holds 1.50 s over 2 shots")
+
+    def test_spanned_shot_must_not_carry_its_own_overlay(self):
+        d = good()
+        d["shots"][1]["overlay"]["span"] = 2
+        d["shots"][2]["overlay"] = {"text": "Neues Palais", "type": "place"}
+        self.assertViolation(d, "(s03): has its own overlay inside the span of s02's overlay")
+
+    def test_overlay_span_past_the_last_shot(self):
+        d = good()
+        d["shots"][1]["overlay"]["span"] = 3
+        self.assertViolation(d, "overlay span 3 runs past the last shot")
+
+    def test_overlay_span_must_be_a_positive_int(self):
+        for bad in (0, -1, 1.5, True, "2"):
+            d = good()
+            d["shots"][1]["overlay"]["span"] = bad
+            with self.assertRaises(ScriptError, msg=repr(bad)):
+                from_dict(d)
+
     def test_shot_too_short_and_too_long(self):
         d = good()
-        d["shots"][0]["out_s"] = 2.0  # 1.0 s
-        self.assertViolation(d, "lasts 1.00 s")
+        d["shots"][0]["out_s"] = 1.8  # 0.8 s, under style pacing.shot_s.min (0.9)
+        self.assertViolation(d, "lasts 0.80 s")
         d = good()
         d["shots"][0]["out_s"] = 7.0  # 6 s build/hook
         self.assertViolation(d, "lasts 6.00 s")
@@ -275,6 +311,12 @@ class LoopSeamlessTest(unittest.TestCase):
         d = seamless()
         d["shots"][-1]["fade_out_s"] = 0.3
         self.assertSeam(d, "s04 fade_out_s must be 0")
+
+    def test_overlay_span_must_not_reach_the_loop_shot(self):
+        d = seamless()
+        d["shots"][-2]["overlay"] = {"text": "Neues Palais", "type": "place", "span": 2}
+        found = problems(d)
+        self.assertTrue(any("reaches the loop's last shot" in p for p in found), found)
 
     def test_no_overlay_on_the_last_shot(self):
         d = seamless()
