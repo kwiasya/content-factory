@@ -1,6 +1,6 @@
 """Desk Notes API: the Author's Notes in factory.db, the only channel from Desk to the Editor (ADR 0005).
 
-A Store is opened per request: sqlite connections stay on the thread that made them.
+Stores are opened through `cf.desk.storeuse`; listing Notes before factory.db exists gives an empty list.
 """
 
 from __future__ import annotations
@@ -13,7 +13,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from cf.research import notes
-from cf.research.store import Store, open_store
+from cf.desk import storeuse
+from cf.research.store import Store
 
 
 class NoteIn(BaseModel):
@@ -26,8 +27,8 @@ def router(db_path: Path) -> APIRouter:
     r = APIRouter(prefix="/api/notes")
 
     @contextmanager
-    def store() -> Iterator[Store]:
-        with open_store(db_path) as s:
+    def store(write: bool = True) -> Iterator[Store]:
+        with (storeuse.writing if write else storeuse.reading)(db_path) as s:
             try:
                 yield s
             except notes.NoteNotFound as e:
@@ -37,7 +38,9 @@ def router(db_path: Path) -> APIRouter:
 
     @r.get("")
     def list_notes(kind: str | None = None, key: str | None = None, all: int = 0) -> dict:
-        with store() as s:
+        if not storeuse.exists(db_path):
+            return {"notes": []}
+        with store(write=False) as s:
             return {"notes": [n.to_dict() for n in notes.list(s, kind=kind or None, key=key,
                                                                include_resolved=bool(all))]}
 

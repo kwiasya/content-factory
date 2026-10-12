@@ -1,8 +1,8 @@
 """Desk research contour: Watchlists, feed, Reference cards, summaries, Ideas, Briefs, taxonomy and quota.
 
 Every endpoint calls `cf.research` modules directly (no subprocess, nothing on the network) and opens a
-Store per request: sqlite connections stay on the thread that made them. Unknown Watchlists, References
-and Ideas are 404; any other error the CLI reports as a user error is 422.
+Store per request through `cf.desk.storeuse`: reads never create, migrate or seed factory.db. Unknown
+Watchlists, References and Ideas are 404; any other error the CLI reports as a user error is 422.
 """
 
 from __future__ import annotations
@@ -15,12 +15,12 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from cf.desk import media
+from cf.desk import media, storeuse
 from cf.desk.hashed import atomic_write, digest
 from cf.research import card, feed, ideas, outlier, quota, summary, taxonomy
 from cf.research import watchlist as watchlists
 from cf.research.cli import USER_ERRORS
-from cf.research.store import Store, open_store
+from cf.research.store import Store
 
 FEED_LIMIT = 20
 SUMMARY_LIMIT = 10
@@ -71,8 +71,8 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
     api = APIRouter(prefix="/api/contour")
 
     @contextmanager
-    def store() -> Iterator[Store]:
-        with open_store(db_path) as s:
+    def store(write: bool = False) -> Iterator[Store]:
+        with (storeuse.writing if write else storeuse.reading)(db_path) as s:
             try:
                 yield s
             except (*USER_ERRORS, ValueError) as e:
@@ -161,13 +161,13 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
         move = IDEA_MOVES.get(action)
         if move is None:
             raise HTTPException(404, f"action must be one of {', '.join(IDEA_MOVES)}")
-        with store() as s:
+        with store(write=True) as s:
             idea_of(s, idea_id)
             return move(s, idea_id).to_dict()
 
     @api.put("/ideas/{idea_id}/notes")
     def add_idea_note(idea_id: int, body: NoteIn) -> dict:
-        with store() as s:
+        with store(write=True) as s:
             idea_of(s, idea_id)
             return ideas.note(s, idea_id, body.text).to_dict()
 
@@ -202,7 +202,7 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
     def judge_taxonomy(kind: str, value: str, action: str) -> dict:
         if action not in ("approve", "reject"):
             raise HTTPException(404, "action must be approve or reject")
-        with store() as s:
+        with store(write=True) as s:
             if action == "approve":
                 return taxonomy.approve(s, kind, value, root=footage).to_dict()
             return taxonomy.reject(s, kind, value).to_dict()

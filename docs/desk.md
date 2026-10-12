@@ -22,7 +22,7 @@ npm --prefix web run build               # after every frontend change
 | `--port PORT` | `8765` | Port. |
 | `--token T` | none | Shared token. When set, every request must carry it. |
 
-Footage root and `factory.db` follow `cf.research`: `CF_FOOTAGE_ROOT` (default `~/Movies/content-factory`) and `CF_FACTORY_DB` (default `<footage root>/factory.db`). Desk reports them in `/api/meta` and opens the database for Notes and the research contour, one connection per request (opening it migrates and seeds, which is a write).
+Footage root and `factory.db` follow `cf.research`: `CF_FOOTAGE_ROOT` (default `~/Movies/content-factory`) and `CF_FACTORY_DB` (default `<footage root>/factory.db`). Desk reports them in `/api/meta` and opens the database for Notes and the research contour, one connection per request (`src/cf/desk/storeuse.py`). Reads open it read-only and never create, migrate or seed it: with no `factory.db` the Notes list is empty and every contour read is 404 naming the path; a database at another schema version is 409 until a `python -m cf.research` command migrates it. Writes (a Note, an Idea move or note, a taxonomy verdict) create and migrate it when needed but never load the taxonomy seed.
 
 ## Security
 
@@ -115,7 +115,7 @@ The web page lives at `#/videos` (list) and `#/videos/<slug>`. ProRes 4444 overl
 
 ## Research contour
 
-Code: `src/cf/desk/contour_api.py`, `web/src/contour/`. The research contour (`GLOSSARY.md`, section Исследование) over `factory.db`: Watchlists, their feed, Reference cards, summaries, the Idea inbox with Briefs, the taxonomy and today's quota. Every endpoint calls `cf.research` modules directly (no subprocess, nothing on the network: scout, snapshot and fetch stay with the Editor) and opens a Store per request. An unknown Watchlist, Reference or Idea is 404; any other error the CLI reports as a user error (`USER_ERRORS` in `cf.research.cli`, plus a bad summary name) is 422 with the message, violations appended one per line.
+Code: `src/cf/desk/contour_api.py`, `web/src/contour/`. The research contour (`GLOSSARY.md`, section Исследование) over `factory.db`: Watchlists, their feed, Reference cards, summaries, the Idea inbox with Briefs, the taxonomy and today's quota. Every endpoint calls `cf.research` modules directly (no subprocess, nothing on the network: scout, snapshot and fetch stay with the Editor) and opens a Store per request (read-only for reads, see above). An unknown Watchlist, Reference or Idea is 404; any other error the CLI reports as a user error (`USER_ERRORS` in `cf.research.cli`, plus a bad summary name) is 422 with the message, violations appended one per line.
 
 | Endpoint | Returns |
 |---|---|
