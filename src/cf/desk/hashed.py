@@ -8,9 +8,21 @@ import stat
 import tempfile
 from pathlib import Path
 
+from fastapi.responses import JSONResponse
+
+CHANGED = "the file changed on disk since it was read"
+
 
 def digest(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
+def stale(current: bytes, expected: str, detail: str = CHANGED) -> JSONResponse | None:
+    """None when `expected` is the hash of `current`; else the 409 carrying the fresh `text` and `hash`."""
+    if digest(current) == expected:
+        return None
+    return JSONResponse(status_code=409, content={"detail": detail, "text": current.decode("utf-8"),
+                                                  "hash": digest(current)})
 
 
 def atomic_write(target: Path, data: bytes) -> None:

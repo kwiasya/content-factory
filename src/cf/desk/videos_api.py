@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from cf import script_schema
 from cf.desk import media
-from cf.desk.hashed import atomic_write, digest
+from cf.desk.hashed import atomic_write, digest, stale
 
 SCHEMA = "cf-video/1"
 STATUSES = ("idea", "brief", "script", "recording", "edit", "review", "published")
@@ -244,12 +244,6 @@ class StatusChange(BaseModel):
     hash: str
 
 
-def conflict(current: bytes) -> JSONResponse:
-    return JSONResponse(status_code=409, content={
-        "detail": "the file changed on disk since it was read",
-        "text": current.decode("utf-8"), "hash": digest(current)})
-
-
 def router(footage_root: Path, repo: Path) -> APIRouter:
     footage = Path(footage_root)
     api = APIRouter()
@@ -275,8 +269,9 @@ def router(footage_root: Path, repo: Path) -> APIRouter:
     def put_file(slug: str, body: TextWrite) -> dict | JSONResponse:
         target = text_target(find_folder(footage, slug), body.path, creating=True)
         current = target.read_bytes() if target.exists() else None
-        if current is not None and digest(current) != body.hash:
-            return conflict(current)
+        conflict = stale(current, body.hash) if current is not None else None
+        if conflict:
+            return conflict
         if current is None and body.hash:
             raise HTTPException(409, "the file was deleted since it was read")
         if text_format(body.path) == "json":
@@ -298,8 +293,9 @@ def router(footage_root: Path, repo: Path) -> APIRouter:
             raise HTTPException(422, f"status must be one of {', '.join(STATUSES)}")
         target = folder.path / "video.json"
         current = target.read_bytes()
-        if digest(current) != body.hash:
-            return conflict(current)
+        conflict = stale(current, body.hash)
+        if conflict:
+            return conflict
         try:
             video = json.loads(current)
         except json.JSONDecodeError as e:

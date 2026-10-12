@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from cf.desk import (catalog, contour_api, formats_api, gitread, media, notes_api, research_api, search, skill_lint,
                      skill_links, videos_api)
-from cf.desk.hashed import atomic_write, digest
+from cf.desk.hashed import atomic_write, digest, stale
 
 WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
@@ -80,11 +80,9 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
                 raise HTTPException(422, f"invalid JSON: {e}") from None
         target = repo / entry.path
         data = body.text.encode("utf-8")
-        current = target.read_bytes()
-        if digest(current) != body.hash:
-            return JSONResponse(status_code=409, content={
-                "detail": "the file changed on disk since it was read",
-                "text": current.decode("utf-8"), "hash": digest(current)})
+        conflict = stale(target.read_bytes(), body.hash)
+        if conflict:
+            return conflict
         atomic_write(target, data)
         return {"path": entry.path, "hash": digest(data), "git": git_state(entry.path)}
 

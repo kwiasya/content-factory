@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from cf.desk import media, storeuse
-from cf.desk.hashed import atomic_write, digest
+from cf.desk.hashed import atomic_write, digest, stale
 from cf.research import card, feed, ideas, outlier, quota, summary, taxonomy
 from cf.research import watchlist as watchlists
 from cf.research.cli import USER_ERRORS
@@ -182,11 +182,9 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
     def put_brief(idea_id: int, body: BriefWrite) -> dict | JSONResponse:
         with store() as s:
             path = brief_file(idea_of(s, idea_id))
-        current = path.read_bytes()
-        if digest(current) != body.hash:
-            return JSONResponse(status_code=409, content={
-                "detail": "the Brief changed on disk since it was read",
-                "text": current.decode("utf-8"), "hash": digest(current)})
+        conflict = stale(path.read_bytes(), body.hash, "the Brief changed on disk since it was read")
+        if conflict:
+            return conflict
         data = body.text.encode("utf-8")
         atomic_write(path, data)
         return {"idea": idea_id, "path": str(path), "hash": digest(data)}
