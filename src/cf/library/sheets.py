@@ -14,7 +14,8 @@ import cv2
 import numpy as np
 
 from cf.library.files import atomic_write
-from cf.library.index import cache_dir, read_index, write_index
+from cf.library.errors import PackNotFound
+from cf.library.index import cache_dir, check_roots, read_index, write_index
 from cf.library.library import Asset, Library
 from cf.research.store import now_iso
 
@@ -51,11 +52,17 @@ def _tile(a: Asset) -> np.ndarray:
 
 
 def write_sheets(footage: Path, library: Library, pack_id: str, per_sheet: int = COLS * ROWS) -> list[Path]:
+    view = library.pack(pack_id)
+    if view is None:
+        raise PackNotFound(pack_id)
+    check_roots(view.info.root, footage)
     folder = cache_dir(footage, pack_id) / "sheets"
+    todo = tag_todo(library, pack_id)
+    out: list[Path] = []
+    if not todo:
+        return out
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
-    todo = tag_todo(library, pack_id)
-    out = []
     for s in range(0, len(todo), per_sheet):
         chunk = todo[s:s + per_sheet]
         sheet = np.zeros((ROWS * TILE, COLS * TILE, 3), np.uint8)
@@ -83,6 +90,7 @@ def apply_tags(footage: Path, pack_id: str, proposals: dict) -> tuple[int, list[
     idx = read_index(footage, pack_id)
     if idx is None:
         return 0, sorted(proposals)
+    check_roots(Path(idx["root"]), footage)
     by_id = {a["id"]: a for a in idx["assets"]}
     applied, unknown = 0, []
     at = now_iso()

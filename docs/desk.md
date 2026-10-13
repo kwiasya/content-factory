@@ -171,7 +171,7 @@ The Library is loaded per request; with no `factory.db` or one at another schema
 | Endpoint | Returns |
 |---|---|
 | `GET /api/library` | `packs` (`id`, `root`, `indexed_at`, `index_missing`, `assets`, `by_category`, `fallback` folder count), `categories`, `rights` |
-| `GET /api/library/assets?pack=&category=&tags=&q=&rights=&limit=&offset=` | `assets` (cards), `total`, `tags` (up to 50 facets `{tag, n, author}` over the filtered set, active and Author tags first); `tags` comma-separated and ANDed over Author and agent tags; `q` a substring of ref, names, aliases, captions, tags and file name; default limit 200, max 1000; 422 `library_query_invalid` (`param`, `value`) |
+| `GET /api/library/assets?pack=&category=&tags=&q=&rights=&limit=&offset=` | `assets` (cards), `total`, `tags` (up to 50 facets `{tag, n, author}` over the filtered set, active and Author tags first); `tags` comma-separated and ANDed over Author and agent tags; `q` a substring of ref, names, aliases, captions, tags and file name; default limit 200, max 5000; 422 `library_query_invalid` (`param`, `value`) |
 | `GET /api/library/assets/{id}` | `asset` (card with `variants`); 404 `asset_not_found` |
 | `PUT /api/library/assets/{id}/author` | body with any of `caption`, `tags`, `rights`, `name`; only present fields change, `null` clears (`rights: null` = the Pack default); the card. 422 `rights_invalid`, `tags_invalid` (a list of strings, no commas, ≤ 40 characters), `caption_invalid`, `ref_name_invalid` (`name`, `slug`); 409 `ref_name_taken` (`ref`, `holder`, `holder_id`, `holder_file`) |
 | `GET /api/library/refs/resolve?ref=` | `ref`, `canonical`, `alias`, `asset`; 422 `ref_invalid`; 404 `ref_not_found` with `suggestions` (up to 5 cards) |

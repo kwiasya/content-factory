@@ -118,7 +118,7 @@ const base = "/api/library";
 
 export const libraryApi = {
   info: () => getJson<LibraryInfo>(base),
-  assets: (filter: Filter, limit = 1000) => getJson<AssetPage>(`${base}/assets?${params(filter, { limit: String(limit) })}`),
+  assets: (filter: Filter, limit = 5000) => getJson<AssetPage>(`${base}/assets?${params(filter, { limit: String(limit) })}`),
   asset: (id: string) => getJson<{ asset: AssetCard }>(`${base}/assets/${encodeURIComponent(id)}`).then((r) => r.asset),
   setAuthor: (id: string, fields: AuthorFields) =>
     sendOrThrow<{ asset: AssetCard }>(`${base}/assets/${encodeURIComponent(id)}/author`, "PUT", fields).then((r) => r.asset),

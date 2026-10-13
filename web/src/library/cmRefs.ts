@@ -19,6 +19,10 @@ import { findRefs, type FoundRef } from "./refs";
 
 const cache = new Map<string, CheckResult>();
 const pending = new Set<string>();
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => cache.clear());
+}
 const refreshed = StateEffect.define<null>();
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -238,5 +242,6 @@ const theme = EditorView.baseTheme({
 });
 
 export function refsExtension(t: T): Extension {
+  cache.clear();
   return [markdownLanguage.data.of({ autocomplete: refSource(t) }), decorations, hover(t), clickThrough, theme];
 }

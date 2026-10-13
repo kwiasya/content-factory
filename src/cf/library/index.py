@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -70,6 +69,7 @@ class Report:
     junk: int = 0
     symlinks: int = 0
     orphans_removed: int = 0
+    author_orphans: int = 0
     aliases: int = 0
     errors: list = field(default_factory=list)
     seconds: float = 0.0
@@ -165,8 +165,9 @@ def _build_asset(key: tuple, variants: list[dict], entries: dict[str, FileEntry]
     }
 
 
-def _owners(store: Store, footage: Path, pack_id: str) -> dict[str, dict[str, str]]:
-    """Names held outside this Pack's file-derived names: other Packs' names, Author names, aliases."""
+def _owners(store: Store, footage: Path, pack_id: str, alive: dict[str, str]) -> dict[str, dict[str, str]]:
+    """Names held outside this Pack's file-derived names: other Packs' names, and the Author names and aliases of
+    every Asset that exists (on disk in an index, or in this run as ``alive``: id → category)."""
     out: dict[str, dict[str, str]] = defaultdict(dict)
     for info in list_packs(store):
         if info.id == pack_id:
@@ -178,16 +179,29 @@ def _owners(store: Store, footage: Path, pack_id: str) -> dict[str, dict[str, st
     for idx in [read_index(footage, i.id) or {} for i in list_packs(store)]:
         for a in idx.get("assets", []):
             cats[a["id"]] = a["category"]
+    cats.update(alive)
     for row in store.query("SELECT asset_id, name FROM asset_author WHERE name IS NOT NULL"):
         if row["asset_id"] in cats:
             out[cats[row["asset_id"]]][row["name"]] = row["asset_id"]
     for row in store.query("SELECT ref, asset_id FROM asset_alias"):
+        if row["asset_id"] not in cats:
+            continue
         try:
             cat, name = refs.parse(row["ref"])
         except Exception:
             continue
         out[cat].setdefault(name, row["asset_id"])
     return out
+
+
+def check_roots(root: Path, footage: Path) -> None:
+    """Refuse a Pack root inside the Library cache and a cache inside a Pack: the Pack is never written."""
+    lib_root = (Path(footage) / "library").resolve()
+    pack = Path(root).resolve()
+    if pack == lib_root or pack.is_relative_to(lib_root):
+        raise PackError(f"Pack root {root} is inside the Library cache {lib_root}; a Pack is never there")
+    if lib_root.is_relative_to(pack):
+        raise PackError(f"the Library cache {lib_root} is inside the Pack {root}; a Pack is never written")
 
 
 def _within(rel: str, only: tuple[str, ...]) -> bool:
@@ -205,11 +219,7 @@ def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, p
     cfg: PackConfig = info.config
     if not cfg.root.is_dir():
         raise PackError(f"Pack root {cfg.root} is not a folder; re-register it with pack add --root")
-    lib_root = (footage / "library").resolve()
-    if cfg.root.resolve() == lib_root or cfg.root.resolve().is_relative_to(lib_root):
-        raise PackError(f"Pack root {cfg.root} is inside the Library cache {lib_root}; a Pack is never there")
-    if lib_root == cfg.root.resolve() or lib_root.is_relative_to(cfg.root.resolve()):
-        raise PackError(f"the Library cache {lib_root} is inside the Pack {cfg.root}; a Pack is never written")
+    check_roots(cfg.root, footage)
     only_t = (only,) if isinstance(only, str) else tuple(only or ())
     report = Report()
     prev = read_index(footage, pack_id) or {"assets": []}
@@ -231,7 +241,11 @@ def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, p
 
     built = [_build_asset(k, vs, entries) for k, vs in groups.items()]
     built.sort(key=lambda a: a["variants"][0]["path"])
-    seen: set[str] = set()
+    carried = []
+    if only_t:
+        carried = [a for a in prev.get("assets", [])
+                   if not any(_within(v["path"], only_t) or v["path"] in entries for v in a["variants"])]
+    seen: set[str] = {a["id"] for a in carried}
     for a in built:
         cid = a["variants"][0]["content_id"]
         if cid in seen:
@@ -251,14 +265,8 @@ def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, p
                 claimed.add(old_id)
                 break
 
-    carried = []
-    if only_t:
-        carried = [a for a in prev.get("assets", [])
-                   if a["id"] not in seen and not any(_within(v["path"], only_t) for v in a["variants"])]
-    for a in carried:
-        seen.add(a["id"])
 
-    owners = _owners(store, footage, pack_id)
+    owners = _owners(store, footage, pack_id, {a["id"]: a["category"] for a in built + carried})
     for a in carried:
         owners[a["category"]][a["name"]] = a["id"]
     by_cat: dict[str, list[dict]] = defaultdict(list)
@@ -295,6 +303,8 @@ def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, p
     cache = cache_dir(footage, pack_id)
     derive.run(cache, cfg.root, built, report, key=key, previews=previews, loudness=loudness, log=log)
     report.aliases = aliases.after_index(store, pack_id, built, prev_assets, seen)
+    report.author_orphans = len([r for r in store.query("SELECT asset_id FROM asset_author WHERE pack_id = ?",
+                                                        (pack_id,)) if r["asset_id"] not in seen])
     for a in built:
         a.pop("_prev_id", None)
         a.pop("_folder", None)
@@ -316,7 +326,3 @@ def _fallback(assets: list[dict]) -> dict[str, int]:
         if a["category_source"] == "fallback":
             out[a["folder"] or "."] += 1
     return out
-
-
-def remove_cache(footage: Path, pack_id: str) -> None:
-    shutil.rmtree(cache_dir(footage, pack_id), ignore_errors=True)

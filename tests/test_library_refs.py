@@ -25,7 +25,7 @@ class RefsTest(SyntheticPack):
 
     def test_suggest_ranks_prefix_then_name_then_caption(self):
         faces = self.refs_of(self.cli("suggest", "fac")["suggestions"])
-        self.assertEqual(faces, ["@face/1000001-sticker", "@face/1000002-sticker"])
+        self.assertEqual(faces, ["@face/1000001-sticker", "@face/1000002-sticker", "@face/1000003-sticker"])
         self.assertEqual(self.refs_of(self.cli("suggest", "sfx/ву")["suggestions"]), ["@sfx/вуш-2", "@sfx/вуш-2-2"])
         self.cli("author", "set", "@face/1000002-sticker", "--caption", "Шок и смех")
         found = self.refs_of(self.cli("suggest", "шок")["suggestions"])

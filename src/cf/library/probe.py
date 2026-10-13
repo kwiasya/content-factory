@@ -52,6 +52,16 @@ def facts(path: Path, kind: str) -> dict:
                    fps=round(rate, 3) if rate and kind == "video" else None)
     elif audio is not None:
         out["codec"] = audio.get("codec_name")
+    short = kind == "video" and video is not None and (
+        (out["duration_s"] or 0) < 0.1 or video.get("codec_name") == "vp9")
+    if short and not gif:
+        counted = next((st for st in run(path, count_frames=True).get("streams") or []
+                        if st.get("codec_type") == "video"), video)
+        frames = int(counted.get("nb_read_packets") or 1)
+        if frames <= 1:
+            out["kind"] = "image"
+        elif (out["duration_s"] or 0) < 0.1 and out["fps"]:
+            out["duration_s"] = frames / out["fps"]
     if gif and video is not None:
         frames = int(video.get("nb_read_packets") or video.get("nb_frames") or 1)
         out["kind"] = "video" if frames > 1 else "image"

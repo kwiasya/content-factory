@@ -127,6 +127,8 @@ def _report_human(pack_id: str, r: dict) -> str:
              f"Производные: keyed {d['keyed']}, converted {d['converted']}, png {d['png']}, "
              f"previews {d['previews']}, loudness {d['loudness']}; сирот удалено {r['orphans_removed']}.",
              f"Мусор: {r['junk']}, симлинки: {r['symlinks']}, дубликаты: {r['duplicates']}, алиасы: {r['aliases']}."]
+    if r.get("author_orphans"):
+        lines.append(f"Поля Author без материала: {r['author_orphans']} (см. `author orphans`).")
     if r.get("skipped"):
         lines.append("Пропущено флагами: " + ", ".join(r["skipped"]) + " (следующий запуск без флага доделает).")
     if r["fallback"]:

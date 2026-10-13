@@ -25,7 +25,7 @@ from cf.library.index import index_path, read_index
 STORE_ABSENT = ("db_missing", "db_schema")
 STATUS = {"asset_not_found": 404, "ref_not_found": 404, "pack_not_found": 404, "ref_name_taken": 409}
 AUTHOR_FIELDS = ("caption", "tags", "rights", "name")
-MAX_LIMIT = 1000
+MAX_LIMIT = 5000
 
 
 _indexed: dict[Path, tuple[int, frozenset[str]]] = {}

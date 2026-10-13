@@ -18,7 +18,7 @@ from cf.library.files import temp_beside
 from cf.render_check import FFMPEG, parse_loudnorm
 
 SUBDIRS = ("keyed", "converted", "png", "previews")
-STILL_TO_PNG = {"jfif", "webp", "avif", "bmp", "tif", "tiff"}
+STILL_TO_PNG = {"jfif", "webp", "avif", "bmp", "tif", "tiff", "webm"}
 BACKDROP = "0x202020"
 POSTER_W = 240
 PREVIEW_S = 8
@@ -79,8 +79,8 @@ def gif_to_mov(src: Path, target: Path) -> None:
              "-qscale:v", "9", "-pix_fmt", "yuva444p10le", "-vendor", "apl0"], target)
 
 
-def to_png(src: Path, target: Path) -> None:
-    _ffmpeg(["-i", str(src), "-frames:v", "1"], target)
+def to_png(src: Path, target: Path, *, vp9_alpha: bool = False) -> None:
+    _ffmpeg([*_input(src, vp9_alpha=vp9_alpha), "-frames:v", "1"], target)
 
 
 def poster(src: Path, target: Path, *, duration: float | None, alpha: bool, vp9_alpha: bool,
@@ -171,9 +171,11 @@ def _derive_one(cache: Path, root: Path, a: dict, report, *, key: bool, previews
             if step("convert", lambda: gif_to_mov(src, cache / rel)):
                 d["converted"] = rel
                 report.derived["converted"] += 1
-    if a["kind"] == "image" and ext in STILL_TO_PNG | {"gif"} and not _have(cache, d["png"]):
+    has_still = any(v["role"] == "still" for v in a["variants"])
+    if a["kind"] == "image" and ext in STILL_TO_PNG | {"gif"} and not has_still and not _have(cache, d["png"]):
         rel = f"png/{aid}.png"
-        if step("png", lambda: to_png(src, cache / rel)):
+        vp9 = primary.get("codec") == "vp9" and bool(primary.get("alpha"))
+        if step("png", lambda: to_png(src, cache / rel, vp9_alpha=vp9)):
             d["png"] = rel
             report.derived["png"] += 1
 
@@ -210,11 +212,13 @@ def _visual_source(cache: Path, root: Path, a: dict) -> tuple[Path, bool, bool]:
     if d.get("converted") and (cache / d["converted"]).is_file():
         return cache / d["converted"], True, False
     primary = a["variants"][0]
-    src = root / primary["path"]
     if d.get("png") and (cache / d["png"]).is_file():
-        src = cache / d["png"]
+        return cache / d["png"], bool(primary.get("alpha")), False
+    still = next((v for v in a["variants"] if v["role"] == "still"), None)
+    if a["kind"] == "image" and still is not None:
+        return root / still["path"], bool(still.get("alpha")), False
     vp9 = primary.get("codec") == "vp9" and bool(primary.get("alpha"))
-    return src, bool(primary.get("alpha")), vp9
+    return root / primary["path"], bool(primary.get("alpha")), vp9
 
 
 def remove_orphans(cache: Path, keep: set[str]) -> int:
@@ -224,7 +228,10 @@ def remove_orphans(cache: Path, keep: set[str]) -> int:
         if not folder.is_dir():
             continue
         for p in folder.iterdir():
-            if p.is_file() and not p.name.startswith(".") and p.name.split(".", 1)[0] not in keep:
+            if not p.is_file() or p.is_symlink():
+                continue
+            leftover = p.name.startswith(".") and (".part" in p.name or p.name.endswith(".tmp"))
+            if leftover or (not p.name.startswith(".") and p.name.split(".", 1)[0] not in keep):
                 p.unlink()
                 n += 1
     return n

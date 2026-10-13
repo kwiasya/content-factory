@@ -8,6 +8,7 @@ import math
 import shutil
 import subprocess
 
+from cf.library import load
 from cf.research.store import open_store
 from library_pack import CONFIG, SyntheticPack, needs_ffmpeg, snapshot
 
@@ -65,7 +66,7 @@ class IndexTest(SyntheticPack):
     def test_sticker_variants_merge_into_one_asset_with_duration_from_the_alpha_variant(self):
         self.add_and_index()
         faces = [a for a in self.index()["assets"] if a["category"] == "face"]
-        self.assertEqual(len(faces), 2)
+        self.assertEqual(len(faces), 3)
         first = self.by_path("face/1000001_sticker.webm")
         second = self.by_path("face/1000002_sticker.webm")
         self.assertEqual([v["role"] for v in first["variants"]], ["original", "alpha"])
@@ -74,6 +75,32 @@ class IndexTest(SyntheticPack):
         self.assertTrue(first["alpha"])
         self.assertIsNone(first["derived"]["alpha"])
         self.assertFalse((self.footage / f"library/synth/keyed/{first['id']}.mov").exists())
+
+    def test_one_frame_webm_stickers_are_stills(self):
+        self.add_and_index()
+        cache = self.footage / "library/synth"
+        with_png = self.cli("show", "@face/1000002-sticker")["asset"]
+        self.assertEqual((with_png["kind"], with_png["duration_s"], with_png["fps"]), ("image", None, None))
+        self.assertEqual(with_png["media"]["png"], "packs/synth/face-resolve/still — улыбка — 1000002_sticker.png")
+        alone = self.cli("show", "@face/1000003-sticker")["asset"]
+        self.assertEqual((alone["kind"], alone["duration_s"]), ("image", None))
+        self.assertEqual(alone["media"]["png"], f"library/synth/png/{alone['id']}.png")
+        png = self.probe(cache / f"png/{alone['id']}.png")[0]
+        self.assertTrue(png["pix_fmt"].startswith(("rgba", "ya")), png["pix_fmt"])
+        moving = self.cli("show", "@face/1000001-sticker")["asset"]
+        self.assertEqual(moving["kind"], "video")
+
+    def test_alpha_path_points_at_a_file_build_can_use(self):
+        self.add_and_index()
+        with open_store(self.db, seed=False) as s:
+            lib = load(self.footage, s)
+        gif = lib.resolve("@img/anim")
+        self.assertEqual(gif.alpha_path, self.footage / f"library/synth/converted/{gif.id}.mov")
+        face = lib.resolve("@face/1000001-sticker")
+        self.assertEqual(face.alpha_path, self.pack / "face-resolve/1000001_sticker.mov")
+        emoji = lib.resolve("@emoji/в-шоке")
+        self.assertEqual(emoji.alpha_path, self.footage / f"library/synth/keyed/{emoji.id}.mov")
+        self.assertIsNone(lib.resolve("@face/1000003-sticker").alpha_path)
 
     def test_jfif_and_gif_get_converted_variants_and_previews(self):
         self.add_and_index("--no-previews")
@@ -177,6 +204,59 @@ class IndexTest(SyntheticPack):
         self.assertEqual(code, 1)
         self.assertIn("inside the Pack", err.getvalue())
         self.assertFalse(inner.exists())
+
+    def test_author_names_and_aliases_hold_after_a_cache_wipe(self):
+        self.add_and_index("--no-key", "--no-previews", "--no-loudness")
+        self.cli("author", "set", "@emoji/в-шоке", "--name", "шок")
+        shutil.copy(self.pack / "unmapped/clip.mp4", self.pack / "emoji/шок.mp4")
+        self.cli("index", "synth", "--no-key", "--no-previews", "--no-loudness")
+        self.assertEqual(self.by_path("emoji/шок.mp4")["name"], "шок-2")
+        shutil.rmtree(self.footage / "library/synth")
+        self.cli("index", "synth", "--no-key", "--no-previews", "--no-loudness")
+        self.assertEqual(self.by_path("emoji/шок.mp4")["name"], "шок-2")
+        self.assertEqual(self.cli("show", "@emoji/шок")["asset"]["file"]["path"], "emoji/в шоке.mp4")
+
+    def test_sheets_refuse_a_footage_root_inside_the_pack(self):
+        self.add_and_index("--no-key", "--no-previews", "--no-loudness")
+        from cf.library import cli
+        inner = self.pack / "unmapped" / "footage"
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = cli.main(["tags", "todo", "synth", "--sheets", "--db", str(self.db), "--footage-root", str(inner)])
+        self.assertEqual(code, 1)
+        self.assertIn("inside the Pack", err.getvalue())
+        self.assertFalse(inner.exists())
+
+    def test_alias_rows_of_a_vanished_asset_do_not_take_file_names(self):
+        with open_store(self.db, seed=False) as s:
+            s.conn.execute("INSERT INTO asset_alias VALUES ('@sfx/вуш-2', 'ffffffffffffffff', 'rename', 'x')")
+            s.conn.commit()
+        self.add_and_index("--no-key", "--no-previews", "--no-loudness")
+        self.assertEqual(self.by_path("sfx/вуш 2.mp3")["name"], "вуш-2")
+
+    def test_report_counts_author_rows_left_without_an_asset(self):
+        self.add_and_index("--no-key", "--no-previews", "--no-loudness")
+        self.cli("author", "set", "@sfx/plus-1", "--caption", "Плюс")
+        (self.pack / "sfx/+1.mp3").unlink()
+        report = self.cli("index", "synth", "--no-key", "--no-previews", "--no-loudness")
+        self.assertEqual(report["author_orphans"], 1)
+        self.assertEqual(len(self.cli("author", "orphans", "synth")["orphans"]), 1)
+
+    def test_only_keeps_ids_unique_with_a_byte_identical_file_outside_the_subtree(self):
+        shutil.copy2(self.pack / "sfx/вуш 2.mp3", self.pack / "unmapped/копия.mp3")
+        self.add_and_index("--no-key", "--no-previews", "--no-loudness")
+        before = {a["variants"][0]["path"]: a["id"] for a in self.index()["assets"]}
+        self.cli("index", "synth", "--only", "unmapped", "--no-key", "--no-previews", "--no-loudness")
+        after = {a["variants"][0]["path"]: a["id"] for a in self.index()["assets"]}
+        self.assertEqual(after, before)
+        self.assertEqual(len(set(after.values())), len(after))
+
+    def test_leftover_temp_files_in_the_cache_are_removed(self):
+        self.add_and_index("--no-key", "--no-loudness")
+        left = self.footage / "library/synth/previews/.abc.part.mp4"
+        left.write_bytes(b"x")
+        self.cli("index", "synth", "--no-key", "--no-loudness")
+        self.assertFalse(left.exists())
 
     def write_tags(self, entries: dict) -> str:
         path = self.footage.parent / "tags.json"
