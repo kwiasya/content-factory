@@ -4,25 +4,22 @@ import { TopicPage } from "./TopicPage";
 import { useT, type Problem } from "../i18n";
 import { ErrorLine } from "../ErrorLine";
 
-const PREFIX = "#/research";
+export const RESEARCH_PREFIX = "#/research";
+
+const PREFIX = RESEARCH_PREFIX;
 
 const docHref = (path: string) => "#/doc/" + encodeURIComponent(path);
 
-export function ResearchNav({ hash }: { hash: string }) {
-  const t = useT();
-  return (
-    <a href={PREFIX} className={hash === PREFIX || hash.startsWith(PREFIX + "/") ? "nav active" : "nav"}>
-      {t("research.nav")}
-    </a>
-  );
-}
-
-export function researchRoute(hash: string) {
+export function parseResearch(hash: string): { topic: string | null } | null {
   if (hash !== PREFIX && !hash.startsWith(PREFIX + "/")) {
     return null;
   }
-  const topic = decodeURIComponent(hash.slice(PREFIX.length + 1));
-  return <ResearchPage topic={topic || null} />;
+  return { topic: decodeURIComponent(hash.slice(PREFIX.length + 1)) || null };
+}
+
+export function researchRoute(hash: string) {
+  const current = parseResearch(hash);
+  return current ? <ResearchPage topic={current.topic} /> : null;
 }
 
 function ResearchPage({ topic }: { topic: string | null }) {

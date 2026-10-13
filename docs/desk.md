@@ -17,7 +17,7 @@ npm --prefix web run build               # after every frontend change
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--repo PATH` | current directory | Checkout to serve. The header shows its path and branch, so a worktree is never mistaken for the main checkout. |
+| `--repo PATH` | current directory | Checkout to serve. The Agent page (`#/agent`) shows its path and branch, so a worktree is never mistaken for the main checkout. |
 | `--host HOST` | `127.0.0.1` | Bind address. Anything other than `127.0.0.1`, `localhost` or `::1` needs `--token`. |
 | `--port PORT` | `8765` | Port. |
 | `--token T` | none | Shared token. When set, every request must carry it. |
@@ -48,7 +48,7 @@ The groups live in one place, `GROUPS` in `src/cf/desk/catalog.py`; a new group 
 | Endpoint | Returns |
 |---|---|
 | `GET /api/meta` | `repo`, `branch`, `footage_root`, `db_path` |
-| `GET /api/catalog[?all=1]` | groups with `docs` (`path`, `title`, `kind`, `editable`, `git`; skill files also `description` from the SKILL.md frontmatter, null for other files, `size` and `mtime`, shown in the sidebar tooltip and on the skill page) and `empty` hints |
+| `GET /api/catalog[?all=1]` | groups with `docs` (`path`, `title`, `kind`, `editable`, `git`; skill files also `description` from the SKILL.md frontmatter, null for other files, `size` and `mtime`, shown in the Agent catalogue tooltip and on the skill page) and `empty` hints |
 | `GET /api/doc?path=` | the entry plus `text` and `hash` (`sha256:<hex>` of the bytes on disk) |
 | `PUT /api/doc` | body `{path, text, hash}`: writes atomically (temp file + rename) when `hash` matches the file; 409 with the fresh `text` and `hash` when the file changed since it was read; 403 for read-only; 422 for invalid JSON in a `json` document |
 | `GET /api/doc/diff?path=` | `git` state and unified `diff` against HEAD (untracked and ignored files diff against empty) |
@@ -106,16 +106,34 @@ Code: `src/cf/desk/videos_api.py`, `src/cf/desk/media.py`, `web/src/videos/`. De
 
 `video.json` is `cf-video/1`: `slug`, `title_working`, `format`, `channel`, `language`, `walks`, `status`, `history[{status, at, note}]`, `references`, `ideas`, `published_url`. Statuses in order: `idea`, `brief`, `script`, `recording`, `edit`, `review`, `published`.
 
+The sidebar shows each Video's status as one of four stages (`videos_api.stage_of`):
+
+| `video.json` status | Stage |
+|---|---|
+| `idea`, `brief` | `idea` |
+| `script`, `recording` | `script` |
+| `edit`, `review` | `edit` |
+| `published` | `done` |
+| none, unknown, or `video.json` unreadable | `null` (hollow dot) |
+
+**Creating a Video.** `POST /api/videos` makes `videos/<slug>/` and writes `video.json` (`status: idea`, one `history` entry dated today UTC, `walks: []`, `published_url: null`). With `idea_id` it first copies the Idea's Brief byte for byte to `brief.md` (a snapshot: later edits to the contour Brief do not flow into the Video; the Brief file itself is left untouched), sets `ideas: [<id>]` and `references` to the external ids of the Idea's sources. `language` is the linked Idea's Watchlist language, else the one language shared by every Watchlist of that Channel, else null. `video.json` is written last; on any error after the folder is claimed the folder is removed, so a half-made Video is never listed. Nothing is started: no subprocess, no skill (ADR 0005).
+
+The slug comes from the title: Russian Cyrillic transliterated to Latin (`ж`→`zh`, `х`→`kh`, `ц`→`ts`, `ч`→`ch`, `ш`→`sh`, `щ`→`shch`, `ю`→`yu`, `я`→`ya`, `ъ`/`ь` dropped, …), lower case, every run of other characters turned into one `-`, cut to at most 60 characters at a `-`, and `video` when nothing is left. It is always ASCII, so the folder matches the Video name rule. The first free name of `<slug>`, `<slug>-2`, `<slug>-3`, … is claimed with an exclusive `mkdir` (correct on case-insensitive APFS, and a stray folder without `video.json` counts as taken).
+
+**Channels.** There is no Channel registry. The known Channels are the union of the Watchlists' `author_channel` in `factory.db`, the Brief folders `<footage>/channels/<name>/` and the `channel` of every `video.json`; `_unassigned`, hidden names and names that are not folder names are left out. Without a readable `factory.db` (missing, or another schema version) the store part is skipped and the rest still counts. Creating a Video for an unknown Channel needs `new_channel: true` (the form's "New Channel…").
+
 | Endpoint | Returns |
 |---|---|
-| `GET /api/videos` | `videos` (`slug`, `title`, `format`, `channel`, `status`, `legacy`, `updated`, `error`), newest change first |
+| `GET /api/videos?format=&channel=` | `videos` (`slug`, `title`, `format`, `channel`, `status`, `stage`, `legacy`, `updated`, `error`), newest change first, `statuses` and `stages` (`idea`, `script`, `edit`, `done`); `format` and `channel` are exact filters combined with AND, an empty value means no filter and an unmatched one gives an empty list |
+| `POST /api/videos` | body `{title, format, channel, new_channel?, idea_id?}`: creates the Video as above and returns 201 with the body of `GET /api/videos/{slug}`. Checked in this order, the first failure answers and nothing is written: 422 `request_invalid` (a missing or mistyped field), `title_empty`, `title_too_long` (`max` 200 after strip), `format_unknown` (not a `formats/<id>/FORMAT.md`; `formats` lists the known ids), `channel_invalid` (with `new_channel`, a name that is not a folder name or is `_unassigned`), `channel_unknown` (without `new_channel`, not a known Channel; `channels` lists them); with `idea_id`, 404 `db_missing` / 409 `db_schema`, 404 `idea_not_found`, and the Brief errors of `GET /api/contour/ideas/{id}/brief` (`brief_missing`, `brief_outside`, `brief_file_missing`) |
+| `GET /api/channels` | `channels` sorted by `id`: `formats` (of its Watchlists and Videos), `languages` (of its Watchlists), `watchlists`, `videos` (count) |
 | `GET /api/videos/{slug}` | `video` (the `video.json`, or the derived one for a legacy Reel), its `hash`, `statuses`, `files` (`path`, `kind`, `size`, `mtime`, `editable`, `media`) and the Walk `proxies` |
 | `POST /api/videos/{slug}/status` | body `{status, note, hash}`: sets the status, appends `{status, at: today (UTC), note}` to `history` and rewrites `video.json`; 409 on a stale hash or for a legacy Reel, 422 for an unknown status |
 | `GET /api/videos/{slug}/file?path=` | an editable text of the folder (`script*.md|json`, `brief.md`, `voiceover.md`, `notes.md`, `references.md`, `.srt`/`.vtt`): `kind`, `format`, `text`, `hash` |
 | `PUT /api/videos/{slug}/file` | body `{path, text, hash}`: the same hashed atomic write as documents; `brief.md`, `voiceover.md` and `notes.md` can be created with `hash: ""`; the hash is checked first (409 on a stale one, before any JSON check); a `script*.json` must be a `cf-script/1` document (a missing or other `schema` is a violation) and is validated by `cf.script_schema` (with the Walk's `clip_manifest.json` and the repo `style.json` when present); 422 with `violations` writes nothing |
 | `GET /api/media?path=` | file streaming with HTTP Range (206) for paths relative to the footage root under `videos/<slug>/{renders,overlays,sources}/`, `<walk>/proxy/`, `<walk>/reels/<reel>/`, `references/<watchlist>/<id>/proxy.mp4`; `raw/`, symlinks out, directories and everything else are 404 |
 
-The web page lives at `#/videos` (list) and `#/videos/<slug>`; a Video page links its `video.json` `references` to their cards (`#/contour/cards/<id>`) and its `ideas` to the Idea inbox (`#/contour/ideas/<id>`). ProRes 4444 overlays play in Safari only.
+The web page lives at `#/videos` (list) and `#/videos/<slug>`, and `#/new-video` is the form behind "+ New video" (title, Format, Channel or "New Channel…", an optional Brief from the Ideas with status `brief`, which fills the empty fields; with no readable `factory.db` the Brief select is disabled and the rest still works); a Video page links its `video.json` `references` to their cards (`#/contour/cards/<id>`) and its `ideas` to the Idea inbox (`#/contour/ideas/<id>`). ProRes 4444 overlays play in Safari only.
 
 ## Research contour
 
@@ -141,14 +159,20 @@ Pages: `#/contour` (Watchlists and quota), `#/contour/watchlists/<name>` (channe
 
 ## Frontend
 
-`web/` is Vite + React + TypeScript + CodeMirror 6. Routes are hash routes: `#/doc/<path>` (document with Edit, Diff vs HEAD and History tabs; a skill's `SKILL.md` also shows what it mentions and who mentions it), `#/research` (topics with file flags, synthesis), `#/research/<NN-slug>` (`rules.md` with an editor, answers and notes in tabs with a contents list built from their headings), `#/search/<query>` (the header search box). `npm --prefix web run dev` starts Vite on its own port and proxies `/api` to `127.0.0.1:8765` (run `python -m cf.desk` alongside). `npm --prefix web run lint` runs eslint and tsc. The Format shelf (`#/formats`, `#/formats/<id>`) and the skill lint badge and list live in `web/src/formats/`. `npm --prefix web run build` writes `web/dist`, which `cf.desk` serves at `/`. `web/node_modules` and `web/dist` are gitignored.
+`web/` is Vite + React + TypeScript + CodeMirror 6.
+
+The left sidebar (`web/src/shell/`) holds, top to bottom: "+ New video" and the search box; Tools (Research → `#/contour`, Formats, Library, Notes); the Videos, newest change first, each with its stage dot, filtered by Format and Channel through `GET /api/videos` (the choice is kept in `localStorage` `desk.videoFilter`); pinned at the bottom, Agent and the EN/RU switch. The current page is highlighted (`aria-current="page"`). The header holds only the breadcrumb, whose last item is the page title (a Video reads "<Format title> › <Video title>"). The Videos, Formats and Channels behind the sidebar and the breadcrumb are loaded once and reloaded after a create or a status change.
+
+`#/agent` is the Agent page: the catalogue (the groups above, the vendored toggle, lock, git and lint badges) on the left, and the repo path and branch, the footage root, the db path and a link to the research docs on the right; `#/doc/<path>` and `#/research*` open in the same layout. `#/library` is a placeholder until the editing pack (Desk 8). The empty hash and unknown hashes show the Videos table.
+
+Routes are hash routes: `#/doc/<path>` (document with Edit, Diff vs HEAD and History tabs; a skill's `SKILL.md` also shows what it mentions and who mentions it), `#/research` (topics with file flags, synthesis), `#/research/<NN-slug>` (`rules.md` with an editor, answers and notes in tabs with a contents list built from their headings), `#/search/<query>` (the sidebar search box). `npm --prefix web run dev` starts Vite on its own port and proxies `/api` to `127.0.0.1:8765` (run `python -m cf.desk` alongside). `npm --prefix web run lint` runs eslint and tsc. The Format shelf (`#/formats`, `#/formats/<id>`) and the skill lint badge and list live in `web/src/formats/`. `npm --prefix web run build` writes `web/dist`, which `cf.desk` serves at `/`. `web/node_modules` and `web/dist` are gitignored.
 
 ## Language
 
-The UI speaks English (default) and Russian. The EN/RU switch in the header sets the language; the choice is kept in `localStorage` (`desk.lang`), and with no stored choice or no storage the UI is English. `<html lang>` and the page title follow it. Dates, numbers and sizes use `Intl` with `en-US` or `ru-RU`.
+The UI speaks English (default) and Russian. The EN/RU switch at the bottom of the sidebar sets the language; the choice is kept in `localStorage` (`desk.lang`), and with no stored choice or no storage the UI is English. `<html lang>` and the page title follow it. Dates, numbers and sizes use `Intl` with `en-US` or `ru-RU`.
 
 Code: `web/src/i18n/`. `en.ts` holds every key and is the source of the `Key` type; `ru.ts` is typed `Dict`, so a key missing in either file is a type error. Components call `const t = useT()` and then `t("key", { name })`, `t("key", { n })` for counts (an entry `{ one, few, many }`; Russian picks one/few/many, English one/many), `t.rich("key", { cmd: <Cmd>…</Cmd> })` when a placeholder is markup, `t.or(dynamicKey, fallback)` for keys built from data, and `t.problem(error)` for an API error (`err.<code>`, else its `detail`). To add a string: add the key to `en.ts`, then to `ru.ts` (`npm --prefix web run lint` names the missing one), and use it through `t`. Russian taxonomy labels live in `i18n/taxonomy.ts` (English uses the label from the store), CodeMirror's own phrases in `i18n/codemirror.ts`. File names, paths, commands, skill names, taxonomy values and document contents are never translated.
 
 ## Tests
 
-`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_formats.py` (Format shelf and skill lint), `tests/test_desk_research.py` (research group, topics, search, skill link map), `tests/test_desk_notes.py` (Notes API, and the skill hook run against a temporary db), `tests/test_desk_videos.py` (Videos and media on a temporary footage root), `tests/test_desk_contour.py` (research contour on a temporary db seeded with `research_synth` helpers), `tests/test_desk_store_use.py` (reads never create, migrate or seed `factory.db`), `tests/test_desk_cli.py` (flags) and `tests/test_research_notes_cli.py` (`notes` CLI). They do not need the frontend build.
+`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_formats.py` (Format shelf and skill lint), `tests/test_desk_research.py` (research group, topics, search, skill link map), `tests/test_desk_notes.py` (Notes API, and the skill hook run against a temporary db), `tests/test_desk_videos.py` (Videos and media on a temporary footage root; creating a Video with slug, Channel and Brief cases on a seeded db, stages and list filters, known Channels with and without a readable db), `tests/test_desk_contour.py` (research contour on a temporary db seeded with `research_synth` helpers), `tests/test_desk_store_use.py` (reads never create, migrate or seed `factory.db`), `tests/test_desk_cli.py` (flags) and `tests/test_research_notes_cli.py` (`notes` CLI). They do not need the frontend build.

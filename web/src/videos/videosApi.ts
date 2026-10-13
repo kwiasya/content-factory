@@ -3,12 +3,15 @@ import type { Problem } from "../i18n";
 
 export type VideoStatus = "idea" | "brief" | "script" | "recording" | "edit" | "review" | "published";
 
+export type Stage = "idea" | "script" | "edit" | "done";
+
 export interface VideoSummary {
   slug: string;
   title: string;
   format: string | null;
   channel: string | null;
   status: VideoStatus | null;
+  stage: Stage | null;
   legacy: boolean;
   updated: string;
   error: string | null;
@@ -32,7 +35,7 @@ export interface VideoJson {
   status?: VideoStatus;
   history?: HistoryEntry[];
   references?: string[];
-  ideas?: string[];
+  ideas?: Array<string | number>;
   published_url?: string | null;
   legacy: boolean;
 }
@@ -86,6 +89,29 @@ export interface TextFile {
   hash: string;
 }
 
+export interface Channel {
+  id: string;
+  formats: string[];
+  languages: string[];
+  watchlists: string[];
+  videos: number;
+}
+
+export interface VideoFilter {
+  format?: string;
+  channel?: string;
+}
+
+export interface VideoCreate {
+  title: string;
+  format: string;
+  channel: string;
+  new_channel?: boolean;
+  idea_id?: number | null;
+}
+
+export type CreateResult = { status: "created"; detail: VideoDetail } | { status: "error"; problem: Problem };
+
 export type StatusResult =
   | { status: "saved"; detail: VideoDetail }
   | { status: "conflict" }
@@ -94,7 +120,20 @@ export type StatusResult =
 const v = (slug: string) => `/api/videos/${encodeURIComponent(slug)}`;
 
 export const videosApi = {
-  list: () => getJson<{ videos: VideoSummary[] }>("/api/videos").then((r) => r.videos),
+  list: (filter: VideoFilter = {}) => {
+    const q = new URLSearchParams();
+    if (filter.format) q.set("format", filter.format);
+    if (filter.channel) q.set("channel", filter.channel);
+    const query = q.toString();
+    return getJson<{ videos: VideoSummary[] }>(`/api/videos${query ? `?${query}` : ""}`).then((r) => r.videos);
+  },
+  channels: () => getJson<{ channels: Channel[] }>("/api/channels").then((r) => r.channels),
+  async create(body: VideoCreate): Promise<CreateResult> {
+    const r = await send("/api/videos", "POST", body);
+    return r.ok
+      ? { status: "created", detail: r.body as unknown as VideoDetail }
+      : { status: "error", problem: problemOf(r.body) };
+  },
   get: (slug: string) => getJson<VideoDetail>(v(slug)),
   file: (slug: string, path: string) => getJson<TextFile>(`${v(slug)}/file?path=${encodeURIComponent(path)}`),
   saveFile: (slug: string, path: string, text: string, hash: string) =>

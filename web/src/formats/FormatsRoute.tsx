@@ -9,32 +9,19 @@ import "./formats.css";
 const ROOT = "#/formats";
 const DOC = "#/doc/";
 
-function route(hash: string): { id: string | null } | null {
+export const FORMATS_PREFIX = ROOT;
+
+export const formatHref = (id: string) => `${ROOT}/${encodeURIComponent(id)}`;
+
+export function parseFormats(hash: string): { id: string | null } | null {
   if (hash === ROOT) {
     return { id: null };
   }
   return hash.startsWith(ROOT + "/") ? { id: decodeURIComponent(hash.slice(ROOT.length + 1)) } : null;
 }
 
-export function FormatsNav({ hash }: { hash: string }) {
-  const active = route(hash) !== null;
-  const t = useT();
-  return (
-    <section className="group">
-      <h2>{t("formats.shelves")}</h2>
-      <ul>
-        <li>
-          <a href={ROOT} className={active ? "active" : ""}>
-            <span className="name">{t("formats.nav")}</span>
-          </a>
-        </li>
-      </ul>
-    </section>
-  );
-}
-
 export function FormatsRoute({ hash, fallback }: { hash: string; fallback: ReactNode }) {
-  const current = route(hash);
+  const current = parseFormats(hash);
   if (!current) {
     return <>{fallback}</>;
   }
