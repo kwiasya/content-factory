@@ -1,11 +1,11 @@
-# Resolve API smoke results (S1–S10)
+# Resolve API smoke results (S1–S11)
 
 - Date: 2026-10-10
 - Resolve: DaVinci Resolve Studio `21.1.1.10` (`GetVersion()` = `[21, 1, 1, 10, '']`), macOS 26.6.2
 - Client: repo `.venv`, Python 3.12.15, env vars from `docs/resolve-rules.md`
 - Project: `smoke-2026-10-10` (created by the suite; no other project was opened)
 - Media (read-only): `IMG_0332.MOV` (iPhone HEVC 10-bit HLG, 1080x1920 after rotation, 60 fps), `IMG_1621.mov` (iPhone HEVC SDR, 2160x3840 after rotation, 30 fps)
-- Scripts: `tests/smoke/S01_connect.py` … `S10_markers.py`. Raw read-backs: `tests/smoke/out/*.json`. All project settings before/after: `tests/smoke/out/project_settings.json`
+- Scripts: `tests/smoke/S01_connect.py` … `S11_library_assets.py`. Raw read-backs: `tests/smoke/out/*.json`. All project settings before/after: `tests/smoke/out/project_settings.json`
 - Driver: `src/cf/resolve_driver.py`
 
 ## Results
@@ -22,6 +22,7 @@
 | S8 render | PASS | `SetCurrentRenderFormatAndCodec('mp4','H264')` OK. 1080x1920 30 fps, 90 frames, 2–3 s per render. `ColorSpaceTag='Rec.709'` + `GammaTag='Rec.709-A'` gives `bt709/bt709/bt709` (1-1-1), `yuv420p`, `tv` range, H.264 High, AAC 48 kHz stereo. `Rec.709`+`Rec.709` also gives 1-1-1. `Same as Project` and `Gamma 2.4` leave **color_transfer untagged**. `ColorSpaceTag='Rec.709-A'` is rejected (SetRenderSettings returns False). The decoded pixels are bit-identical across all tag choices, so the tags change only metadata. Unknown keys or values make SetRenderSettings return False. |
 | S9 Remotion overlay | SKIP | `~/Movies/content-factory/smoke/overlay_test.mov` does not exist yet. The script is ready: it imports the file, logs `Alpha mode`, appends it on V2 at +15 and renders one frame. |
 | S10 markers | PASS | `AddMarker(frame, color, name, note, duration, customData)` with a JSON string (incl. non-ASCII) round-trips exactly on the timeline and on the item. `GetMarkerByCustomData`, `UpdateMarkerCustomData` and `GetMarkerCustomData` work. **Timeline marker frames are offsets from the timeline start** (45 means 01:00:01:15). An absolute frame (108060) is accepted silently and lands an hour later; 5000 on a 90-frame timeline is also accepted. **TimelineItem marker frames are source-media frames**: values outside the media are clamped to `[0, 1007]` for a 1008-frame clip, not to the item. Item markers do not appear on the MediaPoolItem. |
+| S11 library assets | NOT RUN YET | Library Asset cues (Desk 9): tracks to V4/A3, an mp3 on A3 (clip FPS, AudioVolume −7.3 / +12 / +20 / +31), a 512×512 ProRes 4444 disc on V4 with ZoomX 0.4444, Pan 0, Tilt 120 (still: the Tilt sign, whether scaleToFit upscales a small item), a png for 45 and 200 frames (still length), a VP9 webm with alpha (import, alpha in a still), an mp4 meme as a picture and a sound append (audio spill). Run `.venv/bin/python tests/smoke/S11_library_assets.py` with Resolve open; until then `cf.assets.TILT_SIGN = 1` (positive Tilt = up), a small item is assumed upscaled by scaleToFit and webm files are never placed. |
 
 ## Discovered strings
 
