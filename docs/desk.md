@@ -1,6 +1,6 @@
 # Desk
 
-Desk is the Author's window over the files the Editor works with (ADR 0005, `GLOSSARY.md`: Desk). It reads and writes the same files in the repo; it has no database of its own except the `note` table in `factory.db`, launches nothing and never commits. Code: `src/cf/desk/` (API), `web/` (frontend).
+Desk is the Author's window over the files the Editor works with (ADR 0005, `GLOSSARY.md`: Desk). It reads and writes the same files in the repo; it has no database of its own except the `note` table and the Library's Author fields in `factory.db`, launches nothing but `open -R` for "Show in Finder" (ADR 0007) and never commits. Code: `src/cf/desk/` (API), `web/` (frontend).
 
 ## Start
 
@@ -131,7 +131,7 @@ The slug comes from the title: Russian and Ukrainian Cyrillic transliterated to 
 | `POST /api/videos/{slug}/status` | body `{status, note, hash}`: sets the status, appends `{status, at: today (UTC), note}` to `history` and rewrites `video.json`; 409 on a stale hash or for a legacy Reel, 422 for an unknown status |
 | `GET /api/videos/{slug}/file?path=` | an editable text of the folder (`script*.md|json`, `brief.md`, `voiceover.md`, `notes.md`, `references.md`, `.srt`/`.vtt`): `kind`, `format`, `text`, `hash` |
 | `PUT /api/videos/{slug}/file` | body `{path, text, hash}`: the same hashed atomic write as documents; `brief.md`, `voiceover.md` and `notes.md` can be created with `hash: ""`; the hash is checked first (409 on a stale one, before any JSON check); a `script*.json` must be a `cf-script/1` document (a missing or other `schema` is a violation) and is validated by `cf.script_schema` (with the Walk's `clip_manifest.json` and the repo `style.json` when present); 422 with `violations` writes nothing |
-| `GET /api/media?path=` | file streaming with HTTP Range (206) for paths relative to the footage root under `videos/<slug>/{renders,overlays,sources}/`, `<walk>/proxy/`, `<walk>/reels/<reel>/`, `references/<watchlist>/<id>/proxy.mp4`; `raw/`, symlinks out, directories and everything else are 404 |
+| `GET /api/media?path=` | file streaming with HTTP Range (206) for paths relative to the footage root under `videos/<slug>/{renders,overlays,sources}/`, `<walk>/proxy/`, `<walk>/reels/<reel>/`, `references/<watchlist>/<id>/proxy.mp4`, and the Library namespaces `library/<pack>/…` and `packs/<pack>/…` (see Library); `raw/`, symlinks out, directories and everything else are 404 |
 
 The web page lives at `#/videos` (list) and `#/videos/<slug>`, and `#/new-video` is the form behind "+ New video" (title, Format, Channel or "New Channel…", an optional Brief from the Ideas with status `brief`, which fills the empty fields; with no readable `factory.db` the Brief select is disabled and the rest still works); a Video page links its `video.json` `references` to their cards (`#/contour/cards/<id>`) and its `ideas` to the Idea inbox (`#/contour/ideas/<id>`). ProRes 4444 overlays play in Safari only.
 
@@ -157,6 +157,33 @@ Code: `src/cf/desk/contour_api.py`, `web/src/contour/`. The research contour (`G
 
 Pages: `#/contour` (Watchlists and quota), `#/contour/watchlists/<name>` (channels, queries, feed with the CLI filters), `#/contour/watchlists/<name>/summary` (hooks, formats, topics tabs), `#/contour/cards/<id>` (measured facts, heatmap peaks as an SVG bar chart over the duration with the quote on hover and seek on click, transcript sections and chapters next to the proxy player, the analysis), `#/contour/ideas[/<id>]` (inbox with filters and actions, the selected Idea with notes and the Brief editor), `#/contour/taxonomy` (values by kind, the proposed ones by default, with approve and reject). Empty states name the next skill or command: `/research-watchlist`, `/scout-references` (`scout`), `/analyze-reference`, `/suggest-ideas`, `ideas brief <id>`.
 
+## Library
+
+Code: `src/cf/library/` (no Desk imports; CLI `python -m cf.library`, skill `/index-pack`), `src/cf/desk/library_api.py`, `web/src/library/`. ADR 0007, `GLOSSARY.md`: Library, Pack, Asset, Asset ref.
+
+- **Packs** are registered in `factory.db` (`pack` table, schema version 6) from a `cf-pack/1` config (`.claude/skills/index-pack/packs/<id>.json`: `root`, `include`, `exclude`, `templates`, `folders` → `category`, `rights`, `key`, `group`). A Pack is read in place and never written.
+- **Cache** `<footage root>/library/<pack>/`: `index.json` (`cf-library-index/1`), `keyed/<id>.mov` (ProRes 4444 alpha of green-screen folders), `converted/<id>.mov` (animated gifs), `png/<id>.png` (jfif, webp, avif stills), `previews/<id>.jpg` and `previews/<id>.mp4` (240 px), `sheets/NN.jpg` + `NN.json` (agent tag pass). Deleting it loses nothing the Author wrote.
+- **Author fields** (`asset_author`: name, caption, tags, rights) and **aliases** (`asset_alias`: old refs after a rename, an Author rename or the face-sticker label import) live in the store, keyed by the Asset id (content id of the primary variant).
+- **Refs** `@<category>/<name>`, categories `sfx meme img emoji face bg footage fx music font template`. Grammar (Python `cf.library.refs.REF_RE`, JS `web/src/library/refs.ts`): `@` at the start or after whitespace or one of `([«"'`, a category, `/`, letters, digits and `-`. A new category means editing both. Resolution: the Author's name, then the file-derived name, then an alias.
+
+The Library is loaded per request; with no `factory.db` or one at another schema version there are no Packs and every Asset route is 404. Errors carry a `code` and `params` (`err.<code>` in the frontend).
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/library` | `packs` (`id`, `root`, `indexed_at`, `index_missing`, `assets`, `by_category`, `fallback` folder count), `categories`, `rights` |
+| `GET /api/library/assets?pack=&category=&tags=&q=&rights=&limit=&offset=` | `assets` (cards), `total`, `tags` (up to 50 facets `{tag, n, author}` over the filtered set, active and Author tags first); `tags` comma-separated and ANDed over Author and agent tags; `q` a substring of ref, names, aliases, captions, tags and file name; default limit 200, max 1000; 422 `library_query_invalid` (`param`, `value`) |
+| `GET /api/library/assets/{id}` | `asset` (card with `variants`); 404 `asset_not_found` |
+| `PUT /api/library/assets/{id}/author` | body with any of `caption`, `tags`, `rights`, `name`; only present fields change, `null` clears (`rights: null` = the Pack default); the card. 422 `rights_invalid`, `tags_invalid` (a list of strings, no commas, ≤ 40 characters), `caption_invalid`, `ref_name_invalid` (`name`, `slug`); 409 `ref_name_taken` (`ref`, `holder`) |
+| `GET /api/library/refs/resolve?ref=` | `ref`, `canonical`, `alias`, `asset`; 422 `ref_invalid`; 404 `ref_not_found` with `suggestions` (up to 5 cards) |
+| `POST /api/library/refs/check` | body `{refs}` (≤ 200): `refs` as `{ref: {ok: true, id, canonical} \| {ok: false, suggestions: [ref]}}` |
+| `GET /api/library/refs/suggest?q=&limit=` | `suggestions`: refs starting with `q`, then names containing it, then Author and agent captions and tags |
+| `GET /api/library/tags?q=&limit=` | `tags` with the prefix, Author tags first |
+| `POST /api/library/assets/{id}/reveal` | runs `/usr/bin/open -R <file>` and returns `path`; 404 `asset_not_found`; 409 `reveal_unavailable` off macOS |
+
+Card fields: `id`, `pack`, `category`, `category_source` (`mapping`, `fallback`, `kind`), `ref` (canonical), `name` (file-derived), `author_name`, `aliases`, `kind` (`audio`, `video`, `image`, `font`, `template`), `folder`, `file` (`path`, `name`, `size`, `mtime`), `media` (`original`, `alpha`, `png`, `poster`, `preview`: `path=` values for `/api/media`, null when not served), `duration_s`, `fps`, `width`, `height`, `has_audio`, `alpha`, `green_screen`, `loudness` (`i`, `tp`, `lra`, `method`), `rights`, `rights_default`, `rights_override`, `caption`, `tags`, `agent_caption`, `agent_tags`, `updated_at`.
+
+Media: `library/<pack>/{previews,keyed,converted,png,sheets}/<file>` from the cache, and `packs/<pack id>/<path in the Pack>` from the registered root for audio, video, image and font suffixes only (no `..`, hidden part or symlink on the way; templates, text and everything else 404; with no readable db every `packs/` path is 404). `.jfif` is sent as `image/jpeg`, fonts as `font/ttf` and `font/otf`.
+
 ## Frontend
 
 `web/` is Vite + React + TypeScript + CodeMirror 6.
@@ -175,4 +202,4 @@ Code: `web/src/i18n/`. `en.ts` holds every key and is the source of the `Key` ty
 
 ## Tests
 
-`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_formats.py` (Format shelf and skill lint), `tests/test_desk_research.py` (research group, topics, search, skill link map), `tests/test_desk_notes.py` (Notes API, and the skill hook run against a temporary db), `tests/test_desk_videos.py` (Videos and media on a temporary footage root; creating a Video with slug, Channel and Brief cases on a seeded db, stages and list filters, known Channels with and without a readable db), `tests/test_desk_contour.py` (research contour on a temporary db seeded with `research_synth` helpers), `tests/test_desk_store_use.py` (reads never create, migrate or seed `factory.db`), `tests/test_desk_cli.py` (flags) and `tests/test_research_notes_cli.py` (`notes` CLI). They do not need the frontend build.
+`tests/test_desk_api.py` (TestClient over a temporary git repo, footage root and db path), `tests/test_desk_formats.py` (Format shelf and skill lint), `tests/test_desk_research.py` (research group, topics, search, skill link map), `tests/test_desk_notes.py` (Notes API, and the skill hook run against a temporary db), `tests/test_desk_videos.py` (Videos and media on a temporary footage root; creating a Video with slug, Channel and Brief cases on a seeded db, stages and list filters, known Channels with and without a readable db), `tests/test_desk_contour.py` (research contour on a temporary db seeded with `research_synth` helpers), `tests/test_desk_store_use.py` (reads never create, migrate or seed `factory.db`), `tests/test_desk_cli.py` (flags), `tests/test_desk_library.py` (Library API and Pack media on a byte-file Pack with a hand-written index) and `tests/test_research_notes_cli.py` (`notes` CLI). `tests/test_library_index.py` and `tests/test_library_refs.py` drive `cf.library` on a synthetic Pack made by ffmpeg (`tests/library_pack.py`; skipped without ffmpeg). They do not need the frontend build.

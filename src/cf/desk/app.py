@@ -10,8 +10,8 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from cf.desk import (catalog, channels, contour_api, formats_api, gitread, media, notes_api, problems, research_api,
-                     search, skill_lint, skill_links, videos_api)
+from cf.desk import (catalog, channels, contour_api, formats_api, gitread, library_api, media, notes_api, problems,
+                     research_api, search, skill_lint, skill_links, videos_api)
 from cf.desk.hashed import atomic_write, digest, stale
 from cf.desk.problems import Problem
 
@@ -96,7 +96,8 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
     app.include_router(notes_api.router(db_path))
     app.include_router(videos_api.router(footage_root, repo, db_path))
     app.include_router(channels.router(footage_root, db_path))
-    app.include_router(media.router(footage_root))
+    app.include_router(media.router(footage_root, lambda: library_api.pack_roots(db_path)))
+    app.include_router(library_api.router(db_path, footage_root))
     app.include_router(contour_api.router(db_path, footage_root))
 
     @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
