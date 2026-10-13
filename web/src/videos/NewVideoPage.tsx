@@ -1,8 +1,8 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { contourApi, type Idea, type Watchlist } from "../contour/api";
 import { ErrorLine } from "../ErrorLine";
 import { useT, type Problem } from "../i18n";
-import { useDeskData } from "../shell/DeskData";
+import { useDeskData, useReloadOnMount } from "../shell/DeskData";
 import { NEW_VIDEO_HASH } from "../shell/routes";
 import { VIDEOS_PREFIX, videoHref } from "./routes";
 import { videosApi } from "./videosApi";
@@ -22,6 +22,8 @@ function fieldOf(problem: Problem | null): Field | null {
 function NewVideoPage() {
   const t = useT();
   const data = useDeskData();
+  useReloadOnMount();
+  const prefilled = useRef(new Set<Field>());
   const [title, setTitle] = useState("");
   const [format, setFormat] = useState("");
   const [channel, setChannel] = useState("");
@@ -43,15 +45,30 @@ function NewVideoPage() {
   const ready = title.trim() !== "" && format !== "" && channelValue !== "" && !pending;
   const bad = fieldOf(problem);
 
+  const typed = (field: Field, set: (v: string) => void) => (value: string) => {
+    prefilled.current.delete(field);
+    set(value);
+  };
+
   const pickBrief = (value: string) => {
     setIdeaId(value);
     const idea = ideas.find((i) => String(i.id) === value);
-    if (!idea) return;
-    const w = watchlists.find((x) => x.name === idea.watchlist);
-    if (!title.trim()) setTitle(idea.title);
-    if (!format && w && data.formats.some((f) => f.id === w.format_id)) setFormat(w.format_id);
-    if (!channel && w?.author_channel && data.channels.some((c) => c.id === w.author_channel)) {
-      setChannel(w.author_channel);
+    const w = idea ? watchlists.find((x) => x.name === idea.watchlist) : undefined;
+    const proposed: Record<Field, string> = {
+      title: idea?.title ?? "",
+      format: w && data.formats.some((f) => f.id === w.format_id) ? w.format_id : "",
+      channel: w?.author_channel && data.channels.some((c) => c.id === w.author_channel) ? w.author_channel : "",
+    };
+    const current: Record<Field, string> = { title: title.trim(), format, channel };
+    const setters: Record<Field, (v: string) => void> = { title: setTitle, format: setFormat, channel: setChannel };
+    for (const field of ["title", "format", "channel"] as Field[]) {
+      if (current[field] !== "" && !prefilled.current.has(field)) continue;
+      setters[field](proposed[field]);
+      if (proposed[field]) {
+        prefilled.current.add(field);
+      } else {
+        prefilled.current.delete(field);
+      }
     }
   };
 
@@ -90,11 +107,11 @@ function NewVideoPage() {
       <form className="new-video-form" onSubmit={submit}>
         <label className={bad === "title" ? "invalid" : ""}>
           <span>{t("newVideo.fieldTitle")}</span>
-          <input autoFocus required maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input autoFocus required maxLength={200} value={title} onChange={(e) => typed("title", setTitle)(e.target.value)} />
         </label>
         <label className={bad === "format" ? "invalid" : ""}>
           <span>{t("newVideo.fieldFormat")}</span>
-          <select required value={format} onChange={(e) => setFormat(e.target.value)}>
+          <select required value={format} onChange={(e) => typed("format", setFormat)(e.target.value)}>
             <option value="">{t("newVideo.pick")}</option>
             {data.formats.map((f) => (
               <option key={f.id} value={f.id}>
@@ -105,7 +122,7 @@ function NewVideoPage() {
         </label>
         <label className={bad === "channel" ? "invalid" : ""}>
           <span>{t("newVideo.fieldChannel")}</span>
-          <select required value={channel} onChange={(e) => setChannel(e.target.value)}>
+          <select required value={channel} onChange={(e) => typed("channel", setChannel)(e.target.value)}>
             <option value="">{t("newVideo.pick")}</option>
             {data.channels.map((c) => (
               <option key={c.id} value={c.id}>

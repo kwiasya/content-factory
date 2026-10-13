@@ -435,6 +435,32 @@ class CreateTest(VideosTestCase):
                 self.assertRegex(slug, NAME_RE)
         self.assertIn("vena-den-2", [v["slug"] for v in self.ok(self.client.get("/api/videos"))["videos"]])
 
+    def test_slug_folds_latin_diacritics_and_ukrainian_letters(self):
+        cases = (("Zürich", "zurich"), ("Kraków", "krakow"), ("Café crème", "cafe-creme"), ("Київ", "kiyiv"),
+                 ("Ґанок і є", "ganok-i-ye"), ("Йошкар-Ола ёлка", "yoshkar-ola-elka"))
+        for title, slug in cases:
+            with self.subTest(title):
+                self.assertEqual(self.create(title=title)["slug"], slug)
+
+    def test_without_a_footage_root_create_is_409_and_creates_nothing(self):
+        missing = self.footage.parent / "nowhere"
+        client = TestClient(create_app(self.repo, footage_root=missing, db_path=self.db,
+                                       web_dist=self.footage / "dist"))
+        r = client.post("/api/videos", json={"title": "T", "format": "tech-explainer", "channel": "x",
+                                             "new_channel": True})
+        self.assertEqual((r.status_code, r.json()["code"], r.json()["params"]),
+                         (409, "footage_missing", {"path": str(missing)}))
+        self.assertFalse(missing.exists())
+
+    def test_a_new_channel_name_is_lower_case_capped_and_matches_known_ones_ignoring_case(self):
+        made = self.create(title="Upper", channel="  Walks-IG ", new_channel=True)
+        self.assertEqual(made["video"]["channel"], "walks-ig")
+        self.assertEqual(self.create(title="Known", channel="TECH-EN", new_channel=True)["video"]["channel"],
+                         "tech-en")
+        r = self.create(422, title="Long", channel="c" * 65, new_channel=True)
+        self.assertEqual((r["code"], r["params"]), ("channel_invalid", {"channel": "c" * 65, "max": 64}))
+        self.assertEqual(self.create(title="Max", channel="c" * 64, new_channel=True)["video"]["channel"], "c" * 64)
+
     def test_slug_is_cut_to_60_chars_at_a_dash(self):
         slug = self.create(title="word " * 30)["slug"]
         self.assertEqual(slug, "-".join(["word"] * 12))
@@ -474,7 +500,7 @@ class CreateTest(VideosTestCase):
         for bad in ("a/b", ".x", "../x", "", "_unassigned"):
             with self.subTest(bad):
                 r = self.create(422, title="T", channel=bad, new_channel=True)
-                self.assertEqual((r["code"], r["params"]), ("channel_invalid", {"channel": bad}))
+                self.assertEqual((r["code"], r["params"]), ("channel_invalid", {"channel": bad, "max": 64}))
         self.assertEqual(self.listing(), before)
         made = self.create(title="Walk", format="walk-reel", channel="walks-ig", new_channel=True)
         self.assertEqual((made["video"]["channel"], made["video"]["language"]), ("walks-ig", None))
