@@ -92,6 +92,23 @@ class MigrationTest(unittest.TestCase):
                              {"watchlist_id": 1, "channel_id": 1})
 
 
+class V6Test(unittest.TestCase):
+    def test_v6_adds_pack_and_asset_tables_to_a_v5_database(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "v5.db"
+            conn = sqlite3.connect(path)
+            for v, script in enumerate(st.MIGRATIONS[:5]):
+                conn.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {v + 1};\nCOMMIT;")
+            conn.execute("INSERT INTO note (kind, key, text, created_at) VALUES ('skill', 'reel', 'keep', 'x')")
+            conn.commit()
+            conn.close()
+            with st.open_store(path, seed=False) as s:
+                self.assertEqual(s.schema_version(), 6)
+                self.assertLessEqual({"pack", "asset_author", "asset_alias"}, set(s.tables()))
+                self.assertEqual(s.one("SELECT kind, key, text FROM note"),
+                                 {"kind": "skill", "key": "reel", "text": "keep"})
+
+
 class ConcurrentOpenTest(unittest.TestCase):
     def test_several_connections_opening_a_fresh_database_at_once_all_get_the_full_schema(self):
         with tempfile.TemporaryDirectory() as tmp:

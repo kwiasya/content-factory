@@ -200,7 +200,33 @@ CREATE TABLE note (
 CREATE INDEX note_open ON note (kind, key) WHERE resolved_at IS NULL;
 """
 
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5]  # MIGRATIONS[i] takes the store from version i to i + 1
+V6 = """
+CREATE TABLE pack (
+    id          TEXT PRIMARY KEY,
+    root        TEXT NOT NULL,
+    config      TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    indexed_at  TEXT
+);
+CREATE TABLE asset_author (
+    asset_id    TEXT PRIMARY KEY,
+    pack_id     TEXT NOT NULL,
+    name        TEXT,
+    caption     TEXT,
+    tags        TEXT NOT NULL DEFAULT '[]',
+    rights      TEXT,
+    updated_at  TEXT NOT NULL
+);
+CREATE TABLE asset_alias (
+    ref         TEXT PRIMARY KEY,
+    asset_id    TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX asset_alias_asset ON asset_alias (asset_id);
+"""
+
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6]  # MIGRATIONS[i] takes the store from version i to i + 1
 SCHEMA_VERSION = len(MIGRATIONS)
 
 
