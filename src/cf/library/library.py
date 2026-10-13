@@ -74,13 +74,17 @@ class Asset:
 
     @property
     def alpha_path(self) -> Path | None:
+        """A file with an alpha channel Resolve can use: the Pack alpha variant, the keyed or converted cache file,
+        or an alpha .mov/.mp4 primary."""
         v = self.variant("alpha")
         if v is not None:
             return self.root / v["path"]
-        if self.primary.get("alpha") and self.kind == "video":
-            return self.path
         d = self.derived.get("alpha") or self.derived.get("converted")
-        return self.cache / d if d else None
+        if d:
+            return self.cache / d
+        if self.primary.get("alpha") and self.path.suffix.lower() in (".mov", ".mp4"):
+            return self.path
+        return None
 
     @property
     def png_path(self) -> Path | None:

@@ -127,10 +127,10 @@ export function AssetDrawer({ id, onClose, onChanged, onReveal }: {
   const saveName = () => {
     if (name.trim() !== (asset.author_name ?? "")) save("name", name.trim() || null);
   };
-  const onEnter = (e: ReactKeyboardEvent, fn: () => void) => {
+  const onEnter = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      fn();
+      e.currentTarget.blur();
     }
   };
   const duration = formatDuration(asset.duration_s, t);
@@ -194,7 +194,7 @@ export function AssetDrawer({ id, onClose, onChanged, onReveal }: {
       <section className="lib-author">
         <label>
           <span>{t("library.card.caption")}</span>
-          <input value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={saveCaption} onKeyDown={(e) => onEnter(e, saveCaption)} />
+          <input value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={saveCaption} onKeyDown={onEnter} />
         </label>
         {errorFor("caption")}
         {asset.agent_caption && (
@@ -228,7 +228,7 @@ export function AssetDrawer({ id, onClose, onChanged, onReveal }: {
           <span>{t("library.card.name")}</span>
           <span className="lib-name">
             <code>@{asset.category}/</code>
-            <input value={name} placeholder={asset.name} onChange={(e) => setName(e.target.value)} onBlur={saveName} onKeyDown={(e) => onEnter(e, saveName)} />
+            <input value={name} placeholder={asset.name} onChange={(e) => setName(e.target.value)} onBlur={saveName} onKeyDown={onEnter} />
           </span>
         </label>
         {errorFor("name")}

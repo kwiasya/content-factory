@@ -52,8 +52,9 @@ def _build(root: Path) -> None:
     src = "color=c=red@0.5:s=64x64:d={d}:r=30,format=yuva420p"
     _ff("-f", "lavfi", "-i", src.format(d=1), "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p",
         str(root / "face/1000001_sticker.webm"))
-    _ff("-f", "lavfi", "-i", src.format(d=1).replace("red", "blue"), "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p",
-        str(root / "face/1000002_sticker.webm"))
+    for n, color in (("1000002", "blue"), ("1000003", "green")):
+        _ff("-f", "lavfi", "-i", src.format(d=1).replace("red", color), "-frames:v", "1", "-c:v", "libvpx-vp9",
+            "-pix_fmt", "yuva420p", str(root / f"face/{n}_sticker.webm"))
     _ff("-f", "lavfi", "-i", src.format(d=2).replace("yuva420p", "yuva444p10le"), "-c:v", "prores_ks",
         "-profile:v", "4444", "-pix_fmt", "yuva444p10le", str(root / "face-resolve/1000001_sticker.mov"))
     _ff("-f", "lavfi", "-i", "color=c=blue@0.5:s=64x64:d=1,format=rgba", "-frames:v", "1",
