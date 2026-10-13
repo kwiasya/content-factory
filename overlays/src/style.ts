@@ -87,6 +87,9 @@ export type OverlayProps = {
   /** Measurement only: "background" hides the glyphs (keeps scrim and boxes),
    * "glyphs" shows only the glyph fill. Default "all". */
   layers?: "all" | "background" | "glyphs";
+  /** A font file in the render's public dir (render.mjs copies the Library font there):
+   * replaces the family of every role; sizes, case and boxes stay. */
+  fontFile?: string;
 };
 
 export const fontRoleFor = (type: OverlayType): "display" | "body" =>

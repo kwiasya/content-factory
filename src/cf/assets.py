@@ -7,6 +7,7 @@ those two never read an Asset's fields themselves. Rules: ``docs/script-schema.m
 CLI::
 
     python -m cf.assets refs <video folder | script.json> [--footage-root PATH] [--db PATH] [--json]
+    python -m cf.assets font <script.json> [--footage-root PATH] [--db PATH] [--style F] [--formats DIR]
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +35,7 @@ CUE_DB_RANGE = (-24.0, 12.0)
 MAX_LANES = 2
 TILT_SIGN = 1
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULTS: dict[str, Any] = {
     "default_pos": {"meme": "center", "img": "center", "footage": "center", "emoji": "bottom-left",
@@ -309,6 +312,70 @@ def transform(w: float, h: float, box: Box | str, canvas_w: float, canvas_h: flo
             "Tilt": round(TILT_SIGN * (canvas_h / 2 - cy), 1) + 0.0}
 
 
+# -- overlay font ------------------------------------------------------------------------
+FONT_LINE_RE = re.compile(r"^\W*Overlay font:\s*`?(@font/[^\s`]+)`?\s*$", re.MULTILINE)
+FONT_SUFFIXES = (".ttf", ".otf")
+
+
+class AssetFontError(ValueError):
+    """The overlay font named by the Format or style.json cannot be used."""
+
+
+@dataclass(frozen=True)
+class FontChoice:
+    ref: str
+    path: Path
+    source: str
+
+
+def format_font(format_text: str | None) -> str | None:
+    m = FONT_LINE_RE.search(format_text or "")
+    return m.group(1) if m else None
+
+
+def overlay_font(style: dict | None, format_text: str | None, library: lib.Library | None, *,
+                 format_id: str | None = None, library_problem: str | None = None) -> FontChoice | None:
+    """The font file every overlay role uses: the Format's ``Overlay font:`` line, else ``typography.font``."""
+    ref = format_font(format_text)
+    source = f"format {format_id}" if format_id else "format"
+    if ref is None:
+        ref = ((style or {}).get("typography") or {}).get("font")
+        source = "style.json"
+    if not ref:
+        return None
+    if library is None:
+        raise AssetFontError(f"overlay font {ref} ({source}) needs the Library: {library_problem or 'not loaded'}")
+    try:
+        a = lookup(library, ref)
+    except BadRef as exc:
+        raise AssetFontError(f"overlay font {ref!r} ({source}) is not an Asset ref (expected @font/<name>)") from exc
+    if a is None:
+        near = nearest_refs(library, ref, 5)
+        raise AssetFontError(f"overlay font ({source}): no such Asset {ref}; nearest: {', '.join(near) or 'none'}")
+    if a.category != "font":
+        raise AssetFontError(f"overlay font {ref} ({source}) is a {a.category} Asset, not a font")
+    path = a.path
+    if path.suffix.lower() not in FONT_SUFFIXES:
+        raise AssetFontError(f"overlay font {ref} ({source}): {path.name} is not a .ttf or .otf file")
+    if not path.is_file():
+        raise AssetFontError(f"overlay font {ref} ({source}): file missing: {path}")
+    return FontChoice(a.ref, path, source)
+
+
+def font_for_script(script_path: Path, style: dict, formats_dir: Path, *, footage: Path | None = None,
+                    db_path: Path | None = None) -> FontChoice | None:
+    video = video_of(script_path)
+    fmt = video.format if video else None
+    text = None
+    if fmt:
+        f = Path(formats_dir) / fmt / "FORMAT.md"
+        text = f.read_text(encoding="utf-8") if f.is_file() else None
+    if format_font(text) is None and not ((style.get("typography") or {}).get("font")):
+        return None
+    ctx = context(script_path, footage=footage, db_path=db_path)
+    return overlay_font(style, text, ctx.library, format_id=fmt, library_problem=ctx.library_problem)
+
+
 # -- CLI -------------------------------------------------------------------------------
 def resolved_refs(ctx: AssetContext) -> list[dict]:
     out = []
@@ -339,17 +406,33 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     rp = sub.add_parser("refs", help="the Asset refs in a Video folder's md files, resolved against the Library")
     rp.add_argument("target", help="a Video folder or a script.json in one")
-    for p in (rp,):
+    rp.add_argument("--json", action="store_true")
+    fp = sub.add_parser("font", help="the overlay font file for a Script's Video (Format line, else style.json)")
+    fp.add_argument("script")
+    fp.add_argument("--style", default=str(REPO_ROOT / "style.json"))
+    fp.add_argument("--formats", default=str(REPO_ROOT / "formats"), help="the formats/ folder")
+    for p in (rp, fp):
         p.add_argument("--footage-root", help="footage root (default: the Video's, else CF_FOOTAGE_ROOT)")
         p.add_argument("--db", help="factory.db (default: CF_FACTORY_DB, else <footage>/factory.db)")
-        p.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
+    footage = Path(args.footage_root).expanduser() if args.footage_root else None
+    db = Path(args.db).expanduser() if args.db else None
+    if args.cmd == "font":
+        try:
+            style = json.loads(Path(args.style).read_text(encoding="utf-8"))
+            got = font_for_script(Path(args.script).expanduser().resolve(), style, Path(args.formats),
+                                  footage=footage, db_path=db)
+        except (AssetFontError, OSError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(json.dumps({"ref": got.ref, "path": str(got.path), "source": got.source} if got else {"ref": None},
+                         ensure_ascii=False))
+        return 0
     folder = _folder_arg(args.target)
     video = video_folder(folder)
     if video is None:
         video = VideoFolder(folder, folder.name, folder.parent, False, None)
-    ctx = context(None, footage=Path(args.footage_root) if args.footage_root else None,
-                  db_path=Path(args.db) if args.db else None, video=video)
+    ctx = context(None, footage=footage, db_path=db, video=video)
     rows = resolved_refs(ctx)
     if args.json:
         print(json.dumps({"library_problem": ctx.library_problem, "refs": rows}, ensure_ascii=False))
