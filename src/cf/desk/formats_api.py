@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from cf.desk import videos_api
+from cf.desk import videofolders
 from cf.desk.problems import Problem
 from cf.desk.research_api import RESEARCH_DIR
 
@@ -84,8 +84,8 @@ def parse_rules(text: str, topic: str) -> list[dict]:
 def format_videos(footage_root: Path, fid: str) -> list[dict]:
     footage = Path(footage_root)
     videos = []
-    for folder in videos_api.list_folders(footage):
-        item = videos_api.summary(folder)
+    for folder in videofolders.list_folders(footage):
+        item = videofolders.summary(folder)
         if item["format"] == fid:
             videos.append({"slug": item["slug"], "title": item["title"], "status": item["status"],
                            "channel": item["channel"], "path": str(folder.path)})

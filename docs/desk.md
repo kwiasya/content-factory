@@ -102,7 +102,7 @@ python -m cf.research notes delete <id>
 
 ## Videos
 
-Code: `src/cf/desk/videos_api.py`, `src/cf/desk/media.py`, `web/src/videos/`. Desk lists every `videos/<slug>/video.json` in the footage root (ADR 0006) and every legacy `<walk>/reels/<reel>/`, addressed as `<walk>~<reel>`, with format `walk-reel` and a status derived from the folder: `script` when a `script*.json` exists, `edit` with `cuts.json` or overlays, `review` with a render in `out/`. Everything is read per request; nothing is cached.
+Code: `src/cf/desk/videofolders.py` (which folders are Videos, `video.json` reading, the list summary), `src/cf/desk/videos_api.py`, `src/cf/desk/channels.py`, `src/cf/desk/media.py`, `web/src/videos/`. Desk lists every `videos/<slug>/video.json` in the footage root (ADR 0006) and every legacy `<walk>/reels/<reel>/`, addressed as `<walk>~<reel>`, with format `walk-reel` and a status derived from the folder: `script` when a `script*.json` exists, `edit` with `cuts.json` or overlays, `review` with a render in `out/`. Everything is read per request; nothing is cached.
 
 `video.json` is `cf-video/1`: `slug`, `title_working`, `format`, `channel`, `language`, `walks`, `status`, `history[{status, at, note}]`, `references`, `ideas`, `published_url`. Statuses in order: `idea`, `brief`, `script`, `recording`, `edit`, `review`, `published`.
 

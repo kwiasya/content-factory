@@ -86,9 +86,6 @@ function FormatPage({ id }: { id: string }) {
   }
   return (
     <>
-      <p className="crumbs">
-        <a href={ROOT}>{t("formats.title")}</a> / {format.id}
-      </p>
       <div className="doc-head">
         <div>
           <h1>{format.title}</h1>

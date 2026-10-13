@@ -152,7 +152,7 @@
   font-weight: 700;
 }
 
-.crumbs {
+.breadcrumb {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -162,20 +162,20 @@
   text-overflow: ellipsis;
 }
 
-.crumbs a {
+.breadcrumb a {
   color: var(--muted);
   text-decoration: none;
 }
 
-.crumbs a:hover {
+.breadcrumb a:hover {
   color: var(--accent);
 }
 
-.crumbs .sep {
+.breadcrumb .sep {
   color: var(--muted);
 }
 
-.crumbs strong {
+.breadcrumb strong {
   overflow: hidden;
   text-overflow: ellipsis;
 }

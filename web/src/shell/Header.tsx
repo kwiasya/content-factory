@@ -9,7 +9,7 @@ export function Header({ hash }: { hash: string }) {
   const trail = crumbs(hash, { videos, formats, t });
   return (
     <header className="top">
-      <nav className="crumbs" aria-label={t("crumb.label")}>
+      <nav className="breadcrumb" aria-label={t("crumb.label")}>
         {trail.map((c, i) => {
           const last = i === trail.length - 1;
           return (

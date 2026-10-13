@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from cf.desk import storeuse, videos_api
+from cf.desk import storeuse, videofolders
 from cf.desk.problems import Problem
 from cf.research import watchlist as watchlists
 from cf.research.brief import UNASSIGNED
@@ -16,7 +16,7 @@ STORE_PROBLEMS = {"db_missing", "db_schema"}
 
 
 def valid_name(name: object) -> bool:
-    return isinstance(name, str) and name != UNASSIGNED and bool(videos_api.NAME.match(name))
+    return isinstance(name, str) and name != UNASSIGNED and bool(videofolders.NAME.match(name))
 
 
 def store_watchlists(db_path: Path) -> list[watchlists.Watchlist]:
@@ -47,11 +47,11 @@ def list_channels(footage: Path, db_path: Path) -> list[dict]:
         for d in folders.iterdir():
             if d.is_dir() and valid_name(d.name):
                 entry(d.name)
-    for folder in videos_api.list_folders(Path(footage)):
+    for folder in videofolders.list_folders(Path(footage)):
         if folder.legacy:
             continue
         try:
-            video = videos_api.read_video(folder)
+            video = videofolders.read_video(folder)
         except Problem:
             continue
         if valid_name(video.get("channel")):

@@ -4,7 +4,7 @@ import { FORMATS_PREFIX, parseFormats } from "../formats/FormatsRoute";
 import { LangSwitch, useT } from "../i18n";
 import { NOTES_HASH } from "../notes/NotesPage";
 import { parseResearch } from "../research/ResearchPage";
-import { SearchBox } from "../search/SearchPage";
+import { SEARCH_PREFIX, SearchBox } from "../search/SearchPage";
 import { VIDEOS_PREFIX, parseVideos, videoHref } from "../videos/routes";
 import { videosApi, type VideoFilter, type VideoSummary } from "../videos/videosApi";
 import { useDeskData } from "./DeskData";
@@ -35,6 +35,22 @@ function storeFilter(filter: VideoFilter): void {
 }
 
 export const isAgent = (hash: string) => hash === AGENT_HASH || parseDoc(hash) !== null || parseResearch(hash) !== null;
+
+const OWN_PAGES = [NEW_VIDEO_HASH, LIBRARY_HASH, NOTES_HASH];
+
+function isVideosTable(hash: string): boolean {
+  const videos = parseVideos(hash);
+  if (videos) {
+    return videos.slug === null;
+  }
+  return !(
+    OWN_PAGES.includes(hash) ||
+    hash.startsWith(SEARCH_PREFIX) ||
+    parseContour(hash) !== null ||
+    parseFormats(hash) !== null ||
+    isAgent(hash)
+  );
+}
 
 function NavLink({ href, active, label }: { href: string; active: boolean; label: string }) {
   return (
@@ -136,8 +152,8 @@ export function Sidebar({ hash }: { hash: string }) {
           <h2>
             <a
               href={VIDEOS_PREFIX}
-              className={parseVideos(hash)?.slug === null ? "active" : ""}
-              aria-current={parseVideos(hash)?.slug === null ? "page" : undefined}
+              className={isVideosTable(hash) ? "active" : ""}
+              aria-current={isVideosTable(hash) ? "page" : undefined}
             >
               {t("sidebar.videos")}
             </a>
