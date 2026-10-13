@@ -390,6 +390,181 @@ def plan_track(script: Script, reel_dir: str | Path, start_frame: int, duration:
                         fade_out=fade), notes
 
 
+CUE_LANES = {"audio": (3, 4), "video": (4, 5)}
+
+
+@dataclass
+class PlannedCue:
+    cue: str                    # "s03.1": shot id + 1-based cue index; a meme's picture and sound share it
+    shot: str
+    ref: str                    # as written
+    canonical: str
+    asset_id: str
+    category: str
+    lane: str                   # "A3" | "A4" | "V4" | "V5"
+    track_type: str             # "audio" | "video"
+    track_index: int
+    media_type: int             # 2 audio, 1 video
+    path: str                   # absolute file to import
+    variant: str                # original | alpha | keyed | converted | png | still
+    file_fps: float | None
+    record_offset: int          # timeline frames from the timeline start
+    record_frame: int           # absolute
+    duration: int               # timeline frames
+    src_start: int
+    src_end: float              # exclusive
+    volume_db: float | None = None
+    level: dict | None = None
+    transform: dict | None = None
+
+    @property
+    def record_end(self) -> int:
+        return self.record_frame + self.duration
+
+
+def reference_level(style: dict, track_lufs: float | None) -> tuple[float, str]:
+    """What a sound cue's level is set against: the placed Track's loudness, else the target loudness."""
+    if track_lufs is not None:
+        return float(track_lufs), "track"
+    return float((style.get("audio") or {}).get("target_lufs", -14)), "style.audio.target_lufs"
+
+
+def sfx_volume(reference_lufs: float, loudness: dict, cue_db: float | None, style: dict) -> dict:
+    """AudioVolume of a sound cue: ``below_track_db`` under the reference, plus the cue's ``db``, capped by the
+    true peak and clamped to ``gain_range_db``."""
+    from cf import assets as ca  # noqa: PLC0415
+
+    cfg = ca.settings(style)
+    below = float(cfg["sfx_below_track_db"])
+    lo, hi = (float(x) for x in cfg["gain_range_db"])
+    peak = float((style.get("audio") or {}).get("true_peak_dbtp", -1))
+    raw = reference_lufs + below - float(loudness["i"]) + float(cue_db or 0)
+    tp = loudness.get("tp")
+    vol, capped = raw, None
+    if ca.finite(tp) and peak - float(tp) < vol:
+        vol, capped = peak - float(tp), "true_peak"
+    if vol > hi or vol < lo:
+        vol, capped = min(max(vol, lo), hi), "range"
+    return {"reference_lufs": reference_lufs, "below_track_db": below, "asset_lufs": loudness["i"],
+            "asset_tp": tp, "method": loudness.get("method"), "cue_db": cue_db, "raw_db": round(raw, 2),
+            "volume_db": round(vol, 1) + 0.0, "capped": capped}
+
+
+def plan_cues(script: Script, shots: list[PlannedShot], library: Any, *, fps: float, canvas: Canvas,
+              style: dict, reference_lufs: float, reference_source: str, mismatch: str = "scaleToFit",
+              file_fps: dict[str, float] | None = None) -> tuple[list[PlannedCue], list[str]]:
+    """Asset cues at absolute record frames from their shot's planned record frame, on A3/A4 and V4/V5."""
+    from cf import assets as ca  # noqa: PLC0415
+
+    todo = [(s, p, k, c) for s, p in zip(script.shots, shots) for k, c in enumerate(s.assets)]
+    if not todo:
+        return [], []
+    if library is None:
+        raise BuildError(f"{len(todo)} Asset cue(s) need the Library, and none could be loaded")
+    cfg = ca.settings(style)
+    notes: list[str] = []
+    out: list[PlannedCue] = []
+    end = shots[-1].record_end
+    clear = round(float(cfg["loop_clear_s"]) * fps)
+    for s, p, k, c in todo:
+        cue = f"{s.id}.{k + 1}"
+        try:
+            a = ca.lookup(library, c.ref)
+        except ca.BadRef as exc:
+            raise BuildError(f"cue {cue}: {c.ref!r} is not an Asset ref") from exc
+        if a is None:
+            raise BuildError(f"cue {cue}: no Asset {c.ref}")
+        kind = ca.lane_kind(a)
+        if kind is None:
+            raise BuildError(f"cue {cue}: {a.ref} is a {a.category} Asset, not placeable")
+        place = ca.placement(a)
+        if place.problem or place.path is None:
+            raise BuildError(f"cue {cue} ({c.ref}): {place.problem}")
+        if place.note:
+            notes.append(f"cue {cue} ({c.ref}): {place.note}")
+        dur_s = c.dur_s if c.dur_s is not None else ca.default_dur_s(a, place, style)
+        duration = snap_frames(dur_s or 0.0, fps)
+        if duration < 1:
+            raise BuildError(f"cue {cue} ({c.ref}): {dur_s!r} s is shorter than one frame")
+        start = p.record_frame - p.record_offset
+        offset = p.record_offset + round(c.at_s * fps)
+        if offset + start + duration > end:
+            raise BuildError(f"cue {cue} ({c.ref}): ends at +{offset + duration}, past the end of the Reel "
+                             f"(+{end - start})")
+        path = str(place.path)
+        ffps = float((file_fps or {}).get(path) or place.fps or 0) or None
+        src_end: float = duration if place.still or ffps is None else source_end(0, duration, ffps, fps)
+        common = dict(cue=cue, shot=s.id, ref=c.ref, canonical=a.ref, asset_id=a.id, category=a.category,
+                      path=path, variant=place.role, file_fps=None if place.still else ffps,
+                      record_offset=offset, record_frame=start + offset, duration=duration, src_start=0)
+        if kind == "visual":
+            pos = c.pos or cfg["default_pos"].get(a.category) or "center"
+            if not (place.width and place.height):
+                raise BuildError(f"cue {cue} ({c.ref}): the placed file's size is unknown")
+            tr = ca.transform(place.width, place.height, ca.pos_box(style, canvas, pos), canvas.width,
+                              canvas.height, mismatch)
+            out.append(PlannedCue(lane="", track_type="video", track_index=0, media_type=1, src_end=src_end,
+                                  transform={"pos": pos, **tr}, **common))
+            if script.ending == "loop_seamless" and start + offset + duration > end - clear:
+                notes.append(f"cue {cue} ({c.ref}): on screen within {clear} frames of the loop seam "
+                             f"(ends at +{offset + duration} of +{end - start})")
+        if ca.has_sound(a, place):
+            level = {**sfx_volume(reference_lufs, ca.loudness(a), c.db, style), "reference_source": reference_source}
+            if level["capped"]:
+                notes.append(f"cue {cue} ({c.ref}): level {level['raw_db']:g} dB capped by "
+                             f"{level['capped'].replace('_', ' ')} to {level['volume_db']:g} dB")
+            if level.get("method") == "padded":
+                notes.append(f"cue {cue} ({c.ref}): loudness measured padded (a very short sound reads lower "
+                             "than it feels); adjust with db if it is too loud")
+            out.append(PlannedCue(lane="", track_type="audio", track_index=0, media_type=2,
+                                  src_end=src_end if kind == "visual" else duration, volume_db=level["volume_db"],
+                                  level=level, **common))
+    for track_type, lanes in CUE_LANES.items():
+        free_at = {idx: None for idx in lanes}
+        for c in sorted((c for c in out if c.track_type == track_type), key=lambda c: (c.record_frame, c.cue)):
+            idx = next((i for i in lanes if free_at[i] is None or free_at[i] <= c.record_frame), None)
+            if idx is None:
+                raise BuildError(f"cue {c.cue} ({c.ref}): a third {track_type} cue at once at +{c.record_offset} "
+                                 f"(at most {len(lanes)})")
+            free_at[idx] = c.record_end
+            c.track_index = idx
+            c.lane = f"{track_type[0].upper()}{idx}"
+    return out, notes
+
+
+def cue_tracks(cues: list[PlannedCue], base_audio: int = 1) -> dict[str, int]:
+    """Track counts once the cues are placed (V1–V3 always exist; A1, plus A2 with a Track)."""
+    v = max([3, *(c.track_index for c in cues if c.track_type == "video")])
+    a = max([base_audio, *(c.track_index for c in cues if c.track_type == "audio")])
+    return {"video": v, "audio": a}
+
+
+def cue_append_infos(cues: list[PlannedCue], items: dict[str, Any]) -> list[dict]:
+    return [{"mediaPoolItem": items.get(c.path, c.path), "startFrame": c.src_start, "endFrame": c.src_end,
+             "mediaType": c.media_type, "trackIndex": c.track_index, "recordFrame": c.record_frame} for c in cues]
+
+
+def default_walk_dir(reel_dir: Path, script: Script) -> Path:
+    """The Walk of a legacy ``<walk>/reels/<reel>/``; of a Video folder ``<F>/videos/<slug>/``, ``<F>/<walk>``."""
+    reel_dir = Path(reel_dir)
+    if reel_dir.parent.name != "reels" and (reel_dir / "video.json").is_file():
+        return reel_dir.parent.parent / script.walk
+    return reel_dir.parent.parent
+
+
+def measure_track_lufs(path: str | Path, in_s: float, dur_s: float) -> float:
+    """Integrated loudness of the part of the Track the Reel uses (ffmpeg loudnorm, first pass)."""
+    import subprocess  # noqa: PLC0415
+
+    from cf.render_check import FFMPEG, parse_loudnorm  # noqa: PLC0415
+
+    res = subprocess.run([FFMPEG, "-hide_banner", "-nostdin", "-ss", f"{in_s:.3f}", "-t", f"{dur_s:.3f}", "-i",
+                          str(path), "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+                         capture_output=True, text=True, check=False)
+    data = parse_loudnorm(res.stderr)
+    return float(data["input_i"])
+
+
 def beat_marker_plan(cuts: dict | None, duration: int) -> list[dict]:
     """``cuts.json`` ``beat_markers`` inside [0, duration): ``{frame, downbeat, beat_index}``."""
     out = []
