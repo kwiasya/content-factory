@@ -1974,7 +1974,8 @@ class Builder:
             ref = r.assets.get("reference") or {}
             print(f"\nAsset cues (levels against {ref.get('lufs')} LUFS, {ref.get('source')}; "
                   f"tracks {r.assets.get('tracks')}):")
-            print(f"  {'cue':<8}{'ref':<28}{'lane':<5}{'start':>7}{'end':>7}  {'variant':<10}{'dB / Zoom Pan Tilt':<30}ok")
+            print(f"  {'cue':<8}{'ref':<28}{'lane':<5}{'start':>7}{'end':>7}  {'variant':<10}"
+                  f"{'dB / Zoom Pan Tilt':<30}ok")
             back = {(b["cue"], b["lane"]): b for b in r.assets.get("read_back", [])}
             for c in r.assets["cues"]:
                 if c["track_type"] == "audio":
