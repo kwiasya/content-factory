@@ -78,7 +78,7 @@ function refSource(t: T) {
       type: "variable",
       info: () => infoNode(a, t),
     }));
-    return { from: word.from, options, filter: false, validFor: /^@[\p{L}\p{N}/-]*$/u };
+    return { from: word.from, options, filter: false };
   };
 }
 

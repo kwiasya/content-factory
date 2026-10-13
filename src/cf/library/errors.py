@@ -49,8 +49,9 @@ class RefNameInvalid(LibraryError):
 class RefTaken(LibraryError):
     code = "ref_name_taken"
 
-    def __init__(self, ref: str, holder: str) -> None:
-        super().__init__(f"{ref} is already the ref of {holder}", ref=ref, holder=holder)
+    def __init__(self, ref: str, holder: str, holder_id: str, holder_file: str) -> None:
+        super().__init__(f"{ref} is already taken by {holder_file} ({holder}, id {holder_id})", ref=ref,
+                         holder=holder, holder_id=holder_id, holder_file=holder_file)
 
 
 class FieldInvalid(LibraryError):

@@ -20,6 +20,7 @@ from cf import library
 from cf.desk import storeuse
 from cf.desk.problems import Problem, body as problem_body
 from cf.library import CATEGORIES, RIGHTS, LibraryError, RefError, card
+from cf.library.index import index_path, read_index
 
 STORE_ABSENT = ("db_missing", "db_schema")
 STATUS = {"asset_not_found": 404, "ref_not_found": 404, "pack_not_found": 404, "ref_name_taken": 409}
@@ -27,14 +28,33 @@ AUTHOR_FIELDS = ("caption", "tags", "rights", "name")
 MAX_LIMIT = 1000
 
 
-def pack_roots(db_path: Path) -> dict[str, Path]:
+_indexed: dict[Path, tuple[int, frozenset[str]]] = {}
+
+
+def _indexed_paths(footage: Path, pack_id: str) -> frozenset[str]:
+    p = index_path(footage, pack_id)
+    try:
+        mtime = p.stat().st_mtime_ns
+    except OSError:
+        return frozenset()
+    hit = _indexed.get(p)
+    if hit is None or hit[0] != mtime:
+        data = read_index(footage, pack_id) or {}
+        hit = (mtime, frozenset(v["path"] for a in data.get("assets", []) for v in a.get("variants", [])))
+        _indexed[p] = hit
+    return hit[1]
+
+
+def pack_files(db_path: Path, footage: Path) -> dict[str, tuple[Path, frozenset[str]]]:
+    """Each registered Pack's root and the Pack-relative paths its index lists (what `/api/media` may serve)."""
     try:
         with storeuse.reading(db_path) as s:
-            return {p.id: p.root for p in library.list_packs(s)}
+            packs = library.list_packs(s)
     except Problem as exc:
         if exc.code in STORE_ABSENT:
             return {}
         raise
+    return {p.id: (p.root, _indexed_paths(footage, p.id)) for p in packs}
 
 
 def load(db_path: Path, footage: Path) -> library.Library:

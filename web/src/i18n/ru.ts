@@ -584,7 +584,7 @@ export const ru: Dict = {
   "err.ref_not_found": "Нет материала {ref}.",
   "err.ref_invalid": "{ref} не ссылка на материал: @<категория>/<имя>.",
   "err.ref_name_invalid": "«{name}» не годится как имя ссылки; должно быть «{slug}».",
-  "err.ref_name_taken": "{ref} уже занято: {holder}.",
+  "err.ref_name_taken": "{ref} уже занято: {holder_file} ({holder}).",
   "err.rights_invalid": "Права «{rights}» должны быть одним из: {values}.",
   "err.tags_invalid": "Теги это слова без запятых, не длиннее 40 символов.",
   "err.caption_invalid": "Подпись это простой текст не длиннее 300 символов.",

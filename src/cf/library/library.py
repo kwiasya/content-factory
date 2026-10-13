@@ -311,8 +311,8 @@ def load(footage: Path, store: Store | None) -> Library:
         cache = cache_dir(footage, info.id)
         for a in (idx or {}).get("assets", []):
             assets.append(_asset(info, cache, a, rows.get(a["id"]), tuple(sorted(by_asset.get(a["id"], ())))))
-    canonical = {a.ref for a in assets}
-    assets = [replace(a, aliases=tuple(r for r in a.aliases if r not in canonical)) for a in assets]
+    shown = {a.ref for a in assets} | {a.file_ref for a in assets}
+    assets = [replace(a, aliases=tuple(r for r in a.aliases if r not in shown)) for a in assets]
     return Library(footage, views, assets, {r["ref"]: r["asset_id"] for r in alias_rows})
 
 

@@ -584,7 +584,7 @@ export const en = {
   "err.ref_not_found": "No Asset {ref}.",
   "err.ref_invalid": "{ref} is not an Asset ref: @<category>/<name>.",
   "err.ref_name_invalid": "“{name}” is not a clean ref name; it would have to be “{slug}”.",
-  "err.ref_name_taken": "{ref} is already taken by {holder}.",
+  "err.ref_name_taken": "{ref} is already taken by {holder_file} ({holder}).",
   "err.rights_invalid": "Rights “{rights}” must be one of {values}.",
   "err.tags_invalid": "Tags must be words without commas, at most 40 characters each.",
   "err.caption_invalid": "A caption is plain text of at most 300 characters.",

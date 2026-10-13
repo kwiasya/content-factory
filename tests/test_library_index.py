@@ -1,6 +1,8 @@
 """Library indexer at the CLI seam on a synthetic Pack: categories, refs, variants, derivations, the read-only rule."""
 
+import contextlib
 import hashlib
+import io
 import json
 import math
 import shutil
@@ -149,6 +151,32 @@ class IndexTest(SyntheticPack):
         a = self.cli("show", "@face/1000001-sticker")["asset"]
         self.assertEqual([v["role"] for v in a["variants"]], ["alpha"])
         self.assertEqual(a["caption"], "Красный")
+
+    def test_author_rows_stay_on_the_original_when_a_byte_identical_copy_exists(self):
+        shutil.copy2(self.pack / "sfx/вуш 2.mp3", self.pack / "sfx/яяя копия.mp3")
+        self.add_and_index("--no-key", "--no-previews", "--no-loudness")
+        self.cli("author", "set", "@sfx/вуш-2", "--caption", "Оригинал", "--name", "первый")
+        self.cli("author", "set", "@sfx/первый", "--name", "оригинал")
+        for _ in range(2):
+            self.cli("index", "synth", "--no-key", "--no-previews", "--no-loudness")
+        original = self.cli("show", "@sfx/оригинал")["asset"]
+        self.assertEqual((original["file"]["path"], original["caption"]), ("sfx/вуш 2.mp3", "Оригинал"))
+        self.assertEqual(original["aliases"], ["@sfx/первый"])
+        copy = self.cli("show", "@sfx/яяя-копия")["asset"]
+        self.assertEqual((copy["caption"], copy["author_name"], copy["aliases"]), (None, None, []))
+        self.assertNotEqual(copy["id"], original["id"])
+
+    def test_index_refuses_a_footage_root_inside_the_pack(self):
+        self.write_config(CONFIG, root=self.pack)
+        self.cli("pack", "add", "--config", str(self.config_path))
+        inner = self.pack / "unmapped" / "footage"
+        from cf.library import cli
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = cli.main(["index", "synth", "--db", str(self.db), "--footage-root", str(inner), "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertIn("inside the Pack", err.getvalue())
+        self.assertFalse(inner.exists())
 
     def write_tags(self, entries: dict) -> str:
         path = self.footage.parent / "tags.json"

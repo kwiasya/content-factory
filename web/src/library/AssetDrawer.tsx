@@ -18,10 +18,9 @@ function LargePreview({ asset }: { asset: AssetCard }) {
     return <FontSample asset={asset} large />;
   }
   if (asset.kind === "video") {
-    const codec = asset.variants?.[0]?.codec ?? null;
-    const src = asset.media.original && codec && BROWSER_CODECS.has(codec) && !asset.file.name.endsWith(".gif")
-      ? asset.media.original
-      : asset.media.preview;
+    const primary = asset.variants?.[0];
+    const playable = primary?.codec && BROWSER_CODECS.has(primary.codec) && !primary.alpha && !asset.file.name.endsWith(".gif");
+    const src = (playable ? asset.media.original : null) ?? asset.media.preview ?? asset.media.original;
     return src ? <video key={src} controls loop playsInline src={mediaUrl(src)} poster={asset.media.poster ? mediaUrl(asset.media.poster) : undefined} /> : null;
   }
   if (asset.kind === "image") {

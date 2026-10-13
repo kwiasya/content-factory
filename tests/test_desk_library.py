@@ -166,6 +166,11 @@ class AuthorTest(LibraryTestCase):
         self.assertEqual((a["ref"], a["author_name"], a["aliases"]), ("@sfx/ветер", "ветер", []))
         a = self.ok(self.put(SFX, name="вжух"))["asset"]
         self.assertEqual((a["ref"], a["aliases"]), ("@sfx/вжух", ["@sfx/ветер"]))
+        with open_store(self.db, seed=False) as s:
+            s.conn.execute("INSERT INTO asset_alias VALUES ('@sfx/вуш-2', ?, 'import', 'x')", (SFX,))
+            s.conn.commit()
+        a = self.ok(self.client.get(f"/api/library/assets/{SFX}"))["asset"]
+        self.assertEqual(a["aliases"], ["@sfx/ветер"])
         a = self.ok(self.put(SFX, caption=None, tags=None))["asset"]
         self.assertEqual((a["caption"], a["tags"]), (None, []))
         body = self.err(self.put(SFX, rights="mine"), 422, "rights_invalid")
@@ -183,7 +188,8 @@ class AuthorTest(LibraryTestCase):
         for name in ("вжух", "ветер", "вуш-2"):
             with self.subTest(name=name):
                 body = self.err(self.put("e" * 16, name=name), 409, "ref_name_taken")
-                self.assertEqual(body["params"], {"ref": f"@sfx/{name}", "holder": "@sfx/вжух"})
+                self.assertEqual(body["params"], {"ref": f"@sfx/{name}", "holder": "@sfx/вжух", "holder_id": SFX,
+                                                  "holder_file": "sfx/a.mp3"})
         self.ok(self.put(FACE, name="вжух"))
 
     def test_author_fields_survive_an_index_rewrite_and_cache_deletion(self):
@@ -238,6 +244,8 @@ class PackMediaTest(LibraryTestCase):
         return self.client.get("/api/media", params={"path": path}, headers=headers)
 
     def test_media_serves_pack_and_cache_files_with_range_and_404s_everything_else(self):
+        self.write_index(INDEX_ASSETS + [asset("f" * 16, "img", "x", "image", [variant("img/x.jfif", kind="image")])])
+        write(self.pack / "excluded/y.mp3", MP3)
         r = self.media("packs/p/sfx/a.mp3")
         self.assertEqual((r.status_code, r.content), (200, MP3))
         r = self.media("packs/p/sfx/a.mp3", range="bytes=10-19")
@@ -248,7 +256,7 @@ class PackMediaTest(LibraryTestCase):
         self.assertEqual(self.media("packs/p/fonts/Komika.ttf").headers["content-type"], "font/ttf")
         for path in ("packs/p/notes.txt", "packs/p/T.drfx", "packs/p/../outside.mp3", "packs/unknown/sfx/a.mp3",
                      "packs/p/sfx/link.mp3", "library/p/index.json", "library/p/keyed", "library/p/keyed/",
-                     "packs/p", "packs/p/sfx/missing.mp3"):
+                     "packs/p", "packs/p/sfx/missing.mp3", "packs/p/excluded/y.mp3"):
             with self.subTest(path):
                 self.assertEqual(self.media(path).status_code, 404)
 

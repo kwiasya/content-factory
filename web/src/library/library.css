@@ -164,7 +164,13 @@
   min-width: 0;
 }
 
+.lib-tile-meta > .muted {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .lib-ref {
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

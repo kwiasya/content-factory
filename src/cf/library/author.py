@@ -89,7 +89,7 @@ def check_name(library: "Library", asset: "Asset", name: str) -> str:
     ref = refs.make(asset.category, name)
     hit = library.lookup(ref)
     if hit is not None and hit[0].id != asset.id:
-        raise RefTaken(ref, hit[0].ref)
+        raise RefTaken(ref, hit[0].ref, hit[0].id, hit[0].primary["path"])
     return name
 
 

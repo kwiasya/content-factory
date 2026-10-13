@@ -96,7 +96,7 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
     app.include_router(notes_api.router(db_path))
     app.include_router(videos_api.router(footage_root, repo, db_path))
     app.include_router(channels.router(footage_root, db_path))
-    app.include_router(media.router(footage_root, lambda: library_api.pack_roots(db_path)))
+    app.include_router(media.router(footage_root, lambda: library_api.pack_files(db_path, footage_root)))
     app.include_router(library_api.router(db_path, footage_root))
     app.include_router(contour_api.router(db_path, footage_root))
 

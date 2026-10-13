@@ -208,6 +208,8 @@ def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, p
     lib_root = (footage / "library").resolve()
     if cfg.root.resolve() == lib_root or cfg.root.resolve().is_relative_to(lib_root):
         raise PackError(f"Pack root {cfg.root} is inside the Library cache {lib_root}; a Pack is never there")
+    if lib_root == cfg.root.resolve() or lib_root.is_relative_to(cfg.root.resolve()):
+        raise PackError(f"the Library cache {lib_root} is inside the Pack {cfg.root}; a Pack is never written")
     only_t = (only,) if isinstance(only, str) else tuple(only or ())
     report = Report()
     prev = read_index(footage, pack_id) or {"assets": []}
@@ -292,7 +294,7 @@ def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, p
 
     cache = cache_dir(footage, pack_id)
     derive.run(cache, cfg.root, built, report, key=key, previews=previews, loudness=loudness, log=log)
-    report.aliases = aliases.after_index(store, pack_id, built, prev_assets)
+    report.aliases = aliases.after_index(store, pack_id, built, prev_assets, seen)
     for a in built:
         a.pop("_prev_id", None)
         a.pop("_folder", None)
