@@ -9,7 +9,7 @@ import { SEARCH_PREFIX, SearchBox } from "../search/SearchPage";
 import { VIDEOS_PREFIX, parseVideos, videoHref } from "../videos/routes";
 import { videosApi, type VideoFilter, type VideoSummary } from "../videos/videosApi";
 import { useDeskData } from "./DeskData";
-import { AGENT_HASH, LIBRARY_HASH, NEW_VIDEO_HASH, parseDoc } from "./routes";
+import { AGENT_HASH, LIBRARY_HASH, NEW_VIDEO_HASH, parseDoc, parseLibrary } from "./routes";
 import "./shell.css";
 
 const FILTER_KEY = "desk.videoFilter";
@@ -37,7 +37,7 @@ function storeFilter(filter: VideoFilter): void {
 
 export const isAgent = (hash: string) => hash === AGENT_HASH || parseDoc(hash) !== null || parseResearch(hash) !== null;
 
-const OWN_PAGES = [NEW_VIDEO_HASH, LIBRARY_HASH, NOTES_HASH];
+const OWN_PAGES = [NEW_VIDEO_HASH, NOTES_HASH];
 
 function isVideosTable(hash: string): boolean {
   const videos = parseVideos(hash);
@@ -49,6 +49,7 @@ function isVideosTable(hash: string): boolean {
     hash.startsWith(SEARCH_PREFIX) ||
     parseContour(hash) !== null ||
     parseFormats(hash) !== null ||
+    parseLibrary(hash) !== null ||
     isAgent(hash)
   );
 }
@@ -153,7 +154,7 @@ export function Sidebar({ hash }: { hash: string }) {
                 <NavLink href={FORMATS_PREFIX} hash={hash} active={parseFormats(hash) !== null} label={t("nav.formats")} />
               </li>
               <li>
-                <NavLink href={LIBRARY_HASH} hash={hash} active={hash === LIBRARY_HASH} label={t("nav.library")} />
+                <NavLink href={LIBRARY_HASH} hash={hash} active={parseLibrary(hash) !== null} label={t("nav.library")} />
               </li>
               <li>
                 <NavLink href={NOTES_HASH} hash={hash} active={hash === NOTES_HASH} label={t("nav.notes")} />

@@ -64,7 +64,7 @@ def _input(path: Path, *, vp9_alpha: bool = False, seek: float | None = None, li
 
 def _over_backdrop(width: int | None, height: int | None, tail: str) -> list[str]:
     w, h = width or 512, height or 512
-    return ["-filter_complex", f"color=c={BACKDROP}:s={w}x{h}[bg];[bg][0:v]overlay=shortest=1,{tail}"]
+    return ["-filter_complex", f"color=c={BACKDROP}:s={w}x{h}[bg];[0:v]setpts=PTS-STARTPTS[fg];[bg][fg]overlay=shortest=1,{tail}"]
 
 
 def chroma_key(src: Path, target: Path, color: str, similarity: float, blend: float) -> None:

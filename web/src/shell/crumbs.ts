@@ -7,7 +7,7 @@ import { RESEARCH_PREFIX, parseResearch } from "../research/ResearchPage";
 import { VIDEOS_PREFIX, parseVideos } from "../videos/routes";
 import type { VideoSummary } from "../videos/videosApi";
 import { SEARCH_PREFIX } from "../search/SearchPage";
-import { AGENT_HASH, LIBRARY_HASH, NEW_VIDEO_HASH, parseDoc } from "./routes";
+import { AGENT_HASH, NEW_VIDEO_HASH, parseDoc, parseLibrary } from "./routes";
 
 export interface Crumb {
   label: string;
@@ -77,7 +77,7 @@ export function crumbs(hash: string, { videos, formats, t }: CrumbContext): Crum
     return [{ label: t("crumb.search") }, { label: `“${decodeURIComponent(hash.slice(SEARCH_PREFIX.length))}”` }];
   }
   if (hash === NEW_VIDEO_HASH) return [{ label: t("crumb.newVideo") }];
-  if (hash === LIBRARY_HASH) return [{ label: t("crumb.library") }];
+  if (parseLibrary(hash)) return [{ label: t("crumb.library") }];
   if (hash === NOTES_HASH) return [{ label: t("crumb.notes") }];
   if (hash === AGENT_HASH) return [{ label: t("crumb.agent") }];
   return [{ label: t("crumb.videos") }];

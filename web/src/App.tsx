@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { agentRoute } from "./agent/AgentPage";
 import { contourRoute } from "./contour/ContourRoute";
 import { FormatsRoute } from "./formats/FormatsRoute";
-import { libraryRoute } from "./library/LibraryPage";
+import { libraryRoute } from "./library/LibraryRoute";
 import { notesRoute } from "./notes/NotesPage";
 import { searchRoute } from "./search/SearchPage";
 import { DeskDataProvider } from "./shell/DeskData";
