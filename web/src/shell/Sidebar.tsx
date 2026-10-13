@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CONTOUR_PREFIX, parseContour } from "../contour/routes";
 import { FORMATS_PREFIX, parseFormats } from "../formats/FormatsRoute";
+import { ErrorLine } from "../ErrorLine";
 import { LangSwitch, useT } from "../i18n";
 import { NOTES_HASH } from "../notes/NotesPage";
 import { parseResearch } from "../research/ResearchPage";
@@ -52,9 +53,13 @@ function isVideosTable(hash: string): boolean {
   );
 }
 
-function NavLink({ href, active, label }: { href: string; active: boolean; label: string }) {
+function current(active: boolean, exact: boolean): "page" | "true" | undefined {
+  return active ? (exact ? "page" : "true") : undefined;
+}
+
+function NavLink({ href, hash, active, label }: { href: string; hash: string; active: boolean; label: string }) {
   return (
-    <a href={href} className={active ? "active" : ""} aria-current={active ? "page" : undefined}>
+    <a href={href} className={active ? "active" : ""} aria-current={current(active, hash === href)}>
       <span className="name">{label}</span>
     </a>
   );
@@ -73,14 +78,20 @@ function VideoItem({ video, active }: { video: VideoSummary; active: boolean }) 
         aria-current={active ? "page" : undefined}
         title={tip}
       >
-        <span className={`stage-dot stage-${stage}`} title={status} aria-label={status} />
+        <span className={`stage-dot stage-${stage}`} role="img" title={status} aria-label={status} />
         <span className="name">{video.title}</span>
         {video.legacy && (
           <span className="legacy-mark" title={t("videos.legacy")}>
-            L
+            <span aria-hidden="true">L</span>
+            <span className="sr-only">{t("videos.legacy")}</span>
           </span>
         )}
-        {video.error && <span className="error-mark">!</span>}
+        {video.error && (
+          <span className="error-mark" title={tip}>
+            <span aria-hidden="true">!</span>
+            <span className="sr-only">{tip}</span>
+          </span>
+        )}
       </a>
     </li>
   );
@@ -130,93 +141,96 @@ export function Sidebar({ hash }: { hash: string }) {
         </a>
         <SearchBox />
       </div>
-      <div className="shell-middle">
-        <section className="group">
-          <h2>{t("nav.tools")}</h2>
-          <ul>
-            <li>
-              <NavLink href={CONTOUR_PREFIX} active={parseContour(hash) !== null} label={t("nav.research")} />
-            </li>
-            <li>
-              <NavLink href={FORMATS_PREFIX} active={parseFormats(hash) !== null} label={t("nav.formats")} />
-            </li>
-            <li>
-              <NavLink href={LIBRARY_HASH} active={hash === LIBRARY_HASH} label={t("nav.library")} />
-            </li>
-            <li>
-              <NavLink href={NOTES_HASH} active={hash === NOTES_HASH} label={t("nav.notes")} />
-            </li>
-          </ul>
-        </section>
-        <section className="group shell-videos">
-          <h2>
-            <a
-              href={VIDEOS_PREFIX}
-              className={isVideosTable(hash) ? "active" : ""}
-              aria-current={isVideosTable(hash) ? "page" : undefined}
-            >
-              {t("sidebar.videos")}
-            </a>
-          </h2>
-          <div className="video-filters">
-            <select
-              aria-label={t("sidebar.filterFormat")}
-              title={t("sidebar.filterFormat")}
-              value={filter.format ?? ""}
-              onChange={(e) => change({ ...filter, format: e.target.value })}
-            >
-              <option value="">{t("sidebar.allFormats")}</option>
-              {formatIds.map((id) => (
-                <option key={id} value={id}>
-                  {formatTitle(id)}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label={t("sidebar.filterChannel")}
-              title={t("sidebar.filterChannel")}
-              value={filter.channel ?? ""}
-              onChange={(e) => change({ ...filter, channel: e.target.value })}
-            >
-              <option value="">{t("sidebar.allChannels")}</option>
-              {channelIds.map((id) => (
-                <option key={id} value={id}>
-                  {id}
-                </option>
-              ))}
-            </select>
-          </div>
-          {videos === null ? (
-            !data.error && <p className="muted side-note">{t("common.loading")}</p>
-          ) : videos.length === 0 ? (
-            <p className="muted side-note">
-              {filtering ? (
-                t("sidebar.noMatch")
-              ) : (
-                <>
-                  {t("sidebar.noVideos")} <a href={NEW_VIDEO_HASH}>{t("nav.newVideo")}</a>
-                </>
-              )}
-            </p>
-          ) : (
+      <nav className="shell-nav" aria-label={t("nav.label")}>
+        <div className="shell-middle">
+          <section className="group">
+            <h2>{t("nav.tools")}</h2>
             <ul>
-              {videos.map((v) => (
-                <VideoItem key={v.slug} video={v} active={v.slug === current} />
-              ))}
+              <li>
+                <NavLink href={CONTOUR_PREFIX} hash={hash} active={parseContour(hash) !== null} label={t("nav.research")} />
+              </li>
+              <li>
+                <NavLink href={FORMATS_PREFIX} hash={hash} active={parseFormats(hash) !== null} label={t("nav.formats")} />
+              </li>
+              <li>
+                <NavLink href={LIBRARY_HASH} hash={hash} active={hash === LIBRARY_HASH} label={t("nav.library")} />
+              </li>
+              <li>
+                <NavLink href={NOTES_HASH} hash={hash} active={hash === NOTES_HASH} label={t("nav.notes")} />
+              </li>
             </ul>
-          )}
-        </section>
-      </div>
-      <div className="shell-bottom">
-        <div className="group">
-          <ul>
-            <li>
-              <NavLink href={AGENT_HASH} active={isAgent(hash)} label={t("nav.agent")} />
-            </li>
-          </ul>
+          </section>
+          <section className="group shell-videos">
+            <h2>
+              <a
+                href={VIDEOS_PREFIX}
+                className={isVideosTable(hash) ? "active" : ""}
+                aria-current={isVideosTable(hash) ? "page" : undefined}
+              >
+                {t("sidebar.videos")}
+              </a>
+            </h2>
+            <div className="video-filters">
+              <select
+                aria-label={t("sidebar.filterFormat")}
+                title={t("sidebar.filterFormat")}
+                value={filter.format ?? ""}
+                onChange={(e) => change({ ...filter, format: e.target.value })}
+              >
+                <option value="">{t("sidebar.allFormats")}</option>
+                {formatIds.map((id) => (
+                  <option key={id} value={id}>
+                    {formatTitle(id)}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label={t("sidebar.filterChannel")}
+                title={t("sidebar.filterChannel")}
+                value={filter.channel ?? ""}
+                onChange={(e) => change({ ...filter, channel: e.target.value })}
+              >
+                <option value="">{t("sidebar.allChannels")}</option>
+                {channelIds.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <ErrorLine error={data.error} />
+            {videos === null ? (
+              !data.error && <p className="muted side-note">{t("common.loading")}</p>
+            ) : videos.length === 0 ? (
+              <p className="muted side-note">
+                {filtering ? (
+                  t("sidebar.noMatch")
+                ) : (
+                  <>
+                    {t("sidebar.noVideos")} <a href={NEW_VIDEO_HASH}>{t("nav.newVideo")}</a>
+                  </>
+                )}
+              </p>
+            ) : (
+              <ul>
+                {videos.map((v) => (
+                  <VideoItem key={v.slug} video={v} active={v.slug === current} />
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
-        <LangSwitch />
-      </div>
+        <div className="shell-bottom">
+          <div className="group">
+            <ul>
+              <li>
+                <NavLink href={AGENT_HASH} hash={hash} active={isAgent(hash)} label={t("nav.agent")} />
+              </li>
+            </ul>
+          </div>
+          <LangSwitch />
+        </div>
+      </nav>
     </aside>
   );
 }

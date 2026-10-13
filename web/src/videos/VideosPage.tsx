@@ -2,12 +2,13 @@ import { formatTime } from "../format";
 import { videoHref } from "./routes";
 import { useT } from "../i18n";
 import { ErrorLine } from "../ErrorLine";
-import { useDeskData } from "../shell/DeskData";
+import { useDeskData, useReloadOnMount } from "../shell/DeskData";
 import { NEW_VIDEO_HASH } from "../shell/routes";
 
 export function VideosPage() {
   const t = useT();
   const { videos, error } = useDeskData();
+  useReloadOnMount();
 
   return (
     <main className="doc videos">
