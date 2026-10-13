@@ -3,7 +3,7 @@
   "name": "travel-walk-v1",
   "status": "draft: defaults from research, not yet reviewed by the author",
   "audience": "one person planning a city break who wants to feel the place before going",
-  "_doc": "Pixel units: `canvas.width/height` are output pixels (2160x3840 by default, the author's preference since 2026-10-11). Every other pixel number in this file (safe_zone, overlay_positions, typography.*.size, animation.in.distance_px) and in overlays/src/presets.ts and slots.json is in a 1080-wide reference space (`canvas.reference_width`), so the numbers read as on a 1080x1920 frame. Canvas pixels = reference pixels x canvas.width / canvas.reference_width (x2 at 2160x3840). The overlay renderer (overlays/src/style.ts designScale) and cf.canvas (Python) apply that one factor. Named canvases: `canvases` holds one preset per orientation (portrait, landscape), each with its own size, reference_width and, where they differ from the top-level ones, safe_zone, overlay_positions and slots (all in that preset's reference space). `canvas` is the active default (portrait); a Script's top-level `canvas` ('landscape') picks a preset, and `--canvas landscape|portrait|WxH` on cf.build / cf.render / cf.render_check / overlays/render.mjs wins over both.",
+  "_doc": "Pixel units: `canvas.width/height` are output pixels (2160x3840 by default, the author's preference since 2026-10-11). Every other pixel number in this file (safe_zone, overlay_positions, typography.*.size, animation.in.distance_px) and in overlays/src/presets.ts and slots.json is in a 1080-wide reference space (`canvas.reference_width`), so the numbers read as on a 1080x1920 frame. Canvas pixels = reference pixels x canvas.width / canvas.reference_width (x2 at 2160x3840). The overlay renderer (overlays/src/style.ts designScale) and cf.canvas (Python) apply that one factor. Named canvases: `canvases` holds one preset per orientation (portrait, landscape), each with its own size, reference_width and, where they differ from the top-level ones, safe_zone, overlay_positions and slots (all in that preset's reference space). `canvas` is the active default (portrait); a Script's top-level `canvas` ('landscape') picks a preset, and `--canvas landscape|portrait|WxH` on cf.build / cf.render / cf.render_check / overlays/render.mjs wins over both. `assets` holds the Library cue boxes, default positions, still lengths and the sound level rule (docs/script-schema.md, Assets).",
   "canvas": {
     "width": 2160,
     "height": 3840,
@@ -109,6 +109,53 @@
           "align": "left",
           "_note": "inside the 5 % frame margin but over the YouTube controls band (safe-zone warning); for the Instagram feed only"
         }
+      },
+      "asset_pos": {
+        "_units": "reference px (1920x1080); the Asset fits inside the box, centred",
+        "center": {
+          "x": 710,
+          "y": 290,
+          "w": 500,
+          "h": 500
+        },
+        "top": {
+          "x": 710,
+          "y": 70,
+          "w": 500,
+          "h": 400
+        },
+        "bottom": {
+          "x": 710,
+          "y": 540,
+          "w": 500,
+          "h": 400
+        },
+        "top-left": {
+          "x": 110,
+          "y": 70,
+          "w": 400,
+          "h": 400
+        },
+        "top-right": {
+          "x": 1410,
+          "y": 70,
+          "w": 400,
+          "h": 400
+        },
+        "bottom-left": {
+          "x": 110,
+          "y": 540,
+          "w": 400,
+          "h": 400
+        },
+        "bottom-right": {
+          "x": 1410,
+          "y": 540,
+          "w": 400,
+          "h": 400
+        },
+        "full": "cover",
+        "fit": "contain"
       }
     }
   },
@@ -214,6 +261,72 @@
     "ambience_db": -20,
     "target_lufs": -14,
     "true_peak_dbtp": -1
+  },
+  "assets": {
+    "_doc": "Library Asset cues (shots[].assets; docs/script-schema.md, Assets). pos boxes are reference px (x, y = top-left), the Asset fits inside the box, centred; 'full' covers the canvas, 'fit' fits it; canvases.landscape.asset_pos holds the 16:9 boxes. Every portrait box lies inside safe_zone and clear of right_rail. still_s is a picture's default length, still_max_s its longest; sfx_free_max_s: a sound effect of unknown rights shorter than this is allowed (with a warning). Level of a sound cue: integrated loudness sfx_below_track_db under the Track (or under audio.target_lufs without one), plus the cue's db, capped by audio.true_peak_dbtp and clamped to gain_range_db. loop_clear_s: on a loop_seamless Reel a picture must end this long before the end.",
+    "pos": {
+      "center": {
+        "x": 290,
+        "y": 660,
+        "w": 500,
+        "h": 480
+      },
+      "top": {
+        "x": 290,
+        "y": 290,
+        "w": 500,
+        "h": 400
+      },
+      "bottom": {
+        "x": 300,
+        "y": 840,
+        "w": 480,
+        "h": 400
+      },
+      "top-left": {
+        "x": 80,
+        "y": 290,
+        "w": 400,
+        "h": 400
+      },
+      "top-right": {
+        "x": 600,
+        "y": 290,
+        "w": 400,
+        "h": 400
+      },
+      "bottom-left": {
+        "x": 80,
+        "y": 840,
+        "w": 400,
+        "h": 400
+      },
+      "bottom-right": {
+        "x": 380,
+        "y": 840,
+        "w": 400,
+        "h": 400
+      },
+      "full": "cover",
+      "fit": "contain"
+    },
+    "default_pos": {
+      "meme": "center",
+      "img": "center",
+      "footage": "center",
+      "emoji": "bottom-left",
+      "face": "bottom-left",
+      "fx": "full"
+    },
+    "still_s": 1.5,
+    "still_max_s": 5.0,
+    "sfx_free_max_s": 2.0,
+    "sfx_below_track_db": -6,
+    "loop_clear_s": 0.5,
+    "gain_range_db": [
+      -40,
+      12
+    ]
   },
   "speech": {
     "on_camera_allowed": false,
