@@ -88,7 +88,7 @@ export function TextFileEditor({ slug, path, creatable = false, onSaved }: Props
     file.format === "text" ? (
       <textarea className="plain-editor" value={draft} spellCheck={false} onChange={(e) => setDraft(e.target.value)} />
     ) : (
-      <CodeEditor value={draft} kind={file.format} readOnly={false} onChange={setDraft} />
+      <CodeEditor value={draft} kind={file.format} readOnly={false} onChange={setDraft} refs={file.format === "markdown"} />
     );
 
   return (

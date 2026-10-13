@@ -74,6 +74,8 @@ export const en = {
   "library.close": "Close",
   "library.didYouMean": "Did you mean:",
   "library.back": "Back to Library",
+  "library.openInLibrary": "Open in Library",
+  "library.noSuchAsset": "No such Asset: {ref}",
   "library.rights.any": "Any rights",
   "library.rights.own": "own",
   "library.rights.free": "free",

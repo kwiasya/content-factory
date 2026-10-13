@@ -2,6 +2,9 @@ import { useMemo } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { CodeEditor } from "./CodeEditor";
+import { refExtension } from "./library/marked";
+
+marked.use(refExtension);
 
 function stripFrontmatter(text: string): { front: string | null; body: string } {
   const match = /^---\n([\s\S]*?)\n---\n?/.exec(text);

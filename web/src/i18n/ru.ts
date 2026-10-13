@@ -74,6 +74,8 @@ export const ru: Dict = {
   "library.close": "Закрыть",
   "library.didYouMean": "Возможно, вы имели в виду:",
   "library.back": "Назад в Библиотеку",
+  "library.openInLibrary": "Открыть в Библиотеке",
+  "library.noSuchAsset": "Нет такого материала: {ref}",
   "library.rights.any": "Любые права",
   "library.rights.own": "своё",
   "library.rights.free": "свободно",
