@@ -3,6 +3,7 @@
     python -m cf.build <reel_dir> [--walk <walk_dir>] [--project-name NAME] [--no-stills]
                        [--look <file.cube>|none] [--stills-only [--stills-dir DIR]] [--script FILE]
                        [--no-track] [--ambience-db DB] [--canvas WxH] [--no-superscale]
+                       [--footage-root PATH] [--db PATH] [--no-assets]
 
 Rules: ``docs/resolve-rules.md``; contract: ``.claude/skills/build-reel/SKILL.md``;
 decision to rebuild rather than patch: ``docs/adr/0001-timeline-rebuilt-from-plan.md``.
@@ -39,8 +40,19 @@ with more than 8 px of black at an edge fails the build. ``smart`` (opt-in) runs
 ``GetSmartReframeStatus()``. The Smart Reframe keyframes do not show in ``GetProperties()``
 (Pan reads 0), so the still is its read-back. ``x_end`` is not animated (no keyframe API).
 
+Asset cues (``shots[].assets``, ``docs/script-schema.md`` Assets): the Library is loaded read-only
+(``cf.assets.context``; ``--footage-root`` / ``--db``) only for a Script with cues. Sounds go on A3
+"sfx" (A4 when two overlap) at the level of ``plan_cues`` (6 LU under the Track's measured loudness
+over the part used, else under the target loudness), pictures on V4 "assets" (V5) from the file
+``cf.assets.placement`` picks, with the ``pos`` transform (ZoomX ganged, Pan, Tilt); a meme's sound
+shares its cue on an A lane. Every item and value is read back, and each picture cue gets a still
+``stills/cue-<cue>.png``. ``--no-assets`` builds without them. A cue-less Script creates the same
+tracks as before and never opens factory.db. The Pack is only read (Resolve imports by path).
+A Video folder (``videos/<slug>/`` with video.json) builds from ``<footage>/<script.walk>`` when
+``--walk`` is absent.
+
 The planning part (``plan_shots``, ``plan_track``, ``beat_marker_plan``, ``append_infos``,
-``source_end``, ``plan_reframes``) is pure and has no Resolve dependency, so it is unit-tested
+``source_end``, ``plan_reframes``, ``plan_cues``, ``sfx_volume``) is pure and has no Resolve dependency, so it is unit-tested
 in ``tests/test_build_plan.py`` and ``tests/test_reframe.py``.
 """
 
@@ -61,7 +73,7 @@ from cf import follow as fw
 from cf import frames
 from cf import reframe as rf
 from cf.canvas import Canvas, for_reel, scaled_safe_zone, spec_of, upscale_plan
-from cf.script_schema import Script, load, load_json, manifest_clips, validate
+from cf.script_schema import Script, check, has_cues, load, load_json, manifest_clips
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STYLE_PATH = REPO_ROOT / "style.json"
@@ -731,6 +743,7 @@ class Report:
     upscale: list[dict] = field(default_factory=list)
     reframe: list[dict] = field(default_factory=list)
     overlays: dict = field(default_factory=dict)
+    assets: dict = field(default_factory=dict)
     look: dict = field(default_factory=dict)
     stills: list[dict] = field(default_factory=list)
     mismatches: list[str] = field(default_factory=list)
@@ -759,8 +772,10 @@ class Builder:
     def __init__(self, reel_dir: Path, walk_dir: Path, project_name: str | None, stills: bool,
                  look: str | None = None, stills_only: bool = False, stills_dir: Path | None = None,
                  script_path: Path | None = None, use_track: bool = True,
-                 ambience_db: float | None = None, canvas: str | None = None, superscale: bool = True):
+                 ambience_db: float | None = None, canvas: str | None = None, superscale: bool = True,
+                 footage_root: Path | None = None, db_path: Path | None = None, use_assets: bool = True):
         self.reel_dir = reel_dir
+        self.use_assets = use_assets
         self.superscale = superscale
         self.use_track = use_track
         self.ambience_db_override = ambience_db
@@ -797,12 +812,48 @@ class Builder:
                          "spec": spec_of(canvas, self.script.canvas),
                          "safe_zone_px": scaled_safe_zone(self.style, self.canvas)}
         self.d: Any = None
+        self.cue_plan: list[PlannedCue] = []
+        self.assets_ctx = None
+        if has_cues(self.script):
+            from cf.assets import context  # noqa: PLC0415
+
+            self.assets_ctx = context(script_path or reel_dir / "script.json", footage=footage_root, db_path=db_path)
+            self.r.assets = {"enabled": use_assets, "library_problem": self.assets_ctx.library_problem,
+                             "warnings": [], "cues": [], "tracks": {}, "stills": []}
 
     # ---- steps
     def validate(self) -> None:
-        problems = validate(self.script, self.manifest, self.style)
-        if problems:
-            raise BuildError("script.json does not validate:\n- " + "\n- ".join(problems))
+        f = check(self.script, self.manifest, self.style, self.assets_ctx)
+        if f.problems:
+            raise BuildError("script.json does not validate:\n- " + "\n- ".join(f.problems))
+        for w in f.warnings:
+            self.r.notes.append(f"asset warning: {w}")
+        if self.r.assets:
+            self.r.assets["warnings"] = list(f.warnings)
+            if not self.use_assets:
+                self.r.notes.append("--no-assets: the Script's Asset cues are left out of this build")
+
+    def cues_on(self) -> bool:
+        return self.assets_ctx is not None and self.use_assets
+
+    def cue_reference(self) -> None:
+        """The level the sound cues are set against, measured before Resolve is touched."""
+        from cf import assets as ca  # noqa: PLC0415
+
+        if not self.cues_on():
+            return
+        lib = self.assets_ctx.library
+        sound = any(ca.has_sound(a) for a in (ca.lookup(lib, c.ref) for s in self.script.shots for c in s.assets)
+                    if a is not None)
+        track_lufs = None
+        if sound and self.track_on:
+            shots, _ = plan_shots(self.script, self.manifest, 0, self.fps, self.cuts)
+            duration = shots[-1].record_end
+            plan, _ = plan_track(self.script, self.reel_dir, 0, duration, self.fps, self.beats,
+                                 DEFAULT_TRACK_FADE_OUT_S)
+            track_lufs = measure_track_lufs(plan.path, plan.src_start / self.fps, duration / self.fps)
+        ref, source = reference_level(self.style, track_lufs)
+        self.r.assets["reference"] = {"lufs": ref, "source": source, "measured_track_lufs": track_lufs}
 
     def connect(self) -> None:
         from cf.resolve_driver import ResolveDriver  # noqa: PLC0415 - keeps planning importable without Resolve
@@ -1008,6 +1059,7 @@ class Builder:
 
         if self.track_on:
             self.place_track(tl, start, shots[-1].record_end - start)
+        self.place_cues(tl, shots)
 
         # Markers: timeline markers take offsets from the timeline start (S10). One marker
         # per frame, so a beat marker on a shot's first frame is left out.
@@ -1233,6 +1285,98 @@ class Builder:
                                "audio_sub_type": d.call(tl.GetTrackSubType, "audio", 2),
                                "file_duration": props.get("Duration")}
 
+    def _plan_cues(self, shots: list[PlannedShot], mismatch: str,
+                   file_fps: dict[str, float] | None = None) -> tuple[list[PlannedCue], list[str]]:
+        ref = self.r.assets.get("reference") or {}
+        lufs, source = (ref["lufs"], ref["source"]) if ref else reference_level(self.style, None)
+        return plan_cues(self.script, shots, self.assets_ctx.library, fps=self.fps, canvas=self.canvas,
+                         style=self.style, reference_lufs=lufs, reference_source=source, mismatch=mismatch,
+                         file_fps=file_fps)
+
+    def place_cues(self, tl: Any, shots: list[PlannedShot]) -> None:
+        """Asset cues: sounds on A3/A4 at their level, pictures on V4/V5 with the pos transform; read back."""
+        if not self.cues_on():
+            return
+        d, r = self.d, self.r
+        mismatch = (d.call(tl.GetSettings) or {}).get("timelineInputResMismatchBehavior") or \
+            (d.call(d.project.GetSettings) or {}).get("timelineInputResMismatchBehavior") or "scaleToFit"
+        cues, _ = self._plan_cues(shots, mismatch)
+        if not cues:
+            return
+        paths = list(dict.fromkeys(c.path for c in cues))
+        for p in paths:
+            if not Path(p).exists():
+                raise BuildError(f"Asset file not found: {p}")
+        pool = d.import_media(paths, bin_name=f"{self.walk} assets")
+        items = dict(zip(paths, pool))
+        file_fps = {p: float((d.call(items[p].GetClipProperty) or {}).get("FPS") or 0) for p in paths}
+        cues, notes = self._plan_cues(shots, mismatch, {p: f for p, f in file_fps.items() if f})
+        r.notes.extend(notes)
+        self.cue_plan = cues
+        base_audio = 2 if self.track_on else 1
+        want = cue_tracks(cues, base_audio)
+        has_audio = any(c.track_type == "audio" for c in cues)
+        v_names = {i: n for i, n in {4: "assets", 5: "assets 2"}.items() if i <= want["video"]}
+        a_names = {i: n for i, n in {2: AUDIO_TRACK_NAMES[2], 3: "sfx", 4: "sfx 2"}.items() if i <= want["audio"]}
+        got_v = d.ensure_tracks(tl, "video", want["video"], v_names)
+        got_a = d.ensure_tracks(tl, "audio", want["audio"], a_names, sub_type="stereo") if has_audio else \
+            int(d.call(tl.GetTrackCount, "audio"))
+        r.assets["tracks"] = {"wanted": want, "video": got_v, "audio": got_a}
+        r.check("tracks for the Asset cues (video, audio)", [want["video"], want["audio"] if has_audio else got_a],
+                [got_v, got_a])
+        placed: dict[int, Any] = {}
+        for kind in ("video", "audio"):
+            group = [c for c in cues if c.track_type == kind]
+            if not group:
+                continue
+            got = d.append(cue_append_infos(group, items))
+            r.check(f"Asset cue {kind} items returned by AppendToTimeline", len(group), len(got))
+            for c, it in zip(group, got):
+                placed[id(c)] = it
+        if has_audio:
+            self._remove_cue_audio_spill(tl, want["audio"])
+        rows = []
+        for c in cues:
+            it = placed.get(id(c))
+            row = {**asdict(c), "start": None, "end": None}
+            if it is not None:
+                row.update(start=int(d.call(it.GetStart)), end=int(d.call(it.GetEnd)))
+                try:
+                    if c.track_type == "audio":
+                        row["AudioVolume"] = float(d.set_item_property_verified(it, "AudioVolume", c.volume_db))
+                    else:
+                        before = d.call(it.GetProperties) or {}
+                        if not before.get("ZoomGang"):
+                            d.set_item_property_verified(it, "ZoomGang", True)
+                        for key in ("ZoomX", "Pan", "Tilt"):
+                            d.set_item_property_verified(it, key, c.transform[key])
+                        got = d.call(it.GetProperties) or {}
+                        row["after"] = {k: got.get(k) for k in ("ZoomX", "ZoomY", "ZoomGang", "Pan", "Tilt")}
+                except Exception as exc:  # noqa: BLE001 - recorded as a mismatch
+                    row["error"] = str(exc)
+                    r.mismatches.append(f"cue {c.cue} {c.lane}: {exc}")
+            r.check(f"cue {c.cue} {c.ref} on {c.lane} start/end", [c.record_frame, c.record_end],
+                    [row["start"], row["end"]])
+            rows.append(row)
+        r.assets["cues"] = rows
+
+    def _remove_cue_audio_spill(self, tl: Any, keep: int) -> None:
+        """A multi-channel file can spill onto tracks past the last cue lane; delete those items and tracks."""
+        d, r = self.d, self.r
+        n = int(d.call(tl.GetTrackCount, "audio"))
+        removed = 0
+        for idx in range(n, keep, -1):
+            extra = d.call(tl.GetItemListInTrack, "audio", idx) or []
+            if extra and not d.call(tl.DeleteClips, list(extra), False):
+                raise BuildError(f"DeleteClips on A{idx} returned False")
+            removed += len(extra)
+            if not d.call(tl.DeleteTrack, "audio", idx):
+                raise BuildError(f"DeleteTrack('audio', {idx}) returned False")
+        if n > keep:
+            r.notes.append(f"Asset cue audio spilled onto A{keep + 1}..A{n}: {removed} item(s) and the tracks removed")
+        r.assets["audio_spill"] = {"tracks_after_append": n, "items_removed": removed}
+        r.check("audio tracks after the Asset cue append", keep, int(d.call(tl.GetTrackCount, "audio")))
+
     def _remove_audio_spill(self, tl: Any) -> None:
         """iPhone clips carry extra (spatial) audio streams that land on A2..A5 even with
         ``mediaType: 2, trackIndex: 1``. Delete those items and the extra tracks."""
@@ -1443,7 +1587,10 @@ class Builder:
         r.check("timeline length = planned picture length", r.timeline["expected_duration_frames"],
                 r.timeline["duration_frames"])
         n_audio = 2 if self.track_on else 1
+        if any(c.track_type == "audio" for c in self.cue_plan):
+            n_audio = cue_tracks(self.cue_plan, n_audio)["audio"]
         r.check("audio track count", n_audio, r.timeline["track_counts"]["audio"])
+        self.read_back_cues()
         if self.track_on:
             tp = self.track_plan
             a2 = [it for it in (d.call(tl.GetItemListInTrack, "audio", 2) or [])
@@ -1468,6 +1615,67 @@ class Builder:
         vols = [(d.call(it.GetProperties) or {}).get("AudioVolume") for it in a1]
         r.check("A1 ambience AudioVolume (all items)", [r.timeline.get("ambience_db")] * len(a1),
                 [float(v) if v is not None else None for v in vols])
+
+    def read_back_cues(self) -> None:
+        """Each cue lane against the plan: items, name, start, end, duration, level or transform."""
+        d, r, tl = self.d, self.r, self.tl
+        if not self.cue_plan:
+            return
+        rows = []
+        for (kind, idx) in sorted({(c.track_type, c.track_index) for c in self.cue_plan}):
+            want = sorted((c for c in self.cue_plan if (c.track_type, c.track_index) == (kind, idx)),
+                          key=lambda c: c.record_frame)
+            got = sorted((it for it in (d.call(tl.GetItemListInTrack, kind, idx) or [])
+                          if d.call(it.GetMediaPoolItem) is not None), key=lambda it: int(d.call(it.GetStart)))
+            lane = want[0].lane
+            r.check(f"{lane} cue item count", len(want), len(got))
+            for c, it in zip(want, got):
+                props = d.call(it.GetProperties) or {}
+                row = {"cue": c.cue, "ref": c.ref, "lane": lane, "name": d.call(it.GetName),
+                       "start": int(d.call(it.GetStart)), "end": int(d.call(it.GetEnd)),
+                       "duration": int(d.call(it.GetDuration))}
+                ok = (row["name"] == Path(c.path).name and row["start"] == c.record_frame
+                      and row["end"] == c.record_end and row["duration"] == c.duration)
+                if kind == "audio":
+                    row["AudioVolume"] = props.get("AudioVolume")
+                    ok = ok and row["AudioVolume"] is not None and \
+                        abs(float(row["AudioVolume"]) - float(c.volume_db)) <= 0.05
+                else:
+                    row.update({k: props.get(k) for k in ("ZoomX", "ZoomY", "Pan", "Tilt")})
+                    ok = ok and all(row[k] is not None and abs(float(row[k]) - float(c.transform[k])) <= 1e-3
+                                    for k in ("ZoomX", "ZoomY", "Pan", "Tilt"))
+                row["ok"] = ok
+                rows.append(row)
+                if not ok:
+                    r.mismatches.append(f"cue {c.cue} {lane}: planned {asdict(c)}, read {row}")
+        r.assets["read_back"] = rows
+
+    def _export_still(self, frame: int, f: Path) -> dict:
+        d, tl = self.d, self.tl
+        tc = timecode(frame, self.fps)
+        f.unlink(missing_ok=True)
+        set_ok = d.call(tl.SetCurrentTimecode, tc)
+        got_tc = d.call(tl.GetCurrentTimecode)
+        ok, tries = False, 0
+        for tries in range(1, 4):
+            ok = d.call(d.project.ExportCurrentFrameAsStill, str(f), timeout=60)
+            if ok and f.exists():
+                break
+            time.sleep(1.0)
+        return {"frame": frame, "timecode": tc, "playhead": got_tc, "set_returned": set_ok, "export_returned": ok,
+                "export_tries": tries, "file": str(f), "bytes": f.stat().st_size if f.exists() else 0}
+
+    def cue_stills(self) -> None:
+        """One still per picture cue at its middle frame (no pixel check: the agent looks at them)."""
+        r = self.r
+        for c in self.cue_plan:
+            if c.track_type != "video":
+                continue
+            row = {"cue": c.cue, "ref": c.ref, **self._export_still(c.record_frame + c.duration // 2,
+                                                                     self.stills_dir / f"cue-{c.cue}.png")}
+            r.assets["stills"].append(row)
+            r.check(f"cue {c.cue} still at {row['timecode']}", True,
+                    bool(row["export_returned"]) and row["bytes"] > 0 and row["playhead"] == row["timecode"])
 
     def stills(self) -> None:
         d, r, tl = self.d, self.r, self.tl
@@ -1524,6 +1732,7 @@ class Builder:
                         band, ok=worst is not None and worst <= BLACK_BAND_TOLERANCE_PX)
             r.stills.append(row)
             r.check(f"{s.id} still at {tc}", True, bool(ok) and size > 0 and got_tc == tc)
+        self.cue_stills()
 
     def _reframe_still_checks(self, s: PlannedShot, rp: rf.ReframePlan, f: Path, proxy: Path, src_t: float,
                               row: dict) -> dict | None:
@@ -1641,6 +1850,7 @@ class Builder:
             return 1 if (self.r.error or self.r.mismatches) else 0
         try:
             self.validate()
+            self.cue_reference()
             self.follow_analysis()
             self.connect()
             self.project_settings()
@@ -1664,6 +1874,7 @@ class Builder:
     def write_report(self) -> None:
         data = _jsonable(asdict(self.r))
         data["plan"] = [asdict(s) for s in getattr(self, "plan", [])]
+        data["cue_plan"] = [asdict(c) for c in self.cue_plan]
         data["ok"] = not (self.r.error or self.r.mismatches)
         self.report_path.parent.mkdir(parents=True, exist_ok=True)
         self.report_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
@@ -1758,6 +1969,27 @@ class Builder:
                 print(f"  {st['shot']:<5}{clip:<14}{size:>10}{st.get('mean_luma', '-')!s:>10}"
                       f"{st.get('pct_ge_235', '-')!s:>9}{small.get('mean_luma', '-')!s:>8}"
                       f"{px.get('mean_luma', '-')!s:>12}{px.get('pct_ge_235', '-')!s:>9}")
+        if r.assets.get("cues"):
+            st = r.timeline["start_frame"]
+            ref = r.assets.get("reference") or {}
+            print(f"\nAsset cues (levels against {ref.get('lufs')} LUFS, {ref.get('source')}; "
+                  f"tracks {r.assets.get('tracks')}):")
+            print(f"  {'cue':<8}{'ref':<28}{'lane':<5}{'start':>7}{'end':>7}  {'variant':<10}{'dB / Zoom Pan Tilt':<30}ok")
+            back = {(b["cue"], b["lane"]): b for b in r.assets.get("read_back", [])}
+            for c in r.assets["cues"]:
+                if c["track_type"] == "audio":
+                    what = f"{c['volume_db']:+.1f} dB" + (f" ({c['level']['capped']})" if c["level"]["capped"] else "")
+                else:
+                    t = c["transform"]
+                    what = f"{t['pos']} {t['ZoomX']:g} {t['Pan']:g} {t['Tilt']:g}"
+                ok = (back.get((c["cue"], c["lane"])) or {}).get("ok")
+                print(f"  {c['cue']:<8}{c['ref'][:27]:<28}{c['lane']:<5}{c['record_frame'] - st:>7}"
+                      f"{c['record_frame'] + c['duration'] - st:>7}  {c['variant']:<10}{what:<29} "
+                      f"{'ok' if ok else 'MISMATCH'}")
+            if r.assets.get("stills"):
+                print(f"  cue stills: {sum(1 for s in r.assets['stills'] if s['bytes'])}/{len(r.assets['stills'])}")
+        elif r.assets:
+            print("\nAsset cues: none placed" + (" (--no-assets)" if not r.assets.get("enabled") else ""))
         print("\nnotes:")
         for n in r.notes:
             print("  - " + n.strip().replace("\n", "\n    "))
@@ -1790,6 +2022,11 @@ def main(argv: list[str] | None = None) -> int:
                                      "canvas and style.json canvas; e.g. 1080x1920 for a comparison build")
     ap.add_argument("--no-superscale", action="store_true",
                     help="Super Scale off (1) on every clip instead of style.json upscale on the low-res ones")
+    ap.add_argument("--footage-root", help="footage root for the Library (default: the Video folder's, "
+                                           "else CF_FOOTAGE_ROOT)")
+    ap.add_argument("--db", help="factory.db for the Library (default: CF_FACTORY_DB, else <footage>/factory.db)")
+    ap.add_argument("--no-assets", action="store_true",
+                    help="build without the Script's Asset cues (the Script must still validate)")
     args = ap.parse_args(argv)
     if args.canvas:
         from cf.canvas import resolve  # noqa: PLC0415
@@ -1800,11 +2037,17 @@ def main(argv: list[str] | None = None) -> int:
             print(exc, file=sys.stderr)
             return 2
     reel_dir = Path(args.reel_dir).expanduser().resolve()
-    walk_dir = Path(args.walk).expanduser().resolve() if args.walk else reel_dir.parent.parent
     script_path = Path(args.script).expanduser().resolve() if args.script else reel_dir / "script.json"
     if not script_path.exists():
         print(f"no {script_path}", file=sys.stderr)
         return 2
+    if args.walk:
+        walk_dir = Path(args.walk).expanduser().resolve()
+    else:
+        try:
+            walk_dir = default_walk_dir(reel_dir, load(script_path))
+        except Exception:  # noqa: BLE001 - the Builder reports an unreadable Script
+            walk_dir = reel_dir.parent.parent
     if not (walk_dir / "clip_manifest.json").exists():
         print(f"no clip_manifest.json in {walk_dir}", file=sys.stderr)
         return 2
@@ -1815,7 +2058,9 @@ def main(argv: list[str] | None = None) -> int:
     return Builder(reel_dir, walk_dir, args.project_name, stills=not args.no_stills, look=args.look,
                    stills_only=args.stills_only, stills_dir=stills_dir, script_path=script_path,
                    use_track=not args.no_track, ambience_db=args.ambience_db, canvas=args.canvas,
-                   superscale=not args.no_superscale).run()
+                   superscale=not args.no_superscale,
+                   footage_root=Path(args.footage_root).expanduser() if args.footage_root else None,
+                   db_path=Path(args.db).expanduser() if args.db else None, use_assets=not args.no_assets).run()
 
 
 if __name__ == "__main__":
