@@ -1,5 +1,6 @@
 """Library indexer at the CLI seam on a synthetic Pack: categories, refs, variants, derivations, the read-only rule."""
 
+import hashlib
 import json
 import math
 import shutil
@@ -110,6 +111,106 @@ class IndexTest(SyntheticPack):
         self.assertTrue((cache / new["derived"]["png"]).is_file())
         self.assertFalse((cache / old["derived"]["png"]).exists())
         self.assertGreaterEqual(report["orphans_removed"], 2)
+
+    def test_a_renamed_file_keeps_its_id_and_the_old_ref_as_an_alias(self):
+        self.add_and_index()
+        before = self.by_path("emoji/в шоке.mp4")
+        keyed = self.footage / "library/synth" / before["derived"]["alpha"]
+        mtime = keyed.stat().st_mtime_ns
+        (self.pack / "emoji/в шоке.mp4").rename(self.pack / "emoji/шок.mp4")
+        report = self.cli("index", "synth")
+        after = self.by_path("emoji/шок.mp4")
+        self.assertEqual(after["id"], before["id"])
+        self.assertEqual(after["name"], "шок")
+        self.assertEqual(report["aliases"], 1)
+        shown = self.cli("show", "@emoji/в-шоке")
+        self.assertEqual((shown["canonical"], shown["alias"]), ("@emoji/шок", True))
+        self.assertEqual(keyed.stat().st_mtime_ns, mtime)
+
+    def test_author_fields_survive_reindex_and_cache_deletion(self):
+        self.add_and_index()
+        (self.pack / "emoji/в шоке.mp4").rename(self.pack / "emoji/шок.mp4")
+        self.cli("index", "synth")
+        self.cli("author", "set", "@emoji/шок", "--caption", "Х", "--tag", "шок", "--rights", "free", "--name", "ох")
+        self.cli("index", "synth")
+        shutil.rmtree(self.footage / "library/synth")
+        self.cli("index", "synth", "--no-key", "--no-previews")
+        shown = self.cli("show", "@emoji/ох")
+        a = shown["asset"]
+        self.assertEqual((shown["canonical"], a["caption"], a["tags"], a["rights"]), ("@emoji/ох", "Х", ["шок"], "free"))
+        self.assertEqual(self.cli("show", "@emoji/шок")["canonical"], "@emoji/ох")
+        self.assertEqual(self.cli("show", "@emoji/в-шоке")["canonical"], "@emoji/ох")
+
+    def test_author_rows_follow_an_asset_whose_original_variant_disappeared(self):
+        self.add_and_index("--no-key", "--no-previews", "--no-loudness")
+        self.cli("author", "set", "@face/1000001-sticker", "--caption", "Красный")
+        (self.pack / "face/1000001_sticker.webm").unlink()
+        self.cli("index", "synth", "--no-key", "--no-previews", "--no-loudness")
+        a = self.cli("show", "@face/1000001-sticker")["asset"]
+        self.assertEqual([v["role"] for v in a["variants"]], ["alpha"])
+        self.assertEqual(a["caption"], "Красный")
+
+    def write_tags(self, entries: dict) -> str:
+        path = self.footage.parent / "tags.json"
+        path.write_text(json.dumps(entries, ensure_ascii=False))
+        return str(path)
+
+    def test_import_tags_maps_12_hex_ids_to_files_and_is_idempotent(self):
+        self.add_and_index("--no-key", "--no-previews", "--no-loudness")
+        self.cli("author", "set", "@sfx/plus-1", "--caption", "Своя")
+        mp3 = hashlib.sha256("вуш 2.mp3".encode()).hexdigest()[:12]
+        plus = hashlib.sha256("+1.mp3".encode()).hexdigest()[:12]
+        tags = self.write_tags({
+            mp3: {"label": "Вжух", "tags": ["переход", "Вжух", "быстро, резко"]},
+            plus: {"label": "Плюс один", "tags": ["счёт"], "category": "02 — Игровое"},
+            "000000000000": {"label": "нет такого", "tags": []},
+        })
+        first = self.cli("import-tags", "synth", tags, "--base", "sfx")
+        self.assertEqual((first["matched"], first["changed"], first["unmatched"]), (2, 2, ["000000000000"]))
+        whoosh = self.cli("show", "@sfx/вуш-2")["asset"]
+        self.assertEqual((whoosh["caption"], whoosh["tags"]), ("Вжух", ["переход"]))
+        mine = self.cli("show", "@sfx/plus-1")["asset"]
+        self.assertEqual((mine["caption"], mine["tags"]), ("Своя", ["счёт", "Игровое"]))
+        again = self.cli("import-tags", "synth", tags, "--base", "sfx")
+        self.assertEqual(again["changed"], 0)
+
+    def test_import_with_names_makes_the_label_the_ref_and_keeps_the_numeric_ref(self):
+        self.add_and_index("--no-key", "--no-previews", "--no-loudness")
+        one = hashlib.sha256("face/1000001_sticker.webm".encode()).hexdigest()[:12]
+        two = hashlib.sha256("face/1000002_sticker.webm".encode()).hexdigest()[:12]
+        self.cli("author", "set", "@face/1000002-sticker", "--name", "моё")
+        tags = self.write_tags({one: {"label": "Крик в камеру", "tags": ["моё лицо"]},
+                                two: {"label": "Улыбка", "tags": []}})
+        report = self.cli("import-tags", "synth", tags, "--base", "", "--names")
+        self.assertEqual(report["named"], 1)
+        shown = self.cli("show", "@face/1000001-sticker")
+        self.assertEqual((shown["canonical"], shown["alias"]), ("@face/крик-в-камеру", True))
+        self.assertEqual(self.cli("show", "@face/1000002-sticker")["canonical"], "@face/моё")
+        self.assertEqual(self.cli("import-tags", "synth", tags, "--base", "", "--names")["changed"], 0)
+
+    def test_tags_todo_sheets_and_apply(self):
+        self.add_and_index("--no-key", "--no-loudness")
+        todo = self.cli("tags", "todo", "synth", "--sheets")
+        total = len(self.index()["assets"])
+        self.assertEqual(todo["todo"], total)
+        sheets = self.footage / "library/synth/sheets"
+        self.assertTrue((sheets / "01.jpg").is_file())
+        listing = json.loads((sheets / "01.json").read_text())
+        self.assertEqual(len(listing), min(total, 24))
+        whoosh = self.by_path("sfx/вуш 2.mp3")["id"]
+        emoji = self.by_path("emoji/в шоке.mp4")["id"]
+        self.cli("author", "set", "@sfx/вуш-2", "--caption", "моё")
+        proposals = self.footage.parent / "proposals.json"
+        proposals.write_text(json.dumps({whoosh: {"caption": "Свист", "tags": ["переход"], "basis": "name"},
+                                         emoji: {"caption": "Шок", "tags": ["шок", "реакция"]},
+                                         "ffffffffffffffff": {"caption": "x"}}, ensure_ascii=False))
+        applied = self.cli("tags", "apply", "synth", str(proposals))
+        self.assertEqual((applied["applied"], applied["unknown"]), (2, ["ffffffffffffffff"]))
+        self.cli("index", "synth", "--no-key", "--no-loudness")
+        a = self.cli("show", "@sfx/вуш-2")["asset"]
+        self.assertEqual((a["agent_caption"], a["agent_tags"], a["caption"]), ("Свист", ["переход"], "моё"))
+        self.assertEqual(self.by_path("sfx/вуш 2.mp3")["agent"]["basis"], "name")
+        self.assertEqual(self.cli("tags", "todo", "synth")["todo"], total - 2)
 
     def test_refs_are_slugged_cyrillic_kept_and_clashes_numbered_deterministically(self):
         self.add_and_index()

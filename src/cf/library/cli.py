@@ -1,6 +1,7 @@
 """Library CLI: ``python -m cf.library <group> <cmd> [--json] [--db PATH] [--footage-root PATH]``.
 
-Groups: ``pack`` (add, list, remove), ``index``, ``show``, ``suggest``, ``query``, ``author`` (set, orphans).
+Groups: ``pack`` (add, list, remove), ``index``, ``show``, ``suggest``, ``query``, ``author`` (set, orphans),
+``import-tags``, ``tags`` (todo, apply).
 Every command takes ``--json`` (machine output on stdout), ``--db`` (default ``CF_FACTORY_DB`` or
 ``<footage root>/factory.db``) and ``--footage-root`` (default ``CF_FOOTAGE_ROOT`` or ``~/Movies/content-factory``;
 the cache lives in its ``library/``). Human output is Markdown in Russian. Errors: one line on stderr, exit 1.
@@ -15,8 +16,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from cf.library import author as author_mod
+from cf.library import imports, packs, sheets
 from cf.library import index as index_mod
-from cf.library import packs
 from cf.library.errors import AssetNotFound, LibraryError, PackError
 from cf.library.library import Asset, card, load
 from cf.library.refs import CATEGORIES, RIGHTS
@@ -256,8 +257,62 @@ def register_author(sub, common) -> None:
     p.set_defaults(func=cmd_author_orphans)
 
 
+# --- import-tags / tags -------------------------------------------------------------
+
+def cmd_import_tags(args, store) -> int:
+    lib = load(_footage(args), store)
+    rep = imports.import_tags(store, lib, args.pack, Path(args.file), args.base, names=args.names).to_dict()
+    return emit(args, rep, lambda: (
+        f"Записей {rep['entries']}: найдено {rep['matched']}, изменено {rep['changed']}, имён {rep['named']}; "
+        f"не найдено {len(rep['unmatched'])}" + (": " + ", ".join(rep["unmatched"]) if rep["unmatched"] else "")
+        + (f"; пропущено тегов {len(rep['skipped_tags'])}" if rep["skipped_tags"] else "") + "."))
+
+
+def register_import_tags(sub, common) -> None:
+    p = sub.add_parser("import-tags", parents=[common],
+                       help="import an old catalog tags.json ({sha256(relpath)[:12]: {label, tags}}) as Author fields")
+    p.add_argument("pack")
+    p.add_argument("file")
+    p.add_argument("--base", required=True, help="the folder (relative to the Pack root) the old ids are relative to")
+    p.add_argument("--names", action="store_true", help="also make each label the Asset's ref name when it has none")
+    p.set_defaults(func=cmd_import_tags)
+
+
+def cmd_tags_todo(args, store) -> int:
+    lib = load(_footage(args), store)
+    todo = sheets.tag_todo(lib, args.pack)
+    written = [str(p) for p in sheets.write_sheets(_footage(args), lib, args.pack)] if args.sheets else []
+    return emit(args, {"todo": len(todo), "sheets": written},
+                lambda: f"Без тегов агента: {len(todo)}." + ("\n" + "\n".join(written) if written else ""))
+
+
+def cmd_tags_apply(args, store) -> int:
+    try:
+        proposals = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise LibraryError(f"cannot read {args.file}: {exc}") from exc
+    if not isinstance(proposals, dict):
+        raise LibraryError(f"{args.file}: expected an object of asset id → {{caption, tags}}")
+    applied, unknown = sheets.apply_tags(_footage(args), args.pack, proposals)
+    return emit(args, {"applied": applied, "unknown": unknown},
+                lambda: f"Применено: {applied}." + (" Неизвестные id: " + ", ".join(unknown) if unknown else ""))
+
+
+def register_tags(sub, common) -> None:
+    g = sub.add_parser("tags", help="the agent tag pass: contact sheets and proposals")
+    gs = g.add_subparsers(dest="cmd", required=True)
+    p = gs.add_parser("todo", parents=[common], help="Assets without agent caption and tags")
+    p.add_argument("pack")
+    p.add_argument("--sheets", action="store_true", help="write library/<pack>/sheets/NN.jpg and NN.json")
+    p.set_defaults(func=cmd_tags_todo)
+    p = gs.add_parser("apply", parents=[common], help="merge a proposals JSON into index.json (agent fields only)")
+    p.add_argument("pack")
+    p.add_argument("file")
+    p.set_defaults(func=cmd_tags_apply)
+
+
 GROUPS: list[Callable] = [register_pack, register_index, register_show, register_suggest, register_query,
-                          register_author]
+                          register_author, register_import_tags, register_tags]
 
 
 def build_parser() -> argparse.ArgumentParser:

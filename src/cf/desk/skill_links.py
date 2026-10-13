@@ -1,4 +1,4 @@
-"""Skill link map: what each own skill mentions (repo paths, cf.research commands, store tables, skills) and who mentions it."""
+"""Skill link map: what each own skill mentions (repo paths, cf.research and cf.library commands, store tables, skills) and who mentions it."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from cf.desk.problems import Problem
 
 STORE = "src/cf/research/store.py"
 PATH_RE = re.compile(r"(?<![\w./~-])((?:[\w.-]+/)+[\w.-]*|[\w-]+\.(?:md|json|py|ts|tsx|toml|yaml|yml|cube))")
-COMMAND_RE = re.compile(r"\bcf\.research[ \t]+([a-z][a-z0-9_-]*)(?:[ \t]+([a-z][a-z0-9_-]*))?")
+COMMAND_RE = re.compile(r"\bcf\.(research|library)[ \t]+([a-z][a-z0-9_-]*)(?:[ \t]+([a-z][a-z0-9_-]*))?")
 TABLE_RE = re.compile(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+)")
 SKIPPED_SEGMENTS = {".git", ".venv", "node_modules", "__pycache__", ".."}
 
@@ -50,7 +50,7 @@ def mentioned_paths(repo: Path, name: str, text: str) -> list[str]:
 
 
 def mentioned_commands(text: str) -> list[str]:
-    return sorted({" ".join(["cf.research", *(p for p in m if p)]) for m in COMMAND_RE.findall(text)})
+    return sorted({" ".join([f"cf.{m[0]}", *(p for p in m[1:] if p)]) for m in COMMAND_RE.findall(text)})
 
 
 def mentioned_tables(text: str, tables: list[str]) -> list[str]:
