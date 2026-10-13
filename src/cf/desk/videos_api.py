@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,9 +18,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from cf import script_schema
-from cf.desk import media, paths
+from cf.desk import channels, contour_api, formats_api, media, paths, storeuse
 from cf.desk.hashed import atomic_write, digest, stale
 from cf.desk.problems import Problem, body as problem_body
+from cf.research import watchlist as watchlists
 
 SCHEMA = "cf-video/1"
 STATUSES = ("idea", "brief", "script", "recording", "edit", "review", "published")
@@ -32,6 +34,14 @@ TOP_TEXTS = {"brief.md": "brief", "voiceover.md": "voiceover", "notes.md": "note
 MEDIA_FOLDERS = {"renders": "render", "out": "render", "overlays": "overlay", "sources": "source"}
 EDITABLE = {"script", "brief", "voiceover", "notes", "references", "subtitle"}
 CREATABLE = {"brief.md", "voiceover.md", "notes.md"}
+STAGES = ("idea", "script", "edit", "done")
+STAGE_OF = {"idea": "idea", "brief": "idea", "script": "script", "recording": "script", "edit": "edit",
+            "review": "edit", "published": "done"}
+TITLE_MAX = 200
+SLUG_MAX = 60
+CYRILLIC = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
+                    ["a", "b", "v", "g", "d", "e", "e", "zh", "z", "i", "y", "k", "l", "m", "n", "o", "p", "r",
+                     "s", "t", "u", "f", "kh", "ts", "ch", "sh", "shch", "", "y", "", "e", "yu", "ya"]))
 
 
 @dataclass(frozen=True)
@@ -120,6 +130,10 @@ def read_video(folder: Folder) -> dict:
     return {**data, "slug": folder.slug, "legacy": False}
 
 
+def stage_of(status: object) -> str | None:
+    return STAGE_OF.get(status) if isinstance(status, str) else None
+
+
 def summary(folder: Folder) -> dict:
     try:
         video, error, code = read_video(folder), None, None
@@ -127,8 +141,8 @@ def summary(folder: Folder) -> dict:
         video, error, code = {}, e.detail, e.code
     return {"slug": folder.slug, "title": video.get("title_working") or folder.slug,
             "format": video.get("format"), "channel": video.get("channel"), "status": video.get("status"),
-            "legacy": folder.legacy, "updated": iso(last_change(folder.path)), "error": error,
-            "error_code": code}
+            "stage": stage_of(video.get("status")), "legacy": folder.legacy,
+            "updated": iso(last_change(folder.path)), "error": error, "error_code": code}
 
 
 def kind_of(rel: str) -> str:
@@ -248,15 +262,122 @@ class StatusChange(BaseModel):
     hash: str
 
 
-def router(footage_root: Path, repo: Path) -> APIRouter:
+def slug_for(title: str) -> str:
+    """An ASCII folder name for a Video title: Russian transliterated, lower-case words joined by `-`."""
+    s = "".join(CYRILLIC.get(c, c) for c in title.lower()).lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    if len(s) > SLUG_MAX:
+        cut = s[:SLUG_MAX + 1]
+        s = cut.rsplit("-", 1)[0] if "-" in cut else s[:SLUG_MAX]
+    return s.strip("-") or "video"
+
+
+def claim_folder(footage: Path, base: str) -> Path:
+    """Create and return the first free `videos/<base>`, `videos/<base>-2`, …; the mkdir is the claim."""
+    root = videos_dir(footage)
+    root.mkdir(parents=True, exist_ok=True)
+    n = 1
+    while True:
+        name = base if n == 1 else f"{base}-{n}"
+        try:
+            (root / name).mkdir(parents=False, exist_ok=False)
+        except FileExistsError:
+            n += 1
+            continue
+        return root / name
+
+
+class VideoCreate(BaseModel):
+    title: str
+    format: str
+    channel: str
+    new_channel: bool = False
+    idea_id: int | None = None
+
+
+def checked_title(raw: str) -> str:
+    title = raw.strip()
+    if not title:
+        raise Problem(422, "title_empty", "a Video needs a title")
+    if len(title) > TITLE_MAX:
+        raise Problem(422, "title_too_long", f"a Video title is at most {TITLE_MAX} characters", max=TITLE_MAX)
+    return title
+
+
+def checked_format(repo: Path, fid: str) -> None:
+    known = sorted(f["id"] for f in formats_api.list_formats(repo))
+    if fid not in known:
+        raise Problem(422, "format_unknown", f"no Format {fid!r}; known: {', '.join(known) or 'none'}",
+                      format=fid, formats=known)
+
+
+def checked_channel(footage: Path, db_path: Path, name: str, new: bool) -> None:
+    if new:
+        if not channels.valid_name(name):
+            raise Problem(422, "channel_invalid", f"Channel {name!r} is not a folder name (letters, digits, "
+                                                  "`.`, `_`, `-`; not starting with `.`)", channel=name)
+        return
+    known = [c["id"] for c in channels.list_channels(footage, db_path)]
+    if name not in known:
+        raise Problem(422, "channel_unknown", f"no Channel {name!r}; known: {', '.join(known) or 'none'}",
+                      channel=name, channels=known)
+
+
+def linked_brief(footage: Path, db_path: Path, idea_id: int) -> tuple[Path, dict, str | None]:
+    """The Brief file of Idea `idea_id`, the Idea, and its Watchlist's language."""
+    with storeuse.reading(db_path) as s:
+        idea = contour_api.idea_of(s, idea_id)
+        path = contour_api.brief_file(footage, idea)
+        language = watchlists.get(s, idea.watchlist).language
+    return path, idea.to_dict(), language
+
+
+def channel_language(footage: Path, db_path: Path, channel: str) -> str | None:
+    for c in channels.list_channels(footage, db_path):
+        if c["id"] == channel and len(c["languages"]) == 1:
+            return c["languages"][0]
+    return None
+
+
+def create_video(footage: Path, repo: Path, db_path: Path, body: VideoCreate) -> Folder:
+    title = checked_title(body.title)
+    checked_format(repo, body.format)
+    checked_channel(footage, db_path, body.channel, body.new_channel)
+    brief, idea, language = None, None, None
+    if body.idea_id is not None:
+        brief, idea, language = linked_brief(footage, db_path, body.idea_id)
+    if language is None:
+        language = channel_language(footage, db_path, body.channel)
+    folder = claim_folder(footage, slug_for(title))
+    try:
+        if brief is not None:
+            (folder / "brief.md").write_bytes(brief.read_bytes())
+        video = {"schema": SCHEMA, "slug": folder.name, "title_working": title, "format": body.format,
+                 "channel": body.channel, "language": language, "walks": [], "status": "idea",
+                 "history": [{"status": "idea", "at": datetime.now(timezone.utc).date().isoformat(), "note": ""}],
+                 "references": [src["external_id"] for src in idea["sources"]] if idea else [],
+                 "ideas": [idea["id"]] if idea else [], "published_url": None}
+        atomic_write(folder / "video.json", (json.dumps(video, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return Folder(folder.name, folder, False)
+
+
+def router(footage_root: Path, repo: Path, db_path: Path) -> APIRouter:
     footage = Path(footage_root)
     api = APIRouter()
 
     @api.get("/api/videos")
-    def get_videos() -> dict:
+    def get_videos(format: str = "", channel: str = "") -> dict:
         items = [summary(f) for f in list_folders(footage)]
+        items = [v for v in items if (not format or v["format"] == format) and (not channel or v["channel"] == channel)]
         items.sort(key=lambda v: v["updated"], reverse=True)
-        return {"videos": items, "statuses": list(STATUSES)}
+        return {"videos": items, "statuses": list(STATUSES), "stages": list(STAGES)}
+
+    @api.post("/api/videos", status_code=201)
+    def post_video(body: VideoCreate) -> dict:
+        return detail(footage, create_video(footage, repo, db_path, body))
 
     @api.get("/api/videos/{slug}")
     def get_video(slug: str) -> dict:

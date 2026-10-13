@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -12,6 +13,10 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from cf.desk.app import create_app
+from cf.research import brief, ideas
+from cf.research import store as st
+from cf.research import watchlist as wl
+from research_synth import CHANNEL_A, V1, V2, add_member, add_videos, ago, fields, video_item
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -368,3 +373,238 @@ class TextFileTest(VideosTestCase):
             with self.subTest(path):
                 self.assertEqual(self.read("long-one", path).status_code, 404)
                 self.assertEqual(self.save("long-one", path, "x", "").status_code, 404)
+
+
+NAME_RE = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
+FORMAT_MD = {"tech-explainer": "# Format: Tech explainer\n", "walk-reel": "# Format: Walk Reel\n"}
+
+
+def today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+class CreateTest(VideosTestCase):
+    """A seeded factory.db: Watchlist `tools` (tech-explainer, Channel tech-en, language ru) with an Idea that
+    has a Brief and one that does not; both Formats as FORMAT.md files."""
+
+    def setUp(self):
+        super().setUp()
+        for fid, text in FORMAT_MD.items():
+            write(self.repo / "formats" / fid / "FORMAT.md", text)
+        self.db = self.footage / "factory.db"
+        with st.open_store(self.db) as s:
+            wl.create(s, "tools", format_id="tech-explainer", author_channel="tech-en", language="ru")
+            add_member(s, "tools", CHANNEL_A, "@alpha")
+            add_videos(s, [video_item(V1, CHANNEL_A, ago(2), 40, 9000, title="Alfama at dusk"),
+                           video_item(V2, CHANNEL_A, ago(3), 40, 5000, title="Porto stairs")])
+            self.briefed = ideas.add(s, "tools", [V1], fields(title="A tool tour")).id
+            ideas.shortlist(s, self.briefed)
+            self.brief_path = brief.create(s, self.briefed, root=self.footage)
+            self.inbox = ideas.add(s, "tools", [V2], fields(title="Inbox one")).id
+
+    def create(self, expect: int = 201, **body):
+        r = self.client.post("/api/videos", json={"format": "tech-explainer", "channel": "tech-en", **body})
+        self.assertEqual(r.status_code, expect, r.text)
+        return r.json()
+
+    def listing(self) -> list[str]:
+        return sorted(p.name for p in (self.footage / "videos").iterdir())
+
+    def test_create_writes_video_json_with_status_idea_and_returns_the_detail(self):
+        detail = self.create(title="  Vienna, day 2!  ")
+        self.assertEqual(detail["slug"], "vienna-day-2")
+        folder = self.footage / "videos" / "vienna-day-2"
+        self.assertEqual(json.loads((folder / "video.json").read_text()), {
+            "schema": "cf-video/1", "slug": "vienna-day-2", "title_working": "Vienna, day 2!",
+            "format": "tech-explainer", "channel": "tech-en", "language": "ru", "walks": [],
+            "status": "idea", "history": [{"status": "idea", "at": today(), "note": ""}],
+            "references": [], "ideas": [], "published_url": None})
+        self.assertEqual(detail, self.ok(self.client.get("/api/videos/vienna-day-2")))
+        self.assertFalse((folder / "brief.md").exists())
+
+    def test_the_new_video_is_first_in_the_list_with_stage_idea(self):
+        self.create(title="Fresh one")
+        first = self.ok(self.client.get("/api/videos"))["videos"][0]
+        self.assertEqual((first["slug"], first["status"], first["stage"]), ("fresh-one", "idea", "idea"))
+
+    def test_slug_transliterates_cyrillic_and_falls_back_to_video(self):
+        for title, slug in (("Вена: день 2", "vena-den-2"), ("Щука и ёж", "shchuka-i-ezh"), ("!!!", "video")):
+            with self.subTest(title):
+                self.assertEqual(self.create(title=title)["slug"], slug)
+                self.assertRegex(slug, NAME_RE)
+        self.assertIn("vena-den-2", [v["slug"] for v in self.ok(self.client.get("/api/videos"))["videos"]])
+
+    def test_slug_is_cut_to_60_chars_at_a_dash(self):
+        slug = self.create(title="word " * 30)["slug"]
+        self.assertEqual(slug, "-".join(["word"] * 12))
+        self.assertLessEqual(len(slug), 60)
+        self.assertEqual(self.create(title="x" * 80)["slug"], "x" * 60)
+
+    def test_slug_is_unique(self):
+        self.assertEqual(self.create(title="X")["slug"], "x")
+        self.assertEqual(self.create(title="X")["slug"], "x-2")
+        self.assertEqual(self.create(title="Long one")["slug"], "long-one-2")
+        (self.footage / "videos" / "stray").mkdir()
+        self.assertEqual(self.create(title="Stray")["slug"], "stray-2")
+
+    def test_empty_or_too_long_title_is_422_and_writes_nothing(self):
+        before = self.listing()
+        for title, code, params in (("   ", "title_empty", {}), ("y" * 201, "title_too_long", {"max": 200})):
+            with self.subTest(code):
+                r = self.create(422, title=title)
+                self.assertEqual((r["code"], r["params"]), (code, params))
+        self.assertEqual(self.listing(), before)
+
+    def test_unknown_format_is_422_naming_the_known_ones(self):
+        before = self.listing()
+        r = self.create(422, title="T", format="nope")
+        self.assertEqual((r["code"], r["params"]), ("format_unknown", {
+            "format": "nope", "formats": ["tech-explainer", "walk-reel"]}))
+        self.assertEqual(self.listing(), before)
+
+    def test_unknown_channel_is_422_naming_the_known_ones(self):
+        before = self.listing()
+        r = self.create(422, title="T", channel="travel")
+        self.assertEqual((r["code"], r["params"]), ("channel_unknown", {"channel": "travel", "channels": ["tech-en"]}))
+        self.assertEqual(self.listing(), before)
+
+    def test_a_new_channel_is_created_on_request_and_then_known(self):
+        before = self.listing()
+        for bad in ("a/b", ".x", "../x", "", "_unassigned"):
+            with self.subTest(bad):
+                r = self.create(422, title="T", channel=bad, new_channel=True)
+                self.assertEqual((r["code"], r["params"]), ("channel_invalid", {"channel": bad}))
+        self.assertEqual(self.listing(), before)
+        made = self.create(title="Walk", format="walk-reel", channel="walks-ig", new_channel=True)
+        self.assertEqual((made["video"]["channel"], made["video"]["language"]), ("walks-ig", None))
+        ids = [c["id"] for c in self.ok(self.client.get("/api/channels"))["channels"]]
+        self.assertEqual(ids, ["tech-en", "walks-ig"])
+        self.assertEqual(self.create(title="Again", channel="tech-en", new_channel=True)["video"]["channel"],
+                         "tech-en")
+
+    def test_linking_a_brief_copies_it_and_records_the_idea(self):
+        before = (self.brief_path.read_bytes(), self.brief_path.stat().st_mtime_ns)
+        made = self.create(title="From the brief", idea_id=self.briefed)
+        folder = self.footage / "videos" / made["slug"]
+        self.assertEqual((folder / "brief.md").read_bytes(), before[0])
+        video = json.loads((folder / "video.json").read_text())
+        self.assertEqual((video["ideas"], video["references"], video["language"]), ([self.briefed], [V1], "ru"))
+        self.assertEqual((self.brief_path.read_bytes(), self.brief_path.stat().st_mtime_ns), before)
+        self.assertIn("brief.md", [f["path"] for f in made["files"]])
+
+    def test_an_idea_without_a_brief_or_unknown_is_404_and_writes_nothing(self):
+        before = self.listing()
+        for idea, code in ((self.inbox, "brief_missing"), (999, "idea_not_found")):
+            with self.subTest(code):
+                r = self.create(404, title="T", idea_id=idea)
+                self.assertEqual(r["code"], code)
+        self.assertEqual(self.listing(), before)
+
+    def test_without_a_db_create_works_but_a_brief_link_is_404_db_missing(self):
+        client = TestClient(create_app(self.repo, footage_root=self.footage, db_path=self.footage / "none.db",
+                                       web_dist=self.footage / "dist"))
+        r = client.post("/api/videos", json={"title": "T", "format": "tech-explainer", "channel": "tech-en"})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertIsNone(r.json()["video"]["language"])
+        self.assertEqual([c["id"] for c in client.get("/api/channels").json()["channels"]], ["tech-en"])
+        before = self.listing()
+        r = client.post("/api/videos", json={"title": "T", "format": "tech-explainer", "channel": "tech-en",
+                                             "idea_id": self.briefed})
+        self.assertEqual((r.status_code, r.json()["code"]), (404, "db_missing"))
+        self.assertEqual(self.listing(), before)
+
+    def test_missing_fields_are_request_invalid(self):
+        for body in ({}, {"title": "T"}, {"title": "T", "format": "tech-explainer", "channel": "tech-en",
+                                          "idea_id": "x"}):
+            with self.subTest(body):
+                r = self.client.post("/api/videos", json=body)
+                self.assertEqual((r.status_code, r.json()["code"]), (422, "request_invalid"))
+
+    def test_create_launches_no_process(self):
+        with mock.patch("subprocess.Popen", side_effect=AssertionError("Popen")), \
+                mock.patch("os.posix_spawn", side_effect=AssertionError("posix_spawn")):
+            self.create(title="Quiet", idea_id=self.briefed)
+
+    def test_a_failure_after_the_folder_is_claimed_leaves_no_folder(self):
+        with mock.patch("cf.desk.videos_api.atomic_write", side_effect=OSError("disk full")):
+            client = TestClient(self.client.app, raise_server_exceptions=False)
+            r = client.post("/api/videos", json={"title": "Doomed", "format": "tech-explainer",
+                                                 "channel": "tech-en", "idea_id": self.briefed})
+        self.assertEqual(r.status_code, 500)
+        self.assertFalse((self.footage / "videos" / "doomed").exists())
+
+
+class ListStageFilterTest(VideosTestCase):
+    def test_each_status_maps_to_its_stage(self):
+        for status in ("idea", "brief", "script", "recording", "edit", "review", "published", "weird"):
+            write(self.footage / "videos" / f"s-{status}" / "video.json",
+                  json.dumps({**VIDEO, "slug": f"s-{status}", "status": status}))
+        write(self.footage / "videos" / "s-broken" / "video.json", "{oops")
+        body = self.ok(self.client.get("/api/videos"))
+        stages = {v["slug"]: v["stage"] for v in body["videos"] if v["slug"].startswith("s-")}
+        self.assertEqual(stages, {"s-idea": "idea", "s-brief": "idea", "s-script": "script",
+                                  "s-recording": "script", "s-edit": "edit", "s-review": "edit",
+                                  "s-published": "done", "s-weird": None, "s-broken": None})
+        self.assertEqual(body["stages"], ["idea", "script", "edit", "done"])
+
+    def test_a_legacy_reel_has_the_stage_of_its_derived_status(self):
+        def stage() -> str:
+            return {v["slug"]: v["stage"] for v in self.ok(self.client.get("/api/videos"))["videos"]}["w1~short-01"]
+
+        self.assertEqual(stage(), "script")
+        write(self.reel / "out" / "short-01.mp4", MP4)
+        self.assertEqual(stage(), "edit")
+
+    def test_filters_by_format_channel_and_both(self):
+        write(self.footage / "videos" / "other" / "video.json",
+              json.dumps({**VIDEO, "slug": "other", "channel": "walks-ig", "format": "walk-reel"}))
+
+        def slugs(**params) -> list[str]:
+            r = self.client.get("/api/videos", params=params)
+            self.assertEqual(r.status_code, 200, r.text)
+            return sorted(v["slug"] for v in r.json()["videos"])
+
+        self.assertEqual(slugs(format="walk-reel"), ["other", "w1~short-01"])
+        self.assertEqual(slugs(channel="tech-en"), ["long-one"])
+        self.assertEqual(slugs(format="walk-reel", channel="walks-ig"), ["other"])
+        self.assertEqual(slugs(format="walk-reel", channel="tech-en"), [])
+        self.assertEqual(slugs(format="nope"), [])
+        self.assertEqual(slugs(format="", channel=""), ["long-one", "other", "w1~short-01"])
+
+
+class ChannelsTest(VideosTestCase):
+    def setUp(self):
+        super().setUp()
+        self.db = self.footage / "factory.db"
+        with st.open_store(self.db) as s:
+            wl.create(s, "tools", format_id="tech-explainer", author_channel="tech-en", language="en")
+            wl.create(s, "more-tools", format_id="tech-short", author_channel="tech-en", language="de")
+            wl.create(s, "nobody", format_id="walk-reel")
+        for name in ("travel", "_unassigned", ".hidden", "tech-en"):
+            (self.footage / "channels" / name / "briefs").mkdir(parents=True)
+        write(self.footage / "videos" / "walk" / "video.json",
+              json.dumps({**VIDEO, "slug": "walk", "channel": "walks-ig", "format": "walk-reel"}))
+
+    def channels(self, client=None) -> list[dict]:
+        return self.ok((client or self.client).get("/api/channels"))["channels"]
+
+    def test_channels_are_the_union_of_watchlists_brief_folders_and_videos(self):
+        self.assertEqual(self.channels(), [
+            {"id": "tech-en", "formats": ["tech-explainer", "tech-short"], "languages": ["de", "en"],
+             "watchlists": ["more-tools", "tools"], "videos": 1},
+            {"id": "travel", "formats": [], "languages": [], "watchlists": [], "videos": 0},
+            {"id": "walks-ig", "formats": ["walk-reel"], "languages": [], "watchlists": [], "videos": 1}])
+
+    def test_channels_without_a_db_or_with_another_schema_still_list_folders_and_videos(self):
+        other = self.footage / "other.db"
+        shutil.copy(self.db, other)
+        conn = sqlite3.connect(other)
+        conn.execute("PRAGMA user_version = 99")
+        conn.commit()
+        conn.close()
+        for db in (self.footage / "none.db", other):
+            with self.subTest(db.name):
+                client = TestClient(create_app(self.repo, footage_root=self.footage, db_path=db,
+                                               web_dist=self.footage / "dist"))
+                self.assertEqual([(c["id"], c["videos"], c["watchlists"]) for c in self.channels(client)],
+                                 [("tech-en", 1, []), ("travel", 0, []), ("walks-ig", 1, [])])
