@@ -428,7 +428,8 @@ class CreateTest(VideosTestCase):
         self.assertEqual((first["slug"], first["status"], first["stage"]), ("fresh-one", "idea", "idea"))
 
     def test_slug_transliterates_cyrillic_and_falls_back_to_video(self):
-        for title, slug in (("Вена: день 2", "vena-den-2"), ("Щука и ёж", "shchuka-i-ezh"), ("!!!", "video")):
+        cases = (("Вена: день 2", "vena-den-2"), ("Щука и ёж", "shchuka-i-ezh"), ("!!!", "video"))
+        for title, slug in cases:
             with self.subTest(title):
                 self.assertEqual(self.create(title=title)["slug"], slug)
                 self.assertRegex(slug, NAME_RE)
