@@ -135,6 +135,8 @@ export const en = {
   "newVideo.fieldBrief": "Brief (optional)",
   "newVideo.noBrief": "No Brief",
   "newVideo.briefUnavailable": "Briefs are unavailable:",
+  "newVideo.briefHasVideo": "already has video: {videos}",
+  "newVideo.briefVideosNote": "This Brief already has a video; a new one is made from it anyway:",
   "newVideo.create": "Create",
   "newVideo.creating": "Creating…",
 
@@ -437,6 +439,8 @@ export const en = {
   "ideas.hookAlignment": "Hook alignment",
   "ideas.personalizations": "Personalizations",
   "ideas.sources": "Sources",
+  "ideas.videos": "Videos",
+  "ideas.noVideos": "No video made from it yet.",
   "ideas.notes": "Idea notes",
   "ideas.noNotes": "No notes yet.",
   "ideas.notePlaceholder": "Add a note to this Idea",

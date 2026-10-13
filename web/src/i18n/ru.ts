@@ -135,6 +135,8 @@ export const ru: Dict = {
   "newVideo.fieldBrief": "Бриф (необязательно)",
   "newVideo.noBrief": "Без Брифа",
   "newVideo.briefUnavailable": "Брифы недоступны:",
+  "newVideo.briefHasVideo": "уже есть видео: {videos}",
+  "newVideo.briefVideosNote": "По этому брифу уже есть видео; новое всё равно будет создано:",
   "newVideo.create": "Создать",
   "newVideo.creating": "Создаю…",
 
@@ -437,6 +439,8 @@ export const ru: Dict = {
   "ideas.hookAlignment": "Связь с хуком",
   "ideas.personalizations": "Под автора",
   "ideas.sources": "Источники",
+  "ideas.videos": "Видео",
+  "ideas.noVideos": "Видео по этой идее ещё нет.",
   "ideas.notes": "Заметки к Идее",
   "ideas.noNotes": "Заметок пока нет.",
   "ideas.notePlaceholder": "Заметка к этой Идее",

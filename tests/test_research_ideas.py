@@ -113,6 +113,20 @@ class AddTest(IdeasCase):
         self.assertIn("999", str(cm.exception))
 
 
+class VideoLinkTest(IdeasCase):
+    def test_link_video_is_idempotent_and_listed_on_the_idea(self):
+        idea = self.add()
+        self.assertEqual(idea.videos, [])
+        ideas.link_video(self.store, idea.id, "boat-day")
+        ideas.link_video(self.store, idea.id, "alfama")
+        got = ideas.link_video(self.store, idea.id, "boat-day")
+        self.assertEqual(got.videos, ["boat-day", "alfama"])
+        self.assertEqual(ideas.get(self.store, idea.id).to_dict()["videos"], ["boat-day", "alfama"])
+        self.assertEqual(self.add(sources=(V2,)).videos, [])
+        with self.assertRaises(ideas.IdeaError):
+            ideas.link_video(self.store, 9999, "x")
+
+
 class TransitionTest(IdeasCase):
     MOVES = {"shortlist": ideas.shortlist, "discard": ideas.discard, "restore": ideas.restore}
 

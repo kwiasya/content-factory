@@ -103,10 +103,28 @@ class V6Test(unittest.TestCase):
             conn.commit()
             conn.close()
             with st.open_store(path, seed=False) as s:
-                self.assertEqual(s.schema_version(), 6)
+                self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
                 self.assertLessEqual({"pack", "asset_author", "asset_alias"}, set(s.tables()))
                 self.assertEqual(s.one("SELECT kind, key, text FROM note"),
                                  {"kind": "skill", "key": "reel", "text": "keep"})
+
+
+class V7Test(unittest.TestCase):
+    def test_v7_adds_idea_video_to_a_v6_database(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "v6.db"
+            conn = sqlite3.connect(path)
+            for v, script in enumerate(st.MIGRATIONS[:6]):
+                conn.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {v + 1};\nCOMMIT;")
+            conn.execute("INSERT INTO pack (id, root, config, created_at) VALUES ('p', '/x', '{}', 'x')")
+            conn.commit()
+            conn.close()
+            with st.open_store(path, seed=False) as s:
+                self.assertEqual(s.schema_version(), 7)
+                self.assertIn("idea_video", s.tables())
+                self.assertEqual(s.one("SELECT id, root FROM pack"), {"id": "p", "root": "/x"})
+                cols = [r["name"] for r in s.query("PRAGMA table_info(idea_video)")]
+                self.assertEqual(cols, ["idea_id", "video_slug", "linked_at"])
 
 
 class ConcurrentOpenTest(unittest.TestCase):

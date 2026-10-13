@@ -379,6 +379,47 @@ NAME_RE = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
 FORMAT_MD = {"tech-explainer": "# Format: Tech explainer\n", "walk-reel": "# Format: Walk Reel\n"}
 
 
+class ScriptCuesTest(VideosTestCase):
+    """A Library in the Desk's factory.db; a Video folder with a script.json and notes.md."""
+
+    def setUp(self):
+        super().setUp()
+        from library_fixture import make_library
+
+        make_library(Path(self.tmp.name), footage=self.footage, db=self.footage / "factory.db")
+        write(self.video / "script.json", json.dumps(good_script(), indent=2))
+        write(self.video / "notes.md", "After the reveal: @meme/chipi\n")
+
+    def save_cues(self, cues):
+        doc = self.ok(self.client.get("/api/videos/long-one/file", params={"path": "script.json"}))
+        script = json.loads(doc["text"])
+        script["shots"][1]["assets"] = cues
+        return self.client.put("/api/videos/long-one/file",
+                               json={"path": "script.json", "text": json.dumps(script), "hash": doc["hash"]})
+
+    def test_desk_put_script_with_a_broken_ref_is_422_with_nearest(self):
+        r = self.save_cues([{"ref": "@meme/chipy", "at_s": 0.0}])
+        self.assertEqual((r.status_code, r.json()["code"]), (422, "script_invalid"), r.text)
+        self.assertTrue(any("nearest: @meme/chipi" in v for v in r.json()["violations"]), r.text)
+        self.assertNotIn("assets", json.loads((self.video / "script.json").read_text())["shots"][1])
+
+    def test_desk_put_script_with_a_valid_cue_saves(self):
+        self.ok(self.save_cues([{"ref": "@meme/chipi", "at_s": 0.0, "dur_s": 2.0}]))
+        self.assertEqual(json.loads((self.video / "script.json").read_text())["shots"][1]["assets"][0]["ref"],
+                         "@meme/chipi")
+        (self.video / "notes.md").write_text("nothing\n")
+        r = self.save_cues([{"ref": "@meme/chipi", "at_s": 0.5, "dur_s": 2.0}])
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertTrue(any("unknown rights" in v for v in r.json()["violations"]), r.text)
+
+    def test_without_the_store_cues_need_the_library_and_a_script_without_cues_saves(self):
+        (self.footage / "factory.db").rename(self.footage / "moved.db")
+        r = self.save_cues([{"ref": "@sfx/own-hit", "at_s": 0.0}])
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertTrue(any("need the Library" in v for v in r.json()["violations"]), r.text)
+        self.ok(self.save_cues(None))
+
+
 def today() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
@@ -551,6 +592,32 @@ class CreateTest(VideosTestCase):
         with mock.patch("subprocess.Popen", side_effect=AssertionError("Popen")), \
                 mock.patch("os.posix_spawn", side_effect=AssertionError("posix_spawn")):
             self.create(title="Quiet", idea_id=self.briefed)
+
+    def brief_ideas(self) -> dict[int, list[str]]:
+        r = self.ok(self.client.get("/api/contour/ideas", params={"status": "brief"}))
+        return {i["id"]: i["videos"] for i in r["ideas"]}
+
+    def test_creating_from_a_brief_links_the_idea_to_the_video(self):
+        self.assertEqual(self.brief_ideas(), {self.briefed: []})
+        first = self.create(title="From the brief", idea_id=self.briefed)["slug"]
+        self.assertEqual(self.brief_ideas(), {self.briefed: [first]})
+        second = self.create(title="Second take", idea_id=self.briefed)["slug"]
+        self.assertEqual(self.brief_ideas(), {self.briefed: [first, second]})
+        self.create(title="No brief")
+        with st.open_store(self.db, seed=False) as s:
+            self.assertEqual(s.query("SELECT idea_id, video_slug FROM idea_video ORDER BY rowid"),
+                             [{"idea_id": self.briefed, "video_slug": first},
+                              {"idea_id": self.briefed, "video_slug": second}])
+
+    def test_a_failed_link_write_leaves_no_folder(self):
+        before = self.listing()
+        with mock.patch("cf.research.ideas.link_video", side_effect=RuntimeError("locked")):
+            client = TestClient(self.client.app, raise_server_exceptions=False)
+            r = client.post("/api/videos", json={"title": "Linked", "format": "tech-explainer",
+                                                 "channel": "tech-en", "idea_id": self.briefed})
+        self.assertEqual((r.status_code, r.json()["code"]), (500, "idea_link_failed"), r.text)
+        self.assertEqual(r.json()["params"]["id"], self.briefed)
+        self.assertEqual(self.listing(), before)
 
     def test_a_failure_after_the_folder_is_claimed_leaves_no_folder(self):
         with mock.patch("cf.desk.videos_api.atomic_write", side_effect=OSError("disk full")):

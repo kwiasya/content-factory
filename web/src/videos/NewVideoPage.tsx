@@ -40,6 +40,10 @@ function NewVideoPage() {
     contourApi.watchlists().then(setWatchlists, () => setWatchlists([]));
   }, []);
 
+  const videoTitle = (slug: string) => data.videos?.find((v) => v.slug === slug)?.title || slug;
+  const picked = ideas.find((i) => String(i.id) === ideaId);
+  const pickedVideos = picked?.videos ?? [];
+
   const newChannel = channel === NEW_CHANNEL;
   const channelValue = newChannel ? channelName.trim() : channel;
   const ready = title.trim() !== "" && format !== "" && channelValue !== "" && !pending;
@@ -145,9 +149,21 @@ function NewVideoPage() {
             {ideas.map((i) => (
               <option key={i.id} value={String(i.id)}>
                 #{i.id} {i.title} ({i.watchlist})
+                {i.videos?.length ? ` — ${t("newVideo.briefHasVideo", { videos: i.videos.map(videoTitle).join(", ") })}` : ""}
               </option>
             ))}
           </select>
+          {pickedVideos.length > 0 && (
+            <span className="muted brief-has-video">
+              {t("newVideo.briefVideosNote")}{" "}
+              {pickedVideos.map((slug, n) => (
+                <span key={slug}>
+                  {n > 0 && ", "}
+                  <a href={videoHref(slug)}>{videoTitle(slug)}</a>
+                </span>
+              ))}
+            </span>
+          )}
           {briefError && (
             <span className="muted brief-unavailable">
               {t("newVideo.briefUnavailable")} {t.problem(briefError)}

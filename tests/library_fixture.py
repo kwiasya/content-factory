@@ -103,16 +103,18 @@ def write_file(path: Path, data: bytes = BYTES) -> Path:
     return path
 
 
-def make_library(tmp: Path) -> tuple[library.Library, Path, Path]:
-    """``(Library, footage root, factory.db)`` under ``tmp``; the Pack root is ``tmp/pack``."""
+def make_library(tmp: Path, footage: Path | None = None, db: Path | None = None
+                 ) -> tuple[library.Library, Path, Path]:
+    """``(Library, footage root, factory.db)``; the Pack root is ``tmp/pack``, footage and db default to
+    ``tmp/footage`` and ``<footage>/factory.db``."""
     tmp = Path(tmp)
     pack = tmp / "pack"
     data = assets()
     for a in data:
         for v in a["variants"]:
             write_file(pack / v["path"])
-    footage = tmp / "footage"
-    db = footage / "factory.db"
+    footage = Path(footage) if footage else tmp / "footage"
+    db = Path(db) if db else footage / "factory.db"
     with open_store(db, seed=False) as s:
         library.register_pack(s, {"schema": "cf-pack/1", "id": PACK, "root": str(pack)})
         write_index(footage, PACK, {"schema": "cf-library-index/1", "pack": PACK, "root": str(pack),

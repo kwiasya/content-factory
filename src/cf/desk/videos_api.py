@@ -17,13 +17,15 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from cf import script_schema
+from cf import assets, library, script_schema
 from cf.desk import channels, contour_api, formats_api, media, paths, storeuse
+from cf.desk.library_api import STORE_ABSENT
 from cf.desk.hashed import atomic_write, digest, stale
 from cf.desk.problems import Problem, body as problem_body
 from cf.desk.videofolders import (NAME, NOT_WALKS, SCHEMA, STAGES, STATUSES, VIDEO_SUFFIXES, Folder, find_folder,
                                   iso, last_change, list_folders, not_an_object, read_video, summary, unreadable,
                                   videos_dir, walk_files)
+from cf.research import ideas as research_ideas
 from cf.research import watchlist as watchlists
 
 SUBTITLE_SUFFIXES = {".srt", ".vtt"}
@@ -115,8 +117,31 @@ def text_target(folder: Folder, rel: str, *, creating: bool = False) -> Path:
     raise missing
 
 
-def script_violations(footage: Path, repo: Path, text: str, *, script: bool) -> list[str]:
-    """Violations of a JSON text; a `script*.json` (`script` true) must be a cf-script/1 document."""
+def asset_context(footage: Path, folder: Path | None, db_path: Path | None) -> "assets.AssetContext":
+    """The Library (read-only) and the Video folder's md refs, for a Script with Asset cues."""
+    video = None
+    if folder is not None:
+        video = assets.video_folder(folder) or assets.VideoFolder(folder, folder.name, footage, False, None)
+    lib, problem = None, None
+    if db_path is None:
+        problem = "no factory.db configured"
+    else:
+        try:
+            with storeuse.reading(db_path) as s:
+                lib = library.load(footage, s)
+        except Problem as exc:
+            if exc.code not in STORE_ABSENT:
+                raise
+            problem = exc.detail
+    if lib is None:
+        return assets.AssetContext(None, problem, video, assets.md_refs(video.path) if video else {})
+    return assets.context(None, footage=footage, library=lib, video=video)
+
+
+def script_violations(footage: Path, repo: Path, text: str, *, script: bool, folder: Path | None = None,
+                      db_path: Path | None = None) -> list[str]:
+    """Violations of a JSON text; a `script*.json` (`script` true) must be a cf-script/1 document. Asset cues are
+    checked against the Library and the md files of `folder` (the Video); a Script without cues opens no store."""
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
@@ -134,7 +159,8 @@ def script_violations(footage: Path, repo: Path, text: str, *, script: bool) -> 
     manifest = None
     if isinstance(walk, str) and NAME.match(walk):
         manifest = optional_json(footage / walk / "clip_manifest.json")
-    return script_schema.validate(script, manifest, optional_json(repo / "style.json"))
+    ctx = asset_context(footage, folder, db_path) if script_schema.has_cues(script) else None
+    return script_schema.validate(script, manifest, optional_json(repo / "style.json"), assets=ctx)
 
 
 def optional_json(path: Path) -> dict | None:
@@ -263,6 +289,13 @@ def create_video(footage: Path, repo: Path, db_path: Path, body: VideoCreate) ->
                  "references": [src["external_id"] for src in idea["sources"]] if idea else [],
                  "ideas": [idea["id"]] if idea else [], "published_url": None}
         atomic_write(folder / "video.json", (json.dumps(video, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+        if idea is not None:
+            try:
+                with storeuse.writing(db_path) as s:
+                    research_ideas.link_video(s, idea["id"], folder.name)
+            except Exception as exc:
+                raise Problem(500, "idea_link_failed", f"could not link Idea {idea['id']} to the new Video: {exc}; "
+                                                       "nothing was created", id=idea["id"], detail=str(exc)) from exc
     except BaseException:
         shutil.rmtree(folder, ignore_errors=True)
         raise
@@ -297,7 +330,8 @@ def router(footage_root: Path, repo: Path, db_path: Path) -> APIRouter:
 
     @api.put("/api/videos/{slug}/file", response_model=None)
     def put_file(slug: str, body: TextWrite) -> dict | JSONResponse:
-        target = text_target(find_folder(footage, slug), body.path, creating=True)
+        folder = find_folder(footage, slug)
+        target = text_target(folder, body.path, creating=True)
         current = target.read_bytes() if target.exists() else None
         conflict = stale(current, body.hash) if current is not None else None
         if conflict:
@@ -305,7 +339,8 @@ def router(footage_root: Path, repo: Path, db_path: Path) -> APIRouter:
         if current is None and body.hash:
             raise Problem(409, "file_deleted", "the file was deleted since it was read", path=body.path)
         if text_format(body.path) == "json":
-            violations = script_violations(footage, repo, body.text, script=kind_of(body.path) == "script")
+            violations = script_violations(footage, repo, body.text, script=kind_of(body.path) == "script",
+                                           folder=target.parent, db_path=db_path)
             if violations:
                 return JSONResponse(status_code=422, content=problem_body(
                     "script_invalid", "the Script did not pass cf-script/1 validation; nothing was written",
