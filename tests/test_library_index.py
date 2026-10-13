@@ -205,6 +205,17 @@ class IndexTest(SyntheticPack):
         self.assertIn("inside the Pack", err.getvalue())
         self.assertFalse(inner.exists())
 
+    def test_author_names_and_aliases_hold_after_a_cache_wipe(self):
+        self.add_and_index("--no-key", "--no-previews", "--no-loudness")
+        self.cli("author", "set", "@emoji/в-шоке", "--name", "шок")
+        shutil.copy(self.pack / "unmapped/clip.mp4", self.pack / "emoji/шок.mp4")
+        self.cli("index", "synth", "--no-key", "--no-previews", "--no-loudness")
+        self.assertEqual(self.by_path("emoji/шок.mp4")["name"], "шок-2")
+        shutil.rmtree(self.footage / "library/synth")
+        self.cli("index", "synth", "--no-key", "--no-previews", "--no-loudness")
+        self.assertEqual(self.by_path("emoji/шок.mp4")["name"], "шок-2")
+        self.assertEqual(self.cli("show", "@emoji/шок")["asset"]["file"]["path"], "emoji/в шоке.mp4")
+
     def test_sheets_refuse_a_footage_root_inside_the_pack(self):
         self.add_and_index("--no-key", "--no-previews", "--no-loudness")
         from cf.library import cli

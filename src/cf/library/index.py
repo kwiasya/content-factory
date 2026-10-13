@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -166,8 +165,9 @@ def _build_asset(key: tuple, variants: list[dict], entries: dict[str, FileEntry]
     }
 
 
-def _owners(store: Store, footage: Path, pack_id: str) -> dict[str, dict[str, str]]:
-    """Names held outside this Pack's file-derived names: other Packs' names, Author names, aliases."""
+def _owners(store: Store, footage: Path, pack_id: str, alive: dict[str, str]) -> dict[str, dict[str, str]]:
+    """Names held outside this Pack's file-derived names: other Packs' names, and the Author names and aliases of
+    every Asset that exists (on disk in an index, or in this run as ``alive``: id → category)."""
     out: dict[str, dict[str, str]] = defaultdict(dict)
     for info in list_packs(store):
         if info.id == pack_id:
@@ -179,6 +179,7 @@ def _owners(store: Store, footage: Path, pack_id: str) -> dict[str, dict[str, st
     for idx in [read_index(footage, i.id) or {} for i in list_packs(store)]:
         for a in idx.get("assets", []):
             cats[a["id"]] = a["category"]
+    cats.update(alive)
     for row in store.query("SELECT asset_id, name FROM asset_author WHERE name IS NOT NULL"):
         if row["asset_id"] in cats:
             out[cats[row["asset_id"]]][row["name"]] = row["asset_id"]
@@ -265,7 +266,7 @@ def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, p
                 break
 
 
-    owners = _owners(store, footage, pack_id)
+    owners = _owners(store, footage, pack_id, {a["id"]: a["category"] for a in built + carried})
     for a in carried:
         owners[a["category"]][a["name"]] = a["id"]
     by_cat: dict[str, list[dict]] = defaultdict(list)
