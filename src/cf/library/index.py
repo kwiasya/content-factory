@@ -147,7 +147,7 @@ def _build_asset(key: tuple, variants: list[dict], entries: dict[str, FileEntry]
         category, source = FALLBACK[kind], "fallback"
     duration, fps = primary.get("duration_s"), primary.get("fps")
     alpha_variant = next((v for v in variants if v["role"] == "alpha"), None)
-    if alpha_variant and (duration is None or duration < 0.1) and kind == "video":
+    if alpha_variant and alpha_variant.get("duration_s") and kind == "video":
         duration, fps = alpha_variant.get("duration_s"), alpha_variant.get("fps")
     folder = mapping[1] if mapping and source == "mapping" else None
     green = bool(folder and folder.key and kind == "video")
@@ -161,7 +161,7 @@ def _build_asset(key: tuple, variants: list[dict], entries: dict[str, FileEntry]
         "green_screen": green, "loudness": None,
         "derived": {k: None for k in DERIVED_KEYS},
         "rights_default": (folder.rights if folder and folder.rights else "unknown"),
-        "agent": None,
+        "agent": None, "_folder": folder,
     }
 
 
@@ -295,6 +295,7 @@ def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, p
     report.aliases = aliases.after_index(store, pack_id, built, prev_assets)
     for a in built:
         a.pop("_prev_id", None)
+        a.pop("_folder", None)
     assets = sorted(built + carried, key=lambda a: (a["category"], a["name"]))
     report.assets = len(assets)
     report.fallback = dict(sorted(_fallback(assets).items()))

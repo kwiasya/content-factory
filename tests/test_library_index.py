@@ -1,5 +1,7 @@
 """Library indexer at the CLI seam on a synthetic Pack: categories, refs, variants, derivations, the read-only rule."""
 
+import json
+import math
 import shutil
 import subprocess
 
@@ -25,6 +27,89 @@ class IndexTest(SyntheticPack):
         self.assertEqual(report["fallback"], {"unmapped": 1})
         self.assertEqual(report["junk"], 6)
         self.assertEqual(report["symlinks"], 1)
+        self.assertEqual(report["errors"], [])
+
+    def probe(self, path, *extra):
+        out = subprocess.run(["ffprobe", "-v", "error", *extra, "-show_streams", "-of", "json", str(path)],
+                             check=True, capture_output=True, text=True).stdout
+        return json.loads(out)["streams"]
+
+    def test_green_screen_asset_is_keyed_to_prores_4444_with_alpha(self):
+        self.add_and_index()
+        a = self.by_path("emoji/в шоке.mp4")
+        self.assertTrue(a["green_screen"])
+        self.assertEqual(a["derived"]["alpha"], f"keyed/{a['id']}.mov")
+        keyed = self.footage / "library/synth" / a["derived"]["alpha"]
+        stream = self.probe(keyed)[0]
+        self.assertEqual(stream["codec_name"], "prores")
+        self.assertTrue(stream["pix_fmt"].startswith("yuva"), stream["pix_fmt"])
+        stats = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-i", str(keyed), "-frames:v", "1", "-vf",
+                                "alphaextract,signalstats,metadata=print:file=-", "-f", "null", "-"],
+                               check=True, capture_output=True, text=True).stdout
+        values = dict(line.split("=", 1) for line in stats.splitlines() if "=" in line)
+        self.assertLess(float(values["lavfi.signalstats.YMIN"]), float(values["lavfi.signalstats.YMAX"]))
+
+    def test_loudness_is_measured_and_short_sounds_are_padded(self):
+        self.add_and_index()
+        tone = self.by_path("sfx/вуш 2.wav")["loudness"]
+        self.assertEqual(tone["method"], "loudnorm")
+        self.assertTrue(math.isfinite(tone["i"]))
+        pop = self.by_path("sfx/поп.wav")["loudness"]
+        self.assertEqual(pop["method"], "padded")
+        self.assertTrue(math.isfinite(pop["i"]))
+        self.assertIsNone(self.by_path("emoji/в шоке.mp4")["loudness"])
+
+    def test_sticker_variants_merge_into_one_asset_with_duration_from_the_alpha_variant(self):
+        self.add_and_index()
+        faces = [a for a in self.index()["assets"] if a["category"] == "face"]
+        self.assertEqual(len(faces), 2)
+        first = self.by_path("face/1000001_sticker.webm")
+        second = self.by_path("face/1000002_sticker.webm")
+        self.assertEqual([v["role"] for v in first["variants"]], ["original", "alpha"])
+        self.assertEqual([v["role"] for v in second["variants"]], ["original", "still"])
+        self.assertAlmostEqual(first["duration_s"], 2.0, delta=0.1)
+        self.assertTrue(first["alpha"])
+        self.assertIsNone(first["derived"]["alpha"])
+        self.assertFalse((self.footage / f"library/synth/keyed/{first['id']}.mov").exists())
+
+    def test_jfif_and_gif_get_converted_variants_and_previews(self):
+        self.add_and_index("--no-previews")
+        cache = self.footage / "library/synth"
+        self.assertFalse((cache / "previews").exists() and any((cache / "previews").iterdir()))
+        report = self.cli("index", "synth")
+        self.assertGreater(report["derived"]["previews"], 0)
+        jfif = self.by_path("img/фон 1.jfif")
+        self.assertEqual(jfif["derived"]["png"], f"png/{jfif['id']}.png")
+        self.assertTrue((cache / jfif["derived"]["png"]).is_file())
+        gif = self.by_path("img/anim.gif")
+        self.assertEqual(gif["kind"], "video")
+        self.assertTrue(self.probe(cache / gif["derived"]["converted"])[0]["pix_fmt"].startswith("yuva"))
+        for a in self.index()["assets"]:
+            with self.subTest(asset=a["name"]):
+                d = a["derived"]
+                if a["kind"] in ("video", "image"):
+                    self.assertTrue((cache / d["poster"]).is_file())
+                else:
+                    self.assertIsNone(d["poster"])
+                if a["kind"] == "video":
+                    self.assertTrue((cache / d["preview"]).is_file())
+                    self.assertEqual(self.probe(cache / d["preview"])[0]["pix_fmt"], "yuv420p")
+                else:
+                    self.assertIsNone(d["preview"])
+
+    def test_a_changed_file_gets_new_derived_files_and_the_stale_ones_are_removed(self):
+        self.add_and_index()
+        cache = self.footage / "library/synth"
+        old = self.by_path("img/фон 1.jfif")
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-nostdin", "-f", "lavfi", "-i", "color=c=navy:s=64x64:d=1",
+                        "-frames:v", "1", "-f", "mjpeg", str(self.pack / "img/фон 1.jfif")], check=True)
+        report = self.cli("index", "synth")
+        new = self.by_path("img/фон 1.jfif")
+        self.assertNotEqual(new["id"], old["id"])
+        self.assertEqual(new["name"], "фон-1")
+        self.assertTrue((cache / new["derived"]["png"]).is_file())
+        self.assertFalse((cache / old["derived"]["png"]).exists())
+        self.assertGreaterEqual(report["orphans_removed"], 2)
 
     def test_refs_are_slugged_cyrillic_kept_and_clashes_numbered_deterministically(self):
         self.add_and_index()
