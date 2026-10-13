@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,6 +36,8 @@ SLUG_MAX = 60
 CYRILLIC = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
                     ["a", "b", "v", "g", "d", "e", "e", "zh", "z", "i", "y", "k", "l", "m", "n", "o", "p", "r",
                      "s", "t", "u", "f", "kh", "ts", "ch", "sh", "shch", "", "y", "", "e", "yu", "ya"]))
+CYRILLIC.update({"і": "i", "ї": "yi", "є": "ye", "ґ": "g"})
+CHANNEL_MAX = 64
 
 
 def kind_of(rel: str) -> str:
@@ -155,8 +158,10 @@ class StatusChange(BaseModel):
 
 
 def slug_for(title: str) -> str:
-    """An ASCII folder name for a Video title: Russian transliterated, lower-case words joined by `-`."""
-    s = "".join(CYRILLIC.get(c, c) for c in title.lower()).lower()
+    """An ASCII folder name for a Video title: Cyrillic transliterated, Latin accents dropped, lower-case words
+    joined by `-`."""
+    s = "".join(CYRILLIC.get(c, c) for c in title.lower())
+    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)).lower()
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
     if len(s) > SLUG_MAX:
         cut = s[:SLUG_MAX + 1]
@@ -166,8 +171,11 @@ def slug_for(title: str) -> str:
 
 def claim_folder(footage: Path, base: str) -> Path:
     """Create and return the first free `videos/<base>`, `videos/<base>-2`, …; the mkdir is the claim."""
+    if not footage.is_dir():
+        raise Problem(409, "footage_missing", f"the footage root {footage} does not exist; nothing was created",
+                      path=str(footage))
     root = videos_dir(footage)
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(exist_ok=True)
     n = 1
     while True:
         name = base if n == 1 else f"{base}-{n}"
@@ -203,16 +211,21 @@ def checked_format(repo: Path, fid: str) -> None:
                       format=fid, formats=known)
 
 
-def checked_channel(footage: Path, db_path: Path, name: str, new: bool) -> None:
-    if new:
-        if not channels.valid_name(name):
-            raise Problem(422, "channel_invalid", f"Channel {name!r} is not a folder name (letters, digits, "
-                                                  "`.`, `_`, `-`; not starting with `.`)", channel=name)
-        return
+def checked_channel(footage: Path, db_path: Path, name: str, new: bool) -> str:
+    """The Channel a Video is created for: a known one, or with `new` a lower-case folder name of at most
+    `CHANNEL_MAX` characters, which becomes the known Channel it equals ignoring case."""
     known = [c["id"] for c in channels.list_channels(footage, db_path)]
+    if new:
+        wanted = name.strip().lower()
+        if len(wanted) > CHANNEL_MAX or not channels.valid_name(wanted):
+            raise Problem(422, "channel_invalid", f"Channel {name!r} is not a folder name of at most {CHANNEL_MAX} "
+                                                  "characters (letters, digits, `.`, `_`, `-`; not starting with `.`)",
+                          channel=name, max=CHANNEL_MAX)
+        return next((k for k in known if k.lower() == wanted), wanted)
     if name not in known:
         raise Problem(422, "channel_unknown", f"no Channel {name!r}; known: {', '.join(known) or 'none'}",
                       channel=name, channels=known)
+    return name
 
 
 def linked_brief(footage: Path, db_path: Path, idea_id: int) -> tuple[Path, dict, str | None]:
@@ -234,18 +247,18 @@ def channel_language(footage: Path, db_path: Path, channel: str) -> str | None:
 def create_video(footage: Path, repo: Path, db_path: Path, body: VideoCreate) -> Folder:
     title = checked_title(body.title)
     checked_format(repo, body.format)
-    checked_channel(footage, db_path, body.channel, body.new_channel)
+    channel = checked_channel(footage, db_path, body.channel, body.new_channel)
     brief, idea, language = None, None, None
     if body.idea_id is not None:
         brief, idea, language = linked_brief(footage, db_path, body.idea_id)
     if language is None:
-        language = channel_language(footage, db_path, body.channel)
+        language = channel_language(footage, db_path, channel)
     folder = claim_folder(footage, slug_for(title))
     try:
         if brief is not None:
             (folder / "brief.md").write_bytes(brief.read_bytes())
         video = {"schema": SCHEMA, "slug": folder.name, "title_working": title, "format": body.format,
-                 "channel": body.channel, "language": language, "walks": [], "status": "idea",
+                 "channel": channel, "language": language, "walks": [], "status": "idea",
                  "history": [{"status": "idea", "at": datetime.now(timezone.utc).date().isoformat(), "note": ""}],
                  "references": [src["external_id"] for src in idea["sources"]] if idea else [],
                  "ideas": [idea["id"]] if idea else [], "published_url": None}
