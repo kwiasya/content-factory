@@ -16,11 +16,13 @@ type Tab = (typeof TABS)[number];
 
 const byVersion = (a: VideoFile, b: VideoFile) => b.path.localeCompare(a.path, undefined, { numeric: true });
 
-export function VideoPage({ slug }: { slug: string }) {
+const isTab = (value: string | null | undefined): value is Tab => TABS.some((id) => id === value);
+
+export function VideoPage({ slug, initialTab }: { slug: string; initialTab?: string | null }) {
   const t = useT();
   const [detail, setDetail] = useState<VideoDetail | null>(null);
   const [error, setError] = useState<Problem | null>(null);
-  const [tab, setTab] = useState<Tab>("script");
+  const [tab, setTab] = useState<Tab>(isTab(initialTab) ? initialTab : "script");
   const { reload } = useDeskData();
 
   const load = useCallback(() => {

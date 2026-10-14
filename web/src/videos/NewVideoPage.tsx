@@ -94,7 +94,7 @@ function NewVideoPage() {
       return;
     }
     data.reload();
-    window.location.hash = videoHref(result.detail.slug);
+    window.location.hash = videoHref(result.detail.slug, "brief");
   };
 
   const cancel = () => {

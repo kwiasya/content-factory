@@ -8,5 +8,5 @@ export function videosRoute(hash: string) {
   if (current === null) {
     return null;
   }
-  return current.slug === null ? <VideosPage /> : <VideoPage key={current.slug} slug={current.slug} />;
+  return current.slug === null ? <VideosPage /> : <VideoPage key={`${current.slug}?${current.tab ?? ""}`} slug={current.slug} initialTab={current.tab} />;
 }
