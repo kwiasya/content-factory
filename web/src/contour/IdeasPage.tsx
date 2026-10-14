@@ -8,6 +8,8 @@ import { useLoad } from "./useLoad";
 import { useT, type Problem } from "../i18n";
 import { ErrorLine } from "../ErrorLine";
 import { formatTime } from "../format";
+import { useDeskData } from "../shell/DeskData";
+import { videoHref } from "../videos/routes";
 
 const ACTIONS: Record<string, IdeaAction[]> = {
   inbox: ["shortlist", "discard"],
@@ -121,6 +123,7 @@ function text(value: unknown): string {
 }
 
 function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
+  const { videos } = useDeskData();
   const t = useT();
   const [note, setNote] = useState("");
   const [error, setError] = useState<Problem | null>(null);
@@ -200,6 +203,20 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
                 <a href={cardHref(s.external_id)}>{s.title || s.external_id}</a>
               </div>
             ))}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("ideas.videos")}</dt>
+          <dd>
+            {(idea.videos ?? []).length === 0 ? (
+              <span className="muted">{t("ideas.noVideos")}</span>
+            ) : (
+              (idea.videos ?? []).map((slug) => (
+                <div key={slug}>
+                  <a href={videoHref(slug)}>{videos?.find((v) => v.slug === slug)?.title || slug}</a>
+                </div>
+              ))
+            )}
           </dd>
         </div>
       </dl>

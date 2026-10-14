@@ -172,6 +172,8 @@ export interface Idea {
   brief_path: string | null;
   created_at: string;
   updated_at: string;
+  /** Slugs of the Videos made from this Idea, oldest link first. */
+  videos: string[];
 }
 
 export interface Brief {

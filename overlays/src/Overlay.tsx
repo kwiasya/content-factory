@@ -1,12 +1,13 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AbsoluteFill,
+  cancelRender,
   CalculateMetadataFunction,
   interpolate,
   useCurrentFrame,
   useDelayRender,
 } from "remotion";
-import { loadFace } from "./fonts";
+import { loadFace, loadFileFace } from "./fonts";
 import { layoutText, TextLayout } from "./layout";
 import { Ornament, resolveRole, RoleStyle } from "./presets";
 import {
@@ -156,6 +157,7 @@ export const Overlay: React.FC<OverlayProps> = ({
   anchor: anchorOverride,
   scrim: scrimOverride,
   layers = "all",
+  fontFile,
 }) => {
   const frame = useCurrentFrame();
   const boxRef = useRef<HTMLDivElement>(null);
@@ -170,8 +172,8 @@ export const Overlay: React.FC<OverlayProps> = ({
   const showDecor = layers === "all";
   const showBackground = layers !== "glyphs";
   const face = useMemo(
-    () => loadFace(role.family, role.weight, role.italic),
-    [role.family, role.weight, role.italic],
+    () => (fontFile ? loadFileFace(fontFile) : loadFace(role.family, role.weight, role.italic)),
+    [fontFile, role.family, role.weight, role.italic],
   );
 
   // Hold the frame until the font is in, so line breaks are measured with it.
@@ -179,11 +181,14 @@ export const Overlay: React.FC<OverlayProps> = ({
   const [fontsLoaded, setFontsLoaded] = useState(false);
   const [handle] = useState(() => delayRender("cf-overlay fonts"));
   useEffect(() => {
-    face.ready.then(() => {
-      setFontsLoaded(true);
-      continueRender(handle);
-    });
-  }, [continueRender, handle, face]);
+    face.ready.then(
+      () => {
+        setFontsLoaded(true);
+        continueRender(handle);
+      },
+      (err) => cancelRender(new Error(`cf-overlay font did not load${fontFile ? ` (${fontFile})` : ""}: ${err}`)),
+    );
+  }, [continueRender, handle, face, fontFile]);
 
   const maxWidth = textMaxWidth(role, style);
   const tracking = role.tracking ?? 0;

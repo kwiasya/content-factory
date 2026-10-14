@@ -61,6 +61,7 @@ class Idea:
     brief_path: str | None = None
     created_at: str = ""
     updated_at: str = ""
+    videos: list = field(default_factory=builtins.list)   # Video slugs made from it, oldest link first
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -135,7 +136,21 @@ def _idea(store: Store, row: dict) -> Idea:
                 fields=json.loads(row["fields"] or "{}"),
                 sources=_sources(store, json.loads(row["source_video_ids"] or "[]")),
                 notes=json.loads(row["notes"] or "[]"), brief_path=row["brief_path"],
-                created_at=row["created_at"], updated_at=row["updated_at"])
+                created_at=row["created_at"], updated_at=row["updated_at"], videos=_videos(store, row["id"]))
+
+
+def _videos(store: Store, idea_id: int) -> builtins.list[str]:
+    return [r["video_slug"] for r in store.query(
+        "SELECT video_slug FROM idea_video WHERE idea_id = ? ORDER BY linked_at, rowid", (idea_id,))]
+
+
+def link_video(store: Store, idea_id: int, slug: str) -> Idea:
+    """Record that the Video ``slug`` was made from Idea ``idea_id`` (idempotent)."""
+    get(store, idea_id)
+    with store.transaction() as c:
+        c.execute("INSERT OR IGNORE INTO idea_video (idea_id, video_slug, linked_at) VALUES (?, ?, ?)",
+                  (int(idea_id), slug, now_iso()))
+    return get(store, idea_id)
 
 
 _SELECT = "SELECT i.*, w.name AS watchlist FROM idea i JOIN watchlist w ON w.id = i.watchlist_id"

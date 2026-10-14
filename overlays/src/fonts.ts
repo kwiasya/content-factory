@@ -2,6 +2,7 @@
 // @remotion/google-fonts so no font files live in the repo. Only the face a render
 // actually uses (family + style + weight) is fetched; loadFont() blocks rendering
 // until it is ready.
+import { staticFile } from "remotion";
 import { loadFont as loadBodoniModa } from "@remotion/google-fonts/BodoniModa";
 import { loadFont as loadCaveat } from "@remotion/google-fonts/Caveat";
 import { loadFont as loadCormorantGaramond } from "@remotion/google-fonts/CormorantGaramond";
@@ -69,3 +70,25 @@ export const loadFace = (family: string, weight: number, italic = false): Loaded
 };
 
 export const knownFamilies = (): string[] => Object.keys(LOADERS);
+
+const FILE_FAMILY = "cf-file";
+
+/** A font file from the Library (copied into the render's public dir by render.mjs),
+ * registered for every weight and both styles so the browser never fakes bold or italic. */
+export const loadFileFace = (file: string): LoadedFont => {
+  const key = `file|${file}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const src = `url(${staticFile(file)})`;
+  const faces = (["normal", "italic"] as const).map(
+    (style) => new FontFace(FILE_FAMILY, src, { weight: "1 1000", style }),
+  );
+  for (const f of faces) document.fonts.add(f);
+  const out: LoadedFont = {
+    css: `"${FILE_FAMILY}", sans-serif`,
+    known: true,
+    ready: Promise.all(faces.map((f) => f.load())),
+  };
+  cache.set(key, out);
+  return out;
+};

@@ -19,6 +19,7 @@ A Script is the text plan of one Reel, written before anything touches Resolve. 
 | `shots[]` | list | Ordered. Each: `clip`, `in_s`, `out_s`, `role` (`hook` · `build` · `payoff` · `loop`), `speed` (1.0 default), `overlay` (`{text, type}` or `null`, type ∈ `place` · `fact` · `line`), `transition` (`cut` · `dissolve` · `dip`), `beat_index` (int or null) |
 | `shots[].id` | string, optional | Shot id used for markers, `cuts.json` and `overlays/<id>.mov`; defaults to `s01`, `s02`, … by position |
 | `shots[].reframe` | object, optional | How a clip wider than the canvas (landscape on the 9:16 canvas) fills it: `{mode, x, x_end, zoom, hold_s}`. `mode` ∈ `follow` (a static window placed on the person by the build) · `center` · `pan` (a fixed window at `x`) · `smart` (Resolve Smart Reframe; opt-in only, it leaves black bands). `x` −1..1, pan only and required for it: −1 = window at the left edge of the source, 1 = right edge. `x_end` (pan only, −1..1) is recorded but not animated: the API cannot keyframe Pan, so the build applies a static pan at `x`. `zoom` ≥ 1 (default 1): extra zoom over "source height fills the canvas height". Default when absent: `style.json` `reframe.default` (`follow`) for a clip wider than the canvas, none otherwise. Only allowed on a clip whose aspect differs from the canvas, and only for clips wider than it. See Reframe below |
+| `shots[].assets` | list, optional | Library Asset cues placed from this shot: `[{ref, at_s, dur_s?, pos?, db?}]`; absent or `null` = none. See Assets below |
 | `shots[].fade_in_s`, `fade_out_s` | number, optional | Fade from/to black on picture and sound, seconds (default 0) |
 | `ending` | enum | `loop_seamless` (default: the last shot is the run-up into the first shot's first source frame, see below) · `loop_match` (weaker: the last shot ends in a similar pose or move to frame 0) · `reveal_last` · `question_overlay`. Default from `style.ending.default` |
 | `cta` | string | A send or save prompt |
@@ -61,6 +62,60 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 - `pan` with `x` picks a fixed window; use it when the subject is static or `smart` picks the wrong person.
 - A `loop_seamless` Reel needs the same reframe on the first and last shot (validator): same mode and zoom, and a pan whose end (`x_end`, else `x`) is the first shot's `x`. Two `smart` shots are analysed separately and can still jump a little at the seam: check it in Resolve.
 
+## Assets (Library cues)
+
+A cue places one Library Asset (`@<category>/<name>`, `GLOSSARY.md` Asset ref) in the Reel: a sound effect on A3 or A4, a picture, meme, sticker or effect on V4 or V5, a meme's own sound on an A lane. Cues sit under the shot they start in:
+
+```json
+"assets": [
+  {"ref": "@sfx/вуш-2", "at_s": 2.35},
+  {"ref": "@face/шок", "at_s": 0.4, "dur_s": 1.2, "pos": "bottom-left"},
+  {"ref": "@meme/chipi", "at_s": 0.0, "dur_s": 2.0, "pos": "center", "db": -3}
+]
+```
+
+| Key | Type | Rule |
+|---|---|---|
+| `ref` | string, required | An Asset ref: canonical, file-derived or alias |
+| `at_s` | number, required | Start in timeline seconds from the start of this shot (after speed); `0 ≤ at_s <` the shot's duration |
+| `dur_s` | number, optional | Length on the timeline. Default: the Asset's length (sound, video); `style.json` `assets.still_s` (1.5 s) for a picture. A sound or video cannot loop or stretch (`≤` its length); a picture stays at most `assets.still_max_s` (5 s); at least one frame |
+| `pos` | string, optional | Placement preset of a picture (table below); default `assets.default_pos[category]`. Not allowed on a sound |
+| `db` | number, optional | Level offset in dB, `−24…+12`, on top of the level rule; only on a sound or a video with sound |
+
+Unknown keys in a cue are violations. A cue may run into later shots, never past the end of the Reel. Cues place `sfx` (sound) and `meme`, `img`, `emoji`, `face`, `footage`, `fx` (picture, plus its sound when the file has one); `bg`, `music`, `font` and `template` are rejected (the Track is the Author's, fonts come from the Format).
+
+Validator rules (`python -m cf.script_schema validate` loads the Library itself: the Video folder's footage root and `factory.db`, read-only; `--footage-root`, `--db`, `--no-library`). Warnings print as `- WARN …` and never fail. A Script without cues never opens the store.
+
+- **The Library:** no Library (no `factory.db`, an old schema) is one problem for the whole Script.
+- **Refs:** a ref that is not `@<category>/<name>` fails; an unknown ref fails with up to 5 nearest refs.
+- **Rights:** `own` and `free` pass. `unknown` is allowed, with a warning, only for a sound effect under `assets.sfx_free_max_s` (2 s) or for an Asset the Author named in one of the Video folder's top-level md files except the Scripts (`script.md`, `script.v2.md`, `script-long.md`, … by `cf.assets.is_script_file`, the same rule as Desk's Script file kind; `scripting-notes.md` counts; `brief.md`, `notes.md`, `voiceover.md`, …; the Scripts are the Editor's; any ref form counts). Otherwise it fails. The agent never writes refs into those files on its own.
+- **Variant:** see below; a green-screen Asset that is not keyed yet, or a sticker with only a VP9 `.webm`, fails; a sticker placed from its still png is a warning.
+- **Loudness:** a sound without a measured loudness fails (`python -m cf.library index <pack>` without `--no-loudness`).
+- **Loop seam:** on a `loop_seamless` Reel a picture ends at least `assets.loop_clear_s` (0.5 s) before the end (it would blink away when the Reel restarts); sounds may run to the last frame.
+- **Lanes:** at most 2 sounds (sound effects plus memes' sounds: A3, A4) and 2 pictures (V4, V5) at any instant.
+
+Timing (the end of the Reel, the loop seam, lane overlaps) is checked in timeline frames, assuming the shots lie back to back at the clips' manifest fps, as the build lays them without `cuts.json` (`cf.frames.shot_frames`: each shot from its first whole source frame at or after `in_s`, snapped down; a cue starts `round(at_s × fps)` frames into its shot and lasts `dur_s` snapped down, `cf.frames.cue_frames`). Under that assumption a cue the validator passes at the end of the Reel also fits the build. It is not a promise when `cuts.json` sets the offsets or Resolve probes a clip at another fps (59.94 read as 60): either can move a shot by a frame, and the build re-checks lanes and the end in frames and fails loudly (a picture too close to the seam is a note in the build report).
+
+**Positions** (`style.json` `assets.pos`, reference px of the 1080×1920 frame; `canvases.landscape.asset_pos` for 16:9). The Asset is scaled to fit inside the box, centred in it; every portrait box lies inside the safe zone and clear of the right rail.
+
+| `pos` | portrait box (x, y, w, h) | landscape box |
+|---|---|---|
+| `center` | 290, 660, 500, 480 | 710, 290, 500, 500 |
+| `top` | 290, 290, 500, 400 | 710, 70, 500, 400 |
+| `bottom` | 300, 840, 480, 400 | 710, 540, 500, 400 |
+| `top-left` | 80, 290, 400, 400 | 110, 70, 400, 400 |
+| `top-right` | 600, 290, 400, 400 | 1410, 70, 400, 400 |
+| `bottom-left` | 80, 840, 400, 400 | 110, 540, 400, 400 |
+| `bottom-right` | 380, 840, 400, 400 | 1410, 540, 400, 400 |
+| `full` | covers the canvas | covers the canvas |
+| `fit` | fits inside the canvas | fits inside the canvas |
+
+Defaults: `face` and `emoji` `bottom-left` (clear of Instagram's buttons), `meme`, `img`, `footage` `center`, `fx` `full`.
+
+**Which file is placed** (`cf.assets.placement`, first that applies): a sound → its file; a picture with a Pack `alpha` variant (ProRes 4444) → that; green screen → the keyed ProRes in the cache; an animated gif → the converted file; an image → its png (the converted png for jfif/webp/avif; jpg and png as they are); a `.webm` → its still png, else nothing; otherwise the file itself. The Pack is only read.
+
+**Level** of a sound cue: `raw = reference − 6 − asset LUFS + db`, where the reference is the Track's integrated loudness over the part used (A2 at 0 dB), else `style.audio.target_lufs` (−14) without a Track; capped so the Asset's true peak stays under `style.audio.true_peak_dbtp` (−1), clamped to `assets.gain_range_db` (−40…+12), rounded to 0.1 dB. So a sound effect sits 6 LU under the music before its `db`. The post-render −14 LUFS check stays the final gate.
+
 ## Seamless loop (`ending: loop_seamless`)
 
 Every Reel loops: Instagram replays it without a gap, so the last frame should be followed by the next frame of the same action. Take one continuous action from one Clip and split it at a seam P: the first shot plays P→Q, the last shot plays O→P. The validator checks:
@@ -70,5 +125,6 @@ Every Reel loops: Instagram replays it without a gap, so the last frame should b
 - Both shots at `speed` 1.0.
 - `shots[0].transition` is `cut` and `shots[0].fade_in_s` is 0; `shots[-1].fade_out_s` is 0. The first play starts with a hard cut from black; the loop has no black.
 - `shots[-1].overlay` is null or a `line` (a self-ironic closing line, say): an overlay fills its shot and ends on the last frame, so a line hands over to the hook line at frame 0; a `place` or `fact` label there would vanish at the seam and is rejected. The same holds for a span that runs into the last shot. The hook overlay on the first shot is fine: it fades in after the seam.
+- An Asset cue that shows a picture ends at least 0.5 s before the end (`style.json` `assets.loop_clear_s`); a sound cue may run to the last frame (see Assets).
 
 Choose the hook from a Clip whose preceding seconds are usable, so the last shot (1–1.5 s, about 3 beats) can be the run-up. On a beat grid, end the last shot on a downbeat; its `in_s` is P minus its frame count, so the build lays it exactly up to the hook's first source frame (`cf.build` checks the seam in its read-back). The music cannot loop seamlessly: it restarts at `track_in_s` when the picture does.

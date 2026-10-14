@@ -5,16 +5,7 @@ import { useT, type Problem } from "../i18n";
 import { ErrorLine } from "../ErrorLine";
 import "./notes.css";
 
-const NOTES_HASH = "#/notes";
-
-export function NotesNav({ hash }: { hash: string }) {
-  const t = useT();
-  return (
-    <a href={NOTES_HASH} className={hash === NOTES_HASH ? "nav active" : "nav"}>
-      {t("notes.nav")}
-    </a>
-  );
-}
+export const NOTES_HASH = "#/notes";
 
 export function notesRoute(hash: string) {
   return hash === NOTES_HASH ? <NotesPage /> : null;
