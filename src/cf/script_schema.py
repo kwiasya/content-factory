@@ -148,7 +148,12 @@ def _num(d: dict, key: str, where: str, default: Any = None) -> float:
 
 
 def _opt_num(d: dict, key: str, where: str) -> float | None:
-    return None if d.get(key) is None else _num(d, key, where)
+    v = d.get(key)
+    if v is None:
+        return None
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ScriptError(f"{where}: {key!r} must be a number or null, got {v!r}")
+    return float(v)
 
 
 def _str(d: dict, key: str, where: str, required: bool = True) -> str | None:
@@ -165,14 +170,7 @@ def _str(d: dict, key: str, where: str, required: bool = True) -> str | None:
 def cue_from_dict(d: Any, where: str) -> AssetCue:
     if not isinstance(d, dict):
         raise ScriptError(f"{where}: must be an object")
-    for key in ("dur_s", "db"):
-        v = d.get(key)
-        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))):
-            raise ScriptError(f"{where}: {key!r} must be a number or null, got {v!r}")
-    at = d.get("at_s")
-    if at is None or isinstance(at, bool) or not isinstance(at, (int, float)):
-        raise ScriptError(f"{where}: 'at_s' must be a number, got {at!r}")
-    return AssetCue(ref=_str(d, "ref", where), at_s=float(at), dur_s=_opt_num(d, "dur_s", where),
+    return AssetCue(ref=_str(d, "ref", where), at_s=_num(d, "at_s", where), dur_s=_opt_num(d, "dur_s", where),
                     pos=_str(d, "pos", where, required=False), db=_opt_num(d, "db", where),
                     extra=tuple(k for k in d if k not in CUE_KEYS))
 
