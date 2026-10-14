@@ -1,6 +1,6 @@
 import { getJson, sendOrThrow } from "../api";
 
-export const NOTE_KINDS = ["document", "skill", "video", "card", "idea", "general"] as const;
+export const NOTE_KINDS = ["document", "skill", "video", "card", "idea", "channel", "general"] as const;
 
 export type NoteKind = (typeof NOTE_KINDS)[number];
 

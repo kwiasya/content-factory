@@ -3,7 +3,7 @@
 import unittest
 from pathlib import Path
 
-from cf.build import (BuildError, append_infos, beat_marker_plan, loop_seam, plan_shots, plan_track,
+from cf.build import (BuildError, append_infos, beat_marker_plan, loop_seam, overlay_specs, plan_shots, plan_track,
                       source_end, still_stats, timecode)
 from cf import frames
 from cf.script_schema import from_dict
@@ -211,6 +211,35 @@ class OverlaySpanTest(unittest.TestCase):
         self.assertTrue(any("runs past the last shot" in n for n in notes))
 
 
+class OverlaySpecTest(unittest.TestCase):
+    def test_specs_pass_preset_anchor_and_fades_through(self):
+        a = {"anchor": "top-left", "x": 80, "y": 284}
+        s = script([shot("C30.mov", 0.0, 2.0, role="hook", overlay={"text": "one two three four five", "type": "line"}),
+                    shot("C30.mov", 5.0, 6.5, overlay={"text": "my type:\ntall", "type": "line", "preset": "clean-list",
+                                                       "anchor": a, "in_frames": 0, "out_frames": 0}),
+                    shot("C30.mov", 7.0, 8.0),
+                    shot("B24.MOV", 1.0, 2.5, overlay={"text": "Lake", "type": "place", "anchor": "upper-center",
+                                                      "span": 1})])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        specs = overlay_specs(s, plan, 30, "/repo/style.json")
+        self.assertEqual(list(specs), ["s01", "s02", "s04"])
+        self.assertEqual(specs["s01"], {"text": "one two three four five", "type": "hook", "duration_s": 2.0,
+                                        "style_path": "/repo/style.json"})
+        self.assertEqual(specs["s02"], {"text": "my type:\ntall", "type": "line", "duration_s": 1.5,
+                                        "style_path": "/repo/style.json", "preset": "clean-list", "anchor": a,
+                                        "in_frames": 0, "out_frames": 0})
+        self.assertEqual((specs["s04"]["anchor"], specs["s04"]["duration_s"]), ("upper-center", 1.5))
+        self.assertNotIn("preset", specs["s04"])
+        self.assertEqual(overlay_specs(s, plan, 30, "s.json", "landscape")["s01"]["canvas"], "landscape")
+
+    def test_span_length_in_the_spec(self):
+        s = script([shot("C30.mov", 0.0, 1.0, role="hook"),
+                    shot("C30.mov", 2.0, 3.0, overlay={"text": "Column: Siegessäule", "type": "place", "span": 2}),
+                    shot("B24.MOV", 1.0, 2.5)])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        self.assertEqual(overlay_specs(s, plan, 30, "s.json")["s02"]["duration_s"], 2.5)
+
+
 class LoopSeamTest(unittest.TestCase):
     def cuts(self, last_frames: int) -> dict:
         return {"fps": 30, "shots": [
@@ -375,6 +404,34 @@ class LandscapeStillStatsTest(unittest.TestCase):
             small = st["at_proxy_size"]
             self.assertEqual((small["width"], small["height"]), (960, 540))
             self.assertAlmostEqual(small["mean_luma"], st["mean_luma"], delta=0.5)
+
+
+class DeliveryModeTest(unittest.TestCase):
+    def test_sdr_default_keeps_rec709_and_the_cdl(self):
+        from cf.build import COLOR_SETTINGS, HLG_NORMALIZE_CDL, color_settings, hlg_cdl
+
+        self.assertEqual(color_settings(), COLOR_SETTINGS)
+        self.assertEqual(color_settings("sdr")["colorSpaceOutput"], "Rec.709 Gamma 2.4")
+        self.assertEqual(hlg_cdl(), HLG_NORMALIZE_CDL)
+        self.assertIsNone(hlg_cdl("sdr", "none"))
+
+    def test_hdr_hlg_outputs_hlg_without_cdl(self):
+        from cf.build import COLOR_SETTINGS, color_settings, hlg_cdl
+
+        hdr = color_settings("hdr-hlg")
+        self.assertEqual(hdr["colorSpaceOutput"], "Rec.2020 HLG ARIB STD-B67")
+        # Same working space and DRTs as SDR: only the output changes.
+        self.assertEqual({k: v for k, v in hdr.items() if k != "colorSpaceOutput"},
+                         {k: v for k, v in COLOR_SETTINGS.items() if k != "colorSpaceOutput"})
+        self.assertIsNone(hlg_cdl("hdr-hlg", "cdl"))
+
+    def test_unknown_modes_raise(self):
+        from cf.build import color_settings, hlg_cdl
+
+        with self.assertRaises(ValueError):
+            color_settings("hdr10")
+        with self.assertRaises(ValueError):
+            hlg_cdl("sdr", "half")
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,15 +14,18 @@ A Script is the text plan of one Reel, written before anything touches Resolve. 
 | `format` | enum | `pov` · `listicle` · `levels` · `day_in_the_life` · `reveal` · `contrast` |
 | `target_length_s` | int | From `style.pacing.target_length_s` (15 s default while reels have no voice); never above 90 |
 | `hook.type` | enum | `visual_payoff` · `pov` · `list` · `contrast` · `question` · `curiosity` |
-| `hook.text` | string | ≤8 words, on screen from frame 0 |
-| `hook.clip` | clip id | The most striking Clip, not the chronologically first |
+| `hook.text` | string or null | ≤8 words, on screen from frame 0. `null` marks an explicit text-free Reel (music only, like the one-take winners): then every `shots[].overlay` is null (validator) |
+| `hook.clip` | clip id | The first shot, chosen for a male audience (the author's own reels, 2026 data): her figure or outfit in a beautiful place (body-led framing, the face optional), or her full body in the location with a situational text hook ("Trying to film a cute video at a tourist spot:"). A face close-up is a later shot, not the opener. |
 | `shots[]` | list | Ordered. Each: `clip`, `in_s`, `out_s`, `role` (`hook` · `build` · `payoff` · `loop`), `speed` (1.0 default), `overlay` (`{text, type}` or `null`, type ∈ `place` · `fact` · `line`), `transition` (`cut` · `dissolve` · `dip`), `beat_index` (int or null) |
+| `shots[].overlay.preset` | string, optional | Overlay preset from `overlays/src/presets.ts` (e.g. `clean-list`) for this overlay; absent = `style.json` `typography.preset`. The validator rejects an unknown name |
+| `shots[].overlay.anchor` | string or object, optional | Where the text sits: a slot name from `overlays/src/slots.json` (or the canvas preset's `slots`), e.g. `upper-center`, or an explicit `{"anchor", "x", "y", "align"?}` in 1080-wide reference px: `anchor` ∈ `top-left` · `top-right` · `top-center` · `middle-left` · `center` · `bottom-left` · `bottom-center` (on `top-right` x is the right edge), `x` required for the left/right anchors, `align` ∈ `left` · `center` · `right`. Use the explicit form for a position picked off the frames so the text never touches the person. Absent = the preset's own place for the type |
+| `shots[].overlay.in_frames`, `out_frames` | int ≥ 0, optional | Fade-in/out length of this overlay in timeline frames, replacing `style.json` `animation`; 0 = cuts on/off with the shot (list items that must not blink the shared header between shots) |
 | `shots[].id` | string, optional | Shot id used for markers, `cuts.json` and `overlays/<id>.mov`; defaults to `s01`, `s02`, … by position |
 | `shots[].reframe` | object, optional | How a clip wider than the canvas (landscape on the 9:16 canvas) fills it: `{mode, x, x_end, zoom, hold_s}`. `mode` ∈ `follow` (a static window placed on the person by the build) · `center` · `pan` (a fixed window at `x`) · `smart` (Resolve Smart Reframe; opt-in only, it leaves black bands). `x` −1..1, pan only and required for it: −1 = window at the left edge of the source, 1 = right edge. `x_end` (pan only, −1..1) is recorded but not animated: the API cannot keyframe Pan, so the build applies a static pan at `x`. `zoom` ≥ 1 (default 1): extra zoom over "source height fills the canvas height". Default when absent: `style.json` `reframe.default` (`follow`) for a clip wider than the canvas, none otherwise. Only allowed on a clip whose aspect differs from the canvas, and only for clips wider than it. See Reframe below |
 | `shots[].fade_in_s`, `fade_out_s` | number, optional | Fade from/to black on picture and sound, seconds (default 0) |
 | `ending` | enum | `loop_seamless` (default: the last shot is the run-up into the first shot's first source frame, see below) · `loop_match` (weaker: the last shot ends in a similar pose or move to frame 0) · `reveal_last` · `question_overlay`. Default from `style.ending.default` |
-| `cta` | string | A send or save prompt |
-| `caption` | string | First line carries the place name; then 1–3 lines of value; then the CTA |
+| `cta` | string, optional | A send or save prompt; absent by default (the author wants one-line captions, 2026-10-14). When set, the caption must end with it |
+| `caption` | string | One short line in the author's voice (≈10 words, one emoji) that adds to the on-screen text rather than repeating it; the place goes in `location_tag` (author rule, 2026-10-14) |
 | `hashtags` | list ≤5 | Mix of place, niche, format |
 | `location_tag` | string | Always set |
 | `alt_text` | string | 1–2 descriptive sentences |
@@ -38,6 +41,7 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 
 - Hook text is 5–8 words and sits inside the safe zone from `style.json`; `hook.clip` is the first shot's clip.
 - A shot's `transition` is the one into that shot (on the first shot: from black). Durations are timeline seconds: `(out_s − in_s) / speed`.
+- Overlays render from specs that `python -m cf.build <reel> --overlay-specs` writes (`overlays/specs/<id>.json`, with `preset`, `anchor`, `in_frames`/`out_frames` passed through); never hand-edit the specs, set the fields in the Script.
 - One overlay per scene or location change; each overlay holds ≥2 s (or the Script's `overlay_min_hold_s`); ≤8 words (an emoji is not a word). A `\n` in overlay text is a forced line break.
 - `overlay.span` (int ≥ 1, default 1) stretches one overlay over this shot and the next span−1 shots (one label for a place cut into short shots): it starts at this shot's record frame and lasts the spanned shots' summed duration (from `cuts.json` record frames when present), which is what the ≥2 s hold checks; the spanned shots carry no overlay of their own, and a span never reaches the last shot of a `loop_seamless` Reel.
 - A `place` overlay says what the place is, not only its name: "Hotel: FlipFlop Cala Romantica", "Beach: Cala Romántica", "Park Babelsberg" is fine only when the name already says it (author rule, 2026-10-11).

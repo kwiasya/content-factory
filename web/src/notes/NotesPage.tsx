@@ -20,7 +20,7 @@ export function notesRoute(hash: string) {
   return hash === NOTES_HASH ? <NotesPage /> : null;
 }
 
-const ORDER: NoteKind[] = ["general", "skill", "document", "video", "card", "idea"];
+const ORDER: NoteKind[] = ["general", "skill", "document", "video", "card", "channel", "idea"];
 
 function Target({ note }: { note: Note }) {
   if (note.kind === "general") return null;

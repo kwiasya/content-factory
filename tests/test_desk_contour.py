@@ -333,7 +333,9 @@ class QuotaTest(ContourCase):
     def test_quota_shows_today_per_bucket_and_method(self):
         got = self.get("/api/contour/quota")
         buckets = {b["bucket"]: b for b in got["buckets"]}
-        self.assertEqual(set(buckets), {"default", "search"})
+        self.assertEqual(set(buckets), {"default", "search", "instagram"})
+        self.assertEqual({b: v["window"] for b, v in buckets.items()},
+                         {"default": "day", "search": "day", "instagram": "hour"})
         self.assertEqual(buckets["default"]["remaining"], buckets["default"]["limit"] - buckets["default"]["used"])
         self.assertEqual(buckets["default"]["used"], sum(m["units"] for m in got["by_method"]))
         self.assertRegex(got["day"], r"^\d{4}-\d{2}-\d{2}$")
@@ -343,3 +345,33 @@ class QuotaTest(ContourCase):
             got = self.get("/api/contour/quota", 422)
         self.assertEqual(got["code"], "research_error")
         self.assertIn("lots", got["params"]["message"])
+
+
+class InstagramTest(ContourCase):
+    def test_own_reels_report_is_404_with_the_command_until_a_sync(self):
+        got = self.get("/api/contour/own", 404)
+        self.assertEqual((got["code"], got["params"]["command"]), ("own_missing", "python -m cf.research own sync"))
+
+    def test_own_reels_report_after_a_sync(self):
+        from cf.research import ingest
+        with mock.patch.dict(os.environ, {"INSTAGRAM_USER_ID": "17841400000000099"}):
+            with st.open_store(self.db) as s:
+                cid = ingest.ingest_ig_account(s, {"id": "17841400000000099", "username": "kwi_asya",
+                                                   "followers_count": 1742}, own=True)
+                vid = ingest.ingest_ig_media(s, cid, [{"id": "1", "media_product_type": "REELS", "like_count": 5,
+                                                       "timestamp": "2026-10-10T10:00:00+0000",
+                                                       "permalink": "https://www.instagram.com/reel/DeOwn00001/",
+                                                       "caption": "Me, close up"}])[0]
+                ingest.ingest_insights(s, vid, {"views": 2043, "reach": 1571, "shares": 63, "saved": 14})
+            got = self.get("/api/contour/own")
+        self.assertEqual((got["handle"], got["followers"]), ("@kwi_asya", 1742))
+        self.assertEqual([(r["external_id"], r["views"], r["reach"], r["shares"], r["saved"]) for r in got["reels"]],
+                         [("DeOwn00001", 2043, 1571, 63, 14)])
+
+    def test_feed_takes_a_platform(self):
+        got = self.get("/api/contour/watchlists/lisbon/feed", platform="youtube")
+        self.assertTrue(got["rows"])
+        self.assertEqual({r["platform"] for r in got["rows"]}, {"youtube"})
+        self.assertEqual(self.get("/api/contour/watchlists/lisbon/feed", platform="instagram")["rows"], [])
+        got = self.get("/api/contour/watchlists/lisbon/feed", 422, platform="tiktok")
+        self.assertEqual(got["code"], "feed_platform_invalid")

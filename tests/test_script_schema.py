@@ -72,6 +72,14 @@ class GoodScriptTest(unittest.TestCase):
     def test_manifest_is_optional(self):
         self.assertEqual(problems(good(), manifest=None), [])
 
+    def test_text_free_reel_with_null_hook_text(self):
+        d = good()
+        d["hook"]["text"] = None
+        for sh in d["shots"]:
+            sh["overlay"] = None
+        self.assertIsNone(from_dict(d).hook.text)
+        self.assertEqual(problems(d), [])
+
 
 class BadScriptTest(unittest.TestCase):
     def assertViolation(self, d: dict, needle: str):
@@ -87,6 +95,17 @@ class BadScriptTest(unittest.TestCase):
         d = good()
         d["hook"]["text"] = "Lake palace"
         self.assertViolation(d, "hook.text: 2 words")
+
+    def test_null_hook_text_needs_every_overlay_null(self):
+        d = good()
+        d["hook"]["text"] = None
+        self.assertViolation(d, "hook.text: null marks a text-free Reel, but s02 carry an overlay")
+
+    def test_missing_hook_text_is_still_a_structural_error(self):
+        d = good()
+        del d["hook"]["text"]
+        with self.assertRaises(ScriptError):
+            from_dict(d)
 
     def test_hook_clip_must_open(self):
         d = good()
@@ -125,6 +144,37 @@ class BadScriptTest(unittest.TestCase):
         self.assertEqual(problems(d), [])
         d["shots"][1]["overlay"]["text"] = "one two three four five six seven eight nine \U0001f33e"
         self.assertViolation(d, "overlay has 9 words")
+
+    def test_overlay_preset_and_explicit_anchor(self):
+        d = good()
+        ov = d["shots"][1]["overlay"]
+        ov.update(preset="clean-list", anchor={"anchor": "top-left", "x": 80, "y": 284}, in_frames=0, out_frames=0)
+        self.assertEqual(problems(d), [])
+        o = from_dict(d).shots[1].overlay
+        self.assertEqual((o.preset, o.anchor["x"], o.in_frames), ("clean-list", 80, 0))
+        ov["anchor"] = "upper-center"
+        self.assertEqual(problems(d), [])
+        ov["preset"] = "no-such-preset"
+        self.assertViolation(d, "overlay.preset 'no-such-preset'")
+
+    def test_overlay_anchor_problems(self):
+        d = good()
+        ov = d["shots"][1]["overlay"]
+        ov["anchor"] = "nowhere"
+        self.assertViolation(d, "overlay.anchor 'nowhere' is not a slot")
+        ov["anchor"] = {"anchor": "top-left", "y": 300}
+        self.assertViolation(d, "overlay.anchor.x must be a number")
+        ov["anchor"] = {"anchor": "top-center", "y": 300, "align": "justify"}
+        self.assertViolation(d, "overlay.anchor.align 'justify'")
+        ov["anchor"] = {"anchor": "diagonal", "x": 1, "y": 300, "z": 1}
+        self.assertViolation(d, "overlay.anchor.anchor 'diagonal'")
+        self.assertViolation(d, "unknown keys ['z']")
+        ov["anchor"] = 5
+        with self.assertRaises(ScriptError):
+            from_dict(d)
+        ov["anchor"], ov["in_frames"] = None, -1
+        with self.assertRaises(ScriptError):
+            from_dict(d)
 
     def test_overlay_type(self):
         d = good()

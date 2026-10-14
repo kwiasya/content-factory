@@ -4,9 +4,10 @@ import unittest
 from pathlib import Path
 
 from cf.canvas import Canvas
-from cf.render import job_expect, job_mismatches, preset_settings, script_canvas_of
+from cf.render import (hdr_preset_name, job_expect, job_mismatches, output_mismatch, preset_settings, report_suffix,
+                       script_canvas_of)
 from cf.render_check import (evaluate, expected_for, normalized_path, parse_loudnorm, parse_probe, passed,
-                             script_canvas_for, style_canvas, video_duration)
+                             script_canvas_for, style_canvas, tag_args_for, video_duration)
 
 UHD = Canvas(2160, 3840, 30)
 HD = Canvas(1080, 1920, 30)
@@ -200,6 +201,58 @@ class LandscapeCanvasTest(unittest.TestCase):
             (reel / "script.json").write_text(json.dumps({"canvas": "landscape"}))
             self.assertEqual(script_canvas_for(f), "landscape")
             self.assertEqual(script_canvas_of(reel), "landscape")
+
+HLG_VIDEO = {"codec_name": "hevc", "codec_tag_string": "hvc1", "profile": "Main 10", "pix_fmt": "yuv420p10le",
+             "color_primaries": "bt2020", "color_transfer": "arib-std-b67", "color_space": "bt2020nc"}
+
+
+class HdrDeliveryTest(unittest.TestCase):
+    def test_hlg_file_passes_the_hdr_check(self):
+        rows = evaluate(parse_probe(probe(video=HLG_VIDEO)), LOUD_OK, expected=expected_for(UHD, hdr=True))
+        self.assertTrue(passed(rows), failing(rows))
+        self.assertIn("codec tag", {r.name for r in rows})
+
+    def test_sdr_default_is_unchanged(self):
+        self.assertEqual(expected_for(UHD)["color_transfer"], "bt709")
+        self.assertNotIn("codec_tag", expected_for(UHD))
+        rows = evaluate(parse_probe(probe(video=HLG_VIDEO)), LOUD_OK, expected=expected_for(UHD))
+        self.assertEqual(failing(rows), {"video codec", "pixel format", "color primaries", "color transfer",
+                                         "color matrix"})
+
+    def test_sdr_file_and_hev1_tag_fail_the_hdr_check(self):
+        rows = evaluate(parse_probe(probe()), LOUD_OK, expected=expected_for(UHD, hdr=True))
+        self.assertTrue({"video codec", "video profile", "pixel format", "color transfer"} <= failing(rows))
+        rows = evaluate(parse_probe(probe(video=dict(HLG_VIDEO, codec_tag_string="hev1"))), LOUD_OK,
+                        expected=expected_for(UHD, hdr=True))
+        self.assertEqual(failing(rows), {"codec tag"})
+        rows = evaluate(parse_probe(probe(video=dict(HLG_VIDEO, side_data_list=[
+            {"side_data_type": "DOVI configuration record"}]))), LOUD_OK, expected=expected_for(UHD, hdr=True))
+        self.assertEqual(failing(rows), {"Dolby Vision side data"})
+
+    def test_stream_copy_keeps_hvc1(self):
+        self.assertEqual(tag_args_for("hevc"), ["-tag:v", "hvc1"])
+        self.assertEqual(tag_args_for("h264"), [])
+
+    def test_hdr_preset(self):
+        s = dict(preset_settings(UHD, 45000, hdr=True))
+        self.assertEqual((s["EncodingProfile"], s["ColorSpaceTag"], s["GammaTag"]), ("Main10", "Rec.2020", "Rec.2100 HLG"))
+        self.assertEqual(s["VideoQuality"], 45000)
+        sdr = dict(preset_settings(UHD, 45000))
+        self.assertEqual((sdr["EncodingProfile"], sdr["ColorSpaceTag"], sdr["GammaTag"]), ("High", "Rec.709", "Rec.709-A"))
+        self.assertEqual(hdr_preset_name(UHD), "cf-instagram-2160x3840-hlg")
+
+    def test_output_color_space_must_match_the_mode(self):
+        self.assertIsNone(output_mismatch("Rec.709 Gamma 2.4", hdr=False))
+        self.assertIsNone(output_mismatch("Rec.2020 HLG ARIB STD-B67", hdr=True))
+        self.assertIn("--deliver hdr-hlg", output_mismatch("Rec.709 Gamma 2.4", hdr=True))
+        self.assertIn("--hdr", output_mismatch("Rec.2100 HLG", hdr=False))
+
+    def test_report_suffix(self):
+        self.assertEqual(report_suffix("reel-01", Path("out/reel-01.mp4")), "")
+        self.assertEqual(report_suffix("reel-01", Path("out/reel-01.hdr.mp4")), ".hdr")
+        self.assertEqual(report_suffix("reel-01", Path("out/reel-01.sdr-bright.mp4")), ".sdr-bright")
+        self.assertEqual(report_suffix("reel-01", Path("/tmp/test.mp4")), ".test")
+
 
 if __name__ == "__main__":
     unittest.main()

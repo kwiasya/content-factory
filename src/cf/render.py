@@ -1,7 +1,7 @@
 """Render a Reel's timeline from DaVinci Resolve Studio and verify the file.
 
     python -m cf.render <reel_dir> [--walk <walk_dir>] [--preset NAME] [--canvas WxH]
-                        [--out <path.mp4>] [--no-check] [--fix-loudness]
+                        [--out <path.mp4>] [--no-check] [--fix-loudness] [--hdr] [--target-tp DB]
 
 Opens project ``cf-<walk>-<reel>`` (never creates one), selects timeline ``<reel>``,
 creates or updates the render preset ``cf-instagram-<w>x<h>`` (``style.json``: ``render``
@@ -12,8 +12,15 @@ H.264 High, 2160x3840, 30 fps, about 45 Mbit/s by default; AAC 48 kHz,
 comparison file at that size (22 Mbit/s); Resolve scales the timeline to it. It targets
 ``reels/<reel>/out/<reel>.mp4``, deletes this timeline's old render jobs, queues one job,
 renders it with progress, restores the UI page, and runs ``cf.render_check`` on the file.
-A JSON report goes to ``out/render-report.json``. Exit code: non-zero when the render
+A JSON report goes to ``out/render-report.json`` (``render-report.<x>.json`` for an ``--out``
+named ``<reel>.<x>.mp4``; the check report likewise). Exit code: non-zero when the render
 fails or the check fails.
+
+``--hdr`` renders Rec.2100 HLG for a timeline built with ``cf.build --deliver hdr-hlg``:
+mp4 / H.265 Main10 (``yuv420p10le``), ``ColorSpaceTag='Rec.2020'``, ``GammaTag='Rec.2100 HLG'``
+(ffprobe: bt2020 / arib-std-b67 / bt2020nc), preset ``cf-instagram-<w>x<h>-hlg``, the same
+bit-rate table. The project's ``colorSpaceOutput`` must be an HLG space for ``--hdr`` and must
+not be one without it, so an SDR timeline is never tagged HLG (or the reverse).
 
 Rules: ``docs/resolve-rules.md``; contract: ``.claude/skills/render-reel/SKILL.md``;
 export settings: ``docs/research/03-color-iphone-osmo/result-a.md`` Section D.
@@ -38,12 +45,31 @@ OPTIONAL_KEYS = {"EncodingProfile", "NetworkOptimization"}  # nice to have; a Fa
 DONE = ("Complete", "Failed", "Cancelled")
 
 
-def preset_settings(canvas: Canvas, video_kbps: int) -> tuple[tuple[str, Any], ...]:
+HDR_CODEC = ("mp4", "H265")
+HDR_TAGS = (("ColorSpaceTag", "Rec.2020"), ("GammaTag", "Rec.2100 HLG"))
+SDR_TAGS = (("ColorSpaceTag", "Rec.709"), ("GammaTag", "Rec.709-A"))
+
+
+def preset_settings(canvas: Canvas, video_kbps: int, hdr: bool = False) -> tuple[tuple[str, Any], ...]:
     """RenderSettings written one key per call, in this order, so a rejected key is named
     (a False return leaves the old value). ``VideoQuality``: an int > 0 is the bit rate cap
     in kbit/s (22000 gave 22.2 Mbit/s at 1080x1920). Data levels are not a RenderSettings
     key; the project's videoDataLevels='Video' gives limited range, and render_check
-    verifies color_range=tv."""
+    verifies color_range=tv. ``hdr``: H.265 Main10 with the HLG tags (HDR_TAGS)."""
+    if hdr:
+        return (
+            ("ExportVideo", True),
+            ("ExportAudio", True),
+            ("FormatWidth", canvas.width),
+            ("FormatHeight", canvas.height),
+            ("FrameRate", float(canvas.fps)),
+            ("VideoQuality", int(video_kbps)),
+            ("EncodingProfile", "Main10"),
+            ("NetworkOptimization", True),
+            ("AudioCodec", "aac"),
+            ("AudioSampleRate", 48000),
+            *HDR_TAGS,
+        )
     return (
         ("ExportVideo", True),
         ("ExportAudio", True),
@@ -55,9 +81,32 @@ def preset_settings(canvas: Canvas, video_kbps: int) -> tuple[tuple[str, Any], .
         ("NetworkOptimization", True),
         ("AudioCodec", "aac"),
         ("AudioSampleRate", 48000),
-        ("ColorSpaceTag", "Rec.709"),
-        ("GammaTag", "Rec.709-A"),
+        *SDR_TAGS,
     )
+
+
+def hdr_preset_name(canvas: Canvas) -> str:
+    return f"{preset_name(canvas)}-hlg"
+
+
+def report_suffix(reel: str, out: Path) -> str:
+    """'' for ``<reel>.mp4``, '.hdr' for ``<reel>.hdr.mp4``, '.<stem>' for any other name."""
+    stem = out.stem
+    if stem == reel:
+        return ""
+    return stem[len(reel):] if stem.startswith(reel + ".") else f".{stem}"
+
+
+def output_mismatch(color_space_output: str | None, hdr: bool) -> str | None:
+    """Why the project's output color space does not fit the render mode (None when it fits)."""
+    is_hlg = "HLG" in (color_space_output or "")
+    if hdr and not is_hlg:
+        return (f"--hdr needs an HLG output color space, the project has {color_space_output!r}: "
+                "rebuild with cf.build --deliver hdr-hlg")
+    if not hdr and is_hlg:
+        return (f"the project outputs {color_space_output!r} (an HDR build): render it with --hdr, "
+                "or rebuild with cf.build --deliver sdr")
+    return None
 
 
 def job_expect(canvas: Canvas) -> dict:
@@ -103,18 +152,20 @@ def job_mismatches(job: dict, expect: dict, out: Path) -> list[str]:
 
 class Renderer:
     def __init__(self, reel_dir: Path, walk_dir: Path, preset: str | None, out: Path | None, project: str | None,
-                 canvas: str | None = None):
+                 canvas: str | None = None, hdr: bool = False, target_tp: float = render_check.TARGET_TP):
         self.reel_dir = reel_dir
         style = load_json(STYLE_PATH)
         script_canvas = script_canvas_of(reel_dir)
         # --canvas > the Script's canvas > style.json canvas (the same rule as cf.build).
         self.canvas = for_reel(style, script_canvas, canvas)
-        self.fmt, self.codec = render_codec(style)
+        self.hdr = hdr
+        self.target_tp = target_tp
+        self.fmt, self.codec = HDR_CODEC if hdr else render_codec(style)
         try:
             self.video_kbps = render_bitrate_kbps(style, self.canvas)
         except ValueError as exc:
             raise RenderError(str(exc)) from exc
-        preset = preset or preset_name(self.canvas)
+        preset = preset or (hdr_preset_name(self.canvas) if hdr else preset_name(self.canvas))
         self.reel = reel_dir.name
         manifest = load_json(walk_dir / "clip_manifest.json")
         self.walk = manifest.get("walk") or walk_dir.name
@@ -124,8 +175,9 @@ class Renderer:
         if self.out.suffix.lower() != ".mp4":
             raise RenderError(f"--out must end in .mp4: {self.out}")
         self.fps = self.canvas.fps
+        self.suffix = report_suffix(self.reel, self.out)
         self.report: dict[str, Any] = {"reel": self.reel, "project": self.project_name, "preset": self.preset,
-                                       "out": str(self.out), "notes": [],
+                                       "out": str(self.out), "notes": [], "hdr": hdr,
                                        "canvas": {"width": self.canvas.width, "height": self.canvas.height,
                                                   "fps": self.canvas.fps, "preset": self.canvas.preset,
                                                   "override": canvas, "script_canvas": script_canvas},
@@ -154,6 +206,11 @@ class Renderer:
         if d.call(cur_tl.GetName) != self.reel:
             raise RenderError(f"current timeline is {d.call(cur_tl.GetName)!r}, wanted {self.reel!r}")
         self.tl = tl
+        out_cs = (d.call(d.project.GetSettings) or {}).get("colorSpaceOutput")
+        self.report["color_space_output"] = out_cs
+        bad = output_mismatch(out_cs, self.hdr)
+        if bad:
+            raise RenderError(bad)
         start, end = int(d.call(tl.GetStartFrame)), int(d.call(tl.GetEndFrame))
         self.frames = end - start
         self.report["timeline"] = {"name": self.reel, "start_frame": start, "end_frame": end,
@@ -171,12 +228,12 @@ class Renderer:
         rows.append({"key": "format/codec", "value": f"{self.fmt}/{self.codec}", "returned": ok, "read": got})
         if (got.get("format"), got.get("codec")) != (self.fmt, self.codec):
             raise RenderError(f"SetCurrentRenderFormatAndCodec({self.fmt!r}, {self.codec!r}) -> {ok}, reads {got}")
-        for key, value in preset_settings(self.canvas, self.video_kbps):
+        for key, value in preset_settings(self.canvas, self.video_kbps, self.hdr):
             ok = bool(d.call(p.SetRenderSettings, {key: value}))
             rows.append({"key": key, "value": value, "returned": ok})
             if not ok:
                 msg = f"SetRenderSettings({{{key!r}: {value!r}}}) returned False"
-                if key in OPTIONAL_KEYS:
+                if key in OPTIONAL_KEYS and not (self.hdr and key == "EncodingProfile"):  # Main10 = 10 bit
                     self.report["notes"].append(msg + " (optional, skipped)")
                 else:
                     raise RenderError(msg)
@@ -284,13 +341,14 @@ class Renderer:
         if code == 0 and check:
             print()
             code = render_check.run(self.out, expect_duration=self.frames / self.fps, fix=fix_loudness,
-                                    report=self.out.parent / "render-check.json",
-                                    expected=render_check.expected_for(self.canvas))
+                                    report=self.out.parent / f"render-check{self.suffix}.json",
+                                    expected=render_check.expected_for(self.canvas, hdr=self.hdr),
+                                    target_tp=self.target_tp)
             self.report["check"] = "PASS" if code == 0 else "FAIL"
         for n in self.report["notes"]:
             print(f"note: {n}")
         self.out.parent.mkdir(parents=True, exist_ok=True)
-        (self.out.parent / "render-report.json").write_text(json.dumps(self.report, indent=2, ensure_ascii=False,
+        (self.out.parent / f"render-report{self.suffix}.json").write_text(json.dumps(self.report, indent=2, ensure_ascii=False,
                                                                        default=repr))
         return code
 
@@ -307,6 +365,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-check", action="store_true", help="skip cf.render_check")
     ap.add_argument("--fix-loudness", action="store_true",
                     help="pass --fix-loudness to render_check (writes <reel>.normalized.mp4)")
+    ap.add_argument("--hdr", action="store_true",
+                    help="Rec.2100 HLG: H.265 Main10, bt2020/arib-std-b67 tags (timeline built with "
+                         "cf.build --deliver hdr-hlg)")
+    ap.add_argument("--target-tp", type=float, default=render_check.TARGET_TP,
+                    help=f"true-peak ceiling in dBTP for the check and --fix-loudness "
+                         f"(default {render_check.TARGET_TP:g})")
     args = ap.parse_args(argv)
     reel_dir = Path(args.reel_dir).expanduser().resolve()
     walk_dir = Path(args.walk).expanduser().resolve() if args.walk else reel_dir.parent.parent
@@ -315,7 +379,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         r = Renderer(reel_dir, walk_dir, args.preset, Path(args.out) if args.out else None, args.project_name,
-                     canvas=args.canvas)
+                     canvas=args.canvas, hdr=args.hdr, target_tp=args.target_tp)
     except (RenderError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 2

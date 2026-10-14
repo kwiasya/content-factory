@@ -1,0 +1,46 @@
+{
+  "name": "day-airy",
+  "description": "Light and airy pastel: brighter, flatter, lifted soft shadows, calm pastel greens, clean white sky, natural skin, a hint of peach.",
+  "exposure": 0.6,
+  "contrast": {
+    "amount": 0.85,
+    "pivot": 0.18,
+    "toe_stops": 3.0,
+    "shoulder_stops": 1.5,
+    "per_channel": 0.0
+  },
+  "saturation": {
+    "amount": 0.95,
+    "vibrance": 0.0,
+    "highlight_start": 1.0,
+    "highlight_end": 4.0,
+    "highlight_floor": 0.5,
+    "skin": {
+      "hue": 22,
+      "width": 14,
+      "protect": 0.7
+    },
+    "bands": [
+      {
+        "hue": 75,
+        "width": 18,
+        "gain": 0.8,
+        "shift": 8
+      }
+    ]
+  },
+  "split_tone": {
+    "highlights": {
+      "hue": 30,
+      "strength": 0.04
+    },
+    "shadows": {
+      "hue": 340,
+      "strength": 0.05
+    },
+    "balance": 0.0,
+    "highlight_range": 3.0,
+    "shadow_range": 4.0
+  },
+  "black_lift": 0.04
+}

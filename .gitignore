@@ -3,6 +3,7 @@
 __pycache__/
 *.egg-info/
 tools/vision-score/.build/
+tools/apple-sdr/.build/
 
 # Remotion overlays
 overlays/node_modules
@@ -11,7 +12,7 @@ overlays/out/
 # Author context: personal, lives on this Mac only (/author-setup creates it)
 author/
 
-# Secrets (YouTube Data API key); see .env.example
+# Secrets (YouTube Data API key, Instagram token); see .env.example
 .env
 
 # Desk frontend

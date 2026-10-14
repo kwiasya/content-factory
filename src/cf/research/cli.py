@@ -1,12 +1,13 @@
 """Research CLI: ``python -m cf.research <group> <cmd> [--json] [--db PATH]``.
 
 Groups: ``watchlist`` (add, list, show, remove, add-channel,
-remove-channel, add-query), ``taxonomy`` (list, approve, reject), ``quota``,
+remove-channel, add-query, add-reference), ``taxonomy`` (list, approve, reject), ``quota``,
 ``scout``, ``snapshot``, ``feed``, ``fetch`` (one Reference, deep), ``card``
 (validate, save, show), ``ideas`` (add, list, show, shortlist, discard,
 restore, note, brief, candidates), ``summary`` (hooks, formats, topics), ``hooks``
 (save, remove, list, export: the Hook library of a Format), ``notes`` (list, add,
-resolve, delete: Notes from the Author). Every command takes
+resolve, delete: Notes from the Author), ``own`` (sync, report, mark, unmark: the
+Author's Instagram reels with insights), ``ig`` (token-status, token-refresh). Every command takes
 ``--json`` (machine output on stdout) and ``--db`` (default ``CF_FACTORY_DB`` or
 ``<footage root>/factory.db``). Human output is a Markdown table in Russian.
 Errors: one line on stderr, exit 1.
@@ -25,7 +26,8 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cf.research import brief, card, feed, fetch, hooks, ideas, notes, quota, scout, summary, taxonomy, watchlist, youtube
+from cf.research import (brief, card, env, feed, fetch, hooks, ideas, instagram, notes, own, picks, quota, scout,
+                         summary, taxonomy, watchlist, youtube)
 from cf.research.kinds import KINDS
 from cf.research.store import StoreError, open_store
 
@@ -33,7 +35,7 @@ from cf.research.store import StoreError, open_store
 USER_ERRORS: tuple[type[Exception], ...] = (
     watchlist.WatchlistError, taxonomy.TaxonomyError, quota.QuotaExceeded,
     youtube.YouTubeError, StoreError, fetch.FetchError, card.CardError, ideas.IdeaError, hooks.HookError,
-    notes.NoteError,
+    notes.NoteError, instagram.InstagramError, own.OwnError,
 )
 
 
@@ -73,8 +75,8 @@ def _wl_table(ws: list[watchlist.Watchlist]) -> str:
 def _reference_channels_table(chs: list[watchlist.ReferenceChannel]) -> str:
     if not chs:
         return "Reference channel пока нет."
-    return md_table(["Хэндл", "Название", "Подписчики", "Видео", "Свой", "ID"],
-                    [(c.handle, c.title, c.subscriber_count, c.video_count, c.own, c.external_id)
+    return md_table(["Площадка", "Хэндл", "Название", "Подписчики", "Видео", "Свой", "ID"],
+                    [(c.platform, c.handle, c.title, c.subscriber_count, c.video_count, c.own, c.external_id)
                      for c in chs])
 
 
@@ -118,6 +120,21 @@ def cmd_wl_add_query(args, store) -> int:
     return emit(args, w.to_dict(), lambda: _wl_table([w]))
 
 
+PICK_STATUS = {"store": "уже в базе", "ytdlp": "владелец через yt-dlp", "unresolved": "владелец неизвестен"}
+
+
+def cmd_wl_add_reference(args, store) -> int:
+    if args.note and len(args.ref) > 1:
+        raise watchlist.WatchlistError("--note goes with one link at a time")
+    resolver = picks.YtDlpResolver(delay_s=args.delay)
+    got = [picks.add_reference(store, args.name, r, note=args.note, resolver=resolver) for r in args.ref]
+    return emit(args, {"watchlist": args.name, "picks": [g.to_dict() for g in got],
+                       "ytdlp_stopped": resolver.stopped}, lambda: md_table(
+        ["Shortcode", "Как найден", "Владелец", "Подпись", "Note", "Почему"],
+        [(g.shortcode, PICK_STATUS[g.status], g.owner, g.title, g.note, g.detail) for g in got])
+        + (f"\n\n{resolver.stopped}" if resolver.stopped else ""))
+
+
 def register_watchlist(sub, common) -> None:
     g = sub.add_parser("watchlist", help="Watchlists, their Reference channels and queries")
     gs = g.add_subparsers(dest="cmd", required=True)
@@ -128,7 +145,8 @@ def register_watchlist(sub, common) -> None:
                    "<footage root>/channels/, where its Briefs go); not a Reference channel")
     p.add_argument("--language", default="en")
     p.add_argument("--region", help="ISO 3166-1 alpha-2, e.g. US")
-    p.add_argument("--query", action="append", default=[], help="search query (repeatable)")
+    p.add_argument("--query", action="append", default=[],
+                   help="YouTube search query (repeatable; Instagram has no search API)")
     p.set_defaults(func=cmd_wl_add)
     p = gs.add_parser("list", parents=[common], help="list Watchlists")
     p.set_defaults(func=cmd_wl_list)
@@ -142,20 +160,32 @@ def register_watchlist(sub, common) -> None:
                    help="remove it even when one of its Ideas has a Brief (the Ideas are deleted)")
     p.set_defaults(func=cmd_wl_remove)
     p = gs.add_parser("add-channel", parents=[common],
-                      help="add a Reference channel by @handle, channel URL or UC… id")
+                      help="add a Reference channel: YouTube @handle, channel URL or UC… id; Instagram "
+                           "ig:<username> or instagram.com/<username> (public business or creator accounts only)")
     p.add_argument("name")
     p.add_argument("ref")
     p.add_argument("--own", action="store_true", help="the channel is the Author's")
-    p.add_argument("--refresh", action="store_true", help="call channels.list even if the channel is known")
+    p.add_argument("--refresh", action="store_true",
+                   help="call channels.list (Instagram: Business Discovery) even if the channel is known")
     p.set_defaults(func=cmd_wl_add_channel)
     p = gs.add_parser("remove-channel", parents=[common], help="take a Reference channel out of a Watchlist")
     p.add_argument("name")
     p.add_argument("ref")
     p.set_defaults(func=cmd_wl_remove_channel)
-    p = gs.add_parser("add-query", parents=[common], help="attach a search query")
+    p = gs.add_parser("add-query", parents=[common],
+                      help="attach a YouTube search query (Instagram has no search API: queries stay YouTube-only)")
     p.add_argument("name")
     p.add_argument("query")
     p.set_defaults(func=cmd_wl_add_query)
+    p = gs.add_parser("add-reference", parents=[common],
+                      help="pick Instagram reel or post links into a Watchlist (owner via yt-dlp metadata without "
+                           "login, else the store; unresolved links are kept with their Note)")
+    p.add_argument("name")
+    p.add_argument("ref", nargs="+", help="instagram.com/reel/<code>/ or /p/<code>/ (tracking parameters dropped)")
+    p.add_argument("--note", help="the Author's note, stored verbatim as a card Note (one link only)")
+    p.add_argument("--delay", type=float, default=picks.DELAY_S,
+                   help="seconds between yt-dlp calls (default %(default)s)")
+    p.set_defaults(func=cmd_wl_add_reference)
 
 
 # --- taxonomy -----------------------------------------------------------------
@@ -212,12 +242,22 @@ def cmd_quota(args, store) -> int:
                         [(b.bucket, b.limit, b.used, b.remaining) for b in u.buckets])
         calls = md_table(["Метод", "Вызовов", "Units"], [(m.method, m.calls, m.units) for m in u.by_method]) \
             if u.by_method else "Вызовов не было."
-        return f"Квота YouTube Data API на {u.day} (сутки по Тихоокеанскому времени)\n\n{head}\n\n{calls}"
+        daily = md_table(["Корзина", "Лимит", "Израсходовано", "Осталось"],
+                         [(b.bucket, b.limit, b.used, b.remaining) for b in u.buckets if b.window == "day"])
+        hourly = md_table(["Корзина", "Лимит в час", "За последние 60 мин", "Осталось"],
+                          [(b.bucket, b.limit, b.used, b.remaining) for b in u.buckets if b.window == "hour"])
+        ig_calls = md_table(["Метод", "Вызовов"], [(m.method, m.calls) for m in u.hourly_by_method]) \
+            if u.hourly_by_method else "Вызовов за последний час не было."
+        press = "".join(f"\n\nMeta сообщила {p.pct}% лимита {p.bucket} в {p.seen_at}"
+                        + (f"; пауза до {p.paused_until} UTC" if p.paused_until else "") for p in u.pressure)
+        return (f"Квота YouTube Data API на {u.day} (сутки по Тихоокеанскому времени)\n\n{daily}\n\n{calls}\n\n"
+                f"Instagram Graph API (скользящий час)\n\n{hourly}\n\n{ig_calls}{press}")
     return emit(args, u.to_dict(), human)
 
 
 def register_quota(sub, common) -> None:
-    p = sub.add_parser("quota", parents=[common], help="today's YouTube Data API quota usage")
+    p = sub.add_parser("quota", parents=[common],
+                       help="today's YouTube Data API quota and the last hour's Instagram Graph API calls")
     p.add_argument("--day", help="ISO date (Pacific); default today")
     p.set_defaults(func=cmd_quota)
 
@@ -276,7 +316,8 @@ def cmd_fetch(args, store) -> int:
 def register_fetch(sub, common) -> None:
     p = sub.add_parser("fetch", parents=[common],
                        help="deep fetch of one Reference: media, transcript, proxy, Shot log, measured card")
-    p.add_argument("ref", help="YouTube video URL or 11-character id")
+    p.add_argument("ref", help="YouTube video URL or 11-character id, or an Instagram reel link the store has "
+                        "(media via yt-dlp without login; caption-only when Instagram refuses)")
     p.add_argument("--watchlist", help="Watchlist for the transcript language and the folder of a first fetch "
                         "(a fetched Reference keeps its folder; no membership)")
     p.add_argument("--force", action="store_true", help="download, transcribe and analyse again")
@@ -307,9 +348,10 @@ def cmd_scout(args, store) -> int:
 
     def human() -> str:
         mode = {"backfill": "первая загрузка", "new": "только новые"}
-        chans = md_table(["Хэндл", "Режим", "Страниц", "Новых видео", "Shorts", "Longs", "История готова"],
-                         [(c.handle or c.external_id, mode[c.mode], c.pages, c.new_videos, c.shorts, c.longs,
-                           c.backfilled) for c in r.channels]) if r.channels else "Reference channel нет."
+        chans = md_table(["Площадка", "Хэндл", "Режим", "Страниц", "Новых видео", "Shorts/Reels", "Longs",
+                          "История готова"],
+                         [(c.platform, c.handle or c.external_id, mode[c.mode], c.pages, c.new_videos, c.shorts,
+                           c.longs, c.backfilled) for c in r.channels]) if r.channels else "Reference channel нет."
         qs = md_table(["Запрос", "Страниц", "Видео"], [(q.query, q.pages, q.results) for q in r.queries]) \
             if r.queries else "Поисковых запросов не было."
         errors = [f"Ошибка канала {c.handle or c.external_id}: {c.error}" for c in r.channels if c.error]
@@ -317,6 +359,12 @@ def cmd_scout(args, store) -> int:
         if r.candidates_error:
             errors.append(f"Ошибка каналов-кандидатов: {r.candidates_error}")
         failed = ("\n\n" + "\n".join(errors)) if errors else ""
+        if r.skipped:
+            failed += f"\n\nПропущено: {r.skipped}"
+        if r.token_warning:
+            failed += f"\n\nВНИМАНИЕ, токен Instagram: {r.token_warning}"
+        elif r.token and r.token.get("days_left") is not None:
+            failed += f"\n\nТокен Instagram: осталось {r.token['days_left']} дн. (до {r.token['expires_at']})"
         return (f"Scout {r.watchlist} ({r.taken_at})\n\n{chans}\n\n{qs}\n\n"
                 f"Кандидаты (каналы из поиска вне Watchlist):\n\n{_candidates_table(r.candidates)}\n\n"
                 f"Вызовы API: {_calls_text(r.calls)}{_stopped_text(r.stopped)}{failed}")
@@ -326,7 +374,8 @@ def cmd_scout(args, store) -> int:
 
 def register_scout(sub, common) -> None:
     p = sub.add_parser("scout", parents=[common],
-                       help="pull uploads of the Watchlist's Reference channels and run its search queries")
+                       help="pull uploads of the Watchlist's Reference channels (YouTube and Instagram) and run its "
+                            "search queries (YouTube only)")
     p.add_argument("name")
     p.add_argument("--no-search", action="store_true", help="skip the search queries")
     p.add_argument("--search-days", type=float, default=scout.DEFAULT_SEARCH_DAYS,
@@ -343,6 +392,8 @@ def cmd_snapshot(args, store) -> int:
 
     def human() -> str:
         gone = f"\n\nПропали с YouTube: {', '.join(r.missing)}" if r.missing else ""
+        gone += "".join(f"\n\nОшибка Instagram {e}" for e in r.errors)
+        gone += f"\n\nПропущено: {r.skipped}" if r.skipped else ""
         return (f"Снимок {r.watchlist} на {r.taken_at}: {r.videos} Reference. "
                 f"Вызовы API: {_calls_text(r.calls)}{gone}{_stopped_text(r.stopped)}")
     return emit(args, r.to_dict(), human)
@@ -358,13 +409,14 @@ def register_snapshot(sub, common) -> None:
 def cmd_feed(args, store) -> int:
     rows = feed.feed(store, args.name, lookback_days=args.days, min_outlier=args.min_outlier,
                      min_views=args.min_views, kind=args.kind, max_duration_s=args.max_duration,
-                     limit=args.limit)
+                     limit=args.limit, platform=args.platform)
     data = [{**r.to_dict(), "outlier": None if r.outlier is None else round(r.outlier, 2)} for r in rows]
     filters = "; ".join(f for f in (
         f"outlier ≥ {args.min_outlier:g}" if args.min_outlier is not None else "",
         f"просмотров ≥ {args.min_views}" if args.min_views is not None else "",
         f"kind {args.kind}" if args.kind else "",
-        f"до {args.max_duration:g} с" if args.max_duration is not None else "") if f)
+        f"до {args.max_duration:g} с" if args.max_duration is not None else "",
+        args.platform or "") if f)
     return emit(args, data, lambda: feed.report(args.name, rows, lookback_days=args.days, filters=filters))
 
 
@@ -376,7 +428,9 @@ def register_feed(sub, common) -> None:
     p.add_argument("--min-outlier", type=float, help="drop Reference below this Outlier score (and unscored)")
     p.add_argument("--min-views", type=int)
     p.add_argument("--kind", choices=KINDS)
-    p.add_argument("--max-duration", type=float, help="seconds, e.g. 60 for Walk Reel work")
+    p.add_argument("--max-duration", type=float, help="seconds, e.g. 60 for Walk Reel work (drops Instagram "
+                   "reels, whose length the API does not give, until they are fetched)")
+    p.add_argument("--platform", choices=("youtube", "instagram"), help="one Platform only")
     p.add_argument("--limit", type=int, default=20, help="rows (default %(default)s)")
     p.set_defaults(func=cmd_feed)
 
@@ -837,9 +891,122 @@ def register_notes(sub, common) -> None:
         p.set_defaults(func=func)
 
 
+# --- own ----------------------------------------------------------------------------
+
+def _x(v: float | None) -> str | None:
+    return None if v is None else f"{v:.2f}".replace(".", ",") + "x"
+
+
+def _num(v: float | None) -> str | None:
+    return None if v is None else f"{v:,.0f}".replace(",", " ")
+
+
+def cmd_own_sync(args, store) -> int:
+    r = own.sync(store, pages=args.pages, discovery_pages=args.discovery_pages)
+
+    def human() -> str:
+        errs = "".join(f"\n- {e}" for e in r.errors)
+        return (f"Свой аккаунт @{r.handle}: {r.followers} подписчиков. Снимок {r.taken_at}: {r.reels} Reels "
+                f"(с инсайтами {r.with_insights}, просмотры через Business Discovery {r.views_from_discovery}) "
+                f"за {r.pages} стр. Вызовы API: {_calls_text(r.calls)}"
+                + (f"\n\nОшибки:{errs}" if errs else "") + _stopped_text(r.stopped))
+    return emit(args, r.to_dict(), human)
+
+
+def _own_human(r: own.OwnReport) -> str:
+    head = (f"Reels @{(r.handle or '').lstrip('@')} ({r.followers} подписчиков, снимок {r.synced_at}): {len(r.reels)}. "
+            f"Медианы: просмотры {_num(r.median_views)}, охват {_num(r.median_reach)}, "
+            f"репосты {_num(r.median_shares)}, сохранения {_num(r.median_saved)}.")
+    table = md_table(["#", "Дата", "Первая строка подписи", "Просмотры", "× медианы", "Охват", "Репосты",
+                      "Сохранения", "Взаимодействия", "Ср. просмотр, с", "Метки", "Ссылка"],
+                     [(x.rank, x.date, x.title, x.views, _x(x.vs_median), x.reach, x.shares, x.saved,
+                       x.interactions, x.avg_watch_s, ", ".join(x.marks), x.url) for x in r.reels])
+    out = [head, "", table]
+    if r.marks:
+        out += ["", "Метки против остальных (медианы):", "",
+                md_table(["Метка", "Reels", "Просмотры", "у остальных", "Охват", "у остальных", "Репосты",
+                          "у остальных", "Сохранения", "у остальных"],
+                         [(g.mark, f"{g.reels} из {g.reels + g.others}", _num(g.median_views),
+                           _num(g.others_median_views), _num(g.median_reach), _num(g.others_median_reach),
+                           _num(g.median_shares), _num(g.others_median_shares), _num(g.median_saved),
+                           _num(g.others_median_saved)) for g in r.marks])]
+    else:
+        out += ["", "Меток нет: `own mark <ссылка> closeup_emotion` для Reels, которые открываются "
+                    "крупным планом автора с эмоцией, и отчёт сравнит их с остальными."]
+    return "\n".join(out)
+
+
+def cmd_own_report(args, store) -> int:
+    r = own.report(store, days=args.days)
+    return emit(args, r.to_dict(), lambda: _own_human(r))
+
+
+def cmd_own_mark(args, store) -> int:
+    marks = own.mark(store, args.ref, args.mark, remove=args.func is cmd_own_unmark)
+    return emit(args, {"ref": args.ref, "marks": marks}, lambda: f"Метки: {', '.join(marks) or 'нет'}")
+
+
+def cmd_own_unmark(args, store) -> int:
+    return cmd_own_mark(args, store)
+
+
+def register_own(sub, common) -> None:
+    g = sub.add_parser("own", help="the Author's own Instagram reels with insights over time")
+    gs = g.add_subparsers(dest="cmd", required=True)
+    p = gs.add_parser("sync", parents=[common], help="store the account and its reels with insights "
+                      "(one call per 50 media, hourly instagram bucket)")
+    p.add_argument("--pages", type=int, default=own.DEFAULT_PAGES, help="pages of 50 media at most (default %(default)s)")
+    p.add_argument("--discovery-pages", type=int, default=own.DEFAULT_PAGES,
+                   help="Business Discovery pages at most for the views of reels without insights (default %(default)s)")
+    p.set_defaults(func=cmd_own_sync)
+    p = gs.add_parser("report", parents=[common], help="own reels ranked by views with reach, shares, saves, medians")
+    p.add_argument("--days", type=float, help="reels published in the last N days only")
+    p.set_defaults(func=cmd_own_report)
+    for name, func, text in (("mark", cmd_own_mark, "label an own reel (e.g. closeup_emotion) for the report"),
+                             ("unmark", cmd_own_unmark, "take a label off an own reel")):
+        p = gs.add_parser(name, parents=[common], help=text)
+        p.add_argument("ref", help="reel link or shortcode")
+        p.add_argument("mark", help="a-z, 0-9, _")
+        p.set_defaults(func=func)
+
+
+# --- ig -----------------------------------------------------------------------------
+
+def cmd_ig_token_status(args, store) -> int:
+    st = instagram.token_status()
+
+    def human() -> str:
+        if st.expires_at is None:
+            return f"Токен Instagram: {'действует' if st.valid else 'НЕ действует'}, срок не ограничен."
+        return (f"Токен Instagram: {'действует' if st.valid else 'НЕ действует'}, истекает {st.expires_at} "
+                f"(осталось {st.days_left} дн.). Права: {', '.join(st.scopes) or '—'}")
+    emit(args, st.to_dict(), human)
+    return 0 if st.valid else 1
+
+
+def cmd_ig_token_refresh(args, store) -> int:
+    got = instagram.exchange_token()
+    path = env.set_value(env.IG_TOKEN_VAR, got["access_token"])
+    days = int(got["expires_in"]) // 86400 if got.get("expires_in") else None
+    data = {"env_file": str(path), "expires_in_days": days}
+    return emit(args, data, lambda: f"Токен Instagram обновлён в {path} (права 600)"
+                + (f", действует ещё {days} дн." if days is not None else "."))
+
+
+def register_ig(sub, common) -> None:
+    g = sub.add_parser("ig", help="the Instagram access token (never printed)")
+    gs = g.add_subparsers(dest="cmd", required=True)
+    p = gs.add_parser("token-status", parents=[common], help="validity and days to expiry of INSTAGRAM_ACCESS_TOKEN")
+    p.set_defaults(func=cmd_ig_token_status)
+    p = gs.add_parser("token-refresh", parents=[common],
+                      help="exchange the token for a fresh long-lived one and rewrite only its line in .env")
+    p.set_defaults(func=cmd_ig_token_refresh)
+
+
 GROUPS: list[Callable] = [register_watchlist, register_taxonomy, register_quota,
                           register_scout, register_snapshot, register_feed, register_fetch, register_card,
-                          register_ideas, register_summary, register_hooks, register_notes]
+                          register_ideas, register_summary, register_hooks, register_notes, register_own,
+                          register_ig]
 
 
 def build_parser() -> argparse.ArgumentParser:

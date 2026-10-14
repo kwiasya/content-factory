@@ -13,8 +13,10 @@
 // takes its placement from there (role_placement), and designScale = width /
 // reference_width (2 at 2160x3840 and at 3840x2160).
 // `preset` is optional; it defaults to style.json typography.preset, then "legacy".
-// Optional `anchor` (a slot name from src/slots.json, e.g. "lower-left") overrides
-// the preset's placement; optional `scrim` (0..1) overrides its scrim strength;
+// Optional `anchor` (a slot name from src/slots.json, e.g. "lower-left", or an explicit
+// {"anchor": "top-left"|"top-right"|..., "x": n, "y": n, "align"?: ...} in reference px,
+// e.g. from a frame-aware picker) overrides the preset's placement; optional
+// `arrow_to` [x, y] (reference px) is where a preset with an arrow points; optional `scrim` (0..1) overrides its scrim strength;
 // optional `in_frames` / `out_frames` (0 = none) override the fade lengths.
 // A "\n" in `text` is a forced line break.
 // Relative style_path resolves against the spec file's folder; relative --spec and
@@ -142,8 +144,20 @@ if (!knownPresets.includes(preset)) die(2, `unknown preset "${preset}"; known: $
 
 const slots = style.slots ?? JSON.parse(fs.readFileSync(path.join(HERE, "src", "slots.json"), "utf8"));
 const knownSlots = Object.keys(slots).filter((k) => !k.startsWith("_"));
-if (spec.anchor !== undefined && !knownSlots.includes(spec.anchor))
+const ANCHOR_TYPES = ["center", "middle-left", "top-right", "top-left", "top-center", "bottom-left", "bottom-center"];
+if (spec.anchor !== undefined && typeof spec.anchor === "object" && spec.anchor !== null) {
+  const a = spec.anchor;
+  if (!ANCHOR_TYPES.includes(a.anchor)) die(2, `spec.anchor.anchor must be one of ${ANCHOR_TYPES.join("|")}`);
+  if (typeof a.y !== "number" || (a.x !== undefined && typeof a.x !== "number"))
+    die(2, "spec.anchor needs numeric y (and x for left/right anchors), reference px");
+  if (a.align !== undefined && !["left", "center", "right"].includes(a.align)) die(2, "spec.anchor.align must be left|center|right");
+} else if (spec.anchor !== undefined && !knownSlots.includes(spec.anchor))
   die(2, `unknown anchor "${spec.anchor}"; known: ${knownSlots.join(", ")}`);
+if (
+  spec.arrow_to !== undefined &&
+  !(Array.isArray(spec.arrow_to) && spec.arrow_to.length === 2 && spec.arrow_to.every((v) => typeof v === "number"))
+)
+  die(2, "spec.arrow_to must be [x, y] in reference px");
 if (spec.scrim !== undefined && !(typeof spec.scrim === "number" && spec.scrim >= 0 && spec.scrim <= 1))
   die(2, "spec.scrim must be a number in 0..1");
 
@@ -164,10 +178,13 @@ const durationInFrames = Math.round(spec.duration_s * fps);
 if (durationInFrames < 1) die(2, "duration_s is shorter than one frame");
 
 const warnings = [];
-const words = spec.text.trim().split(/\s+/).length;
+// Word and line limits apply per "\n" line (src/layout.ts lays each one out on its own).
 const maxWords = style.typography.max_words_per_line * style.typography.max_lines;
-if (words > maxWords)
-  warnings.push(`TEXT_OVERFLOW ${words} words > ${maxWords} (max_words_per_line x max_lines)`);
+spec.text.split(/\r?\n/).forEach((line, i) => {
+  const words = line.trim().split(/\s+/).filter(Boolean).length;
+  if (words > maxWords)
+    warnings.push(`TEXT_OVERFLOW line ${i + 1}: ${words} words > ${maxWords} (max_words_per_line x max_lines)`);
+});
 const minHold = style.animation.min_hold_s;
 if (minHold && spec.duration_s < minHold)
   warnings.push(`SHORT_HOLD duration_s ${spec.duration_s} < min_hold_s ${minHold}`);
@@ -211,6 +228,7 @@ fs.writeFileSync(propsFile, JSON.stringify({
     preset,
     ...(spec.anchor !== undefined ? { anchor: spec.anchor } : {}),
     ...(spec.scrim !== undefined ? { scrim: spec.scrim } : {}),
+    ...(spec.arrow_to !== undefined ? { arrowTo: spec.arrow_to } : {}),
   }));
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 

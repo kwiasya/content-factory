@@ -200,7 +200,57 @@ CREATE TABLE note (
 CREATE INDEX note_open ON note (kind, key) WHERE resolved_at IS NULL;
 """
 
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5]  # MIGRATIONS[i] takes the store from version i to i + 1
+# Version 6 (Instagram, ADR 0007). ``channel.platform`` and ``video.platform`` exist since V1 with
+# 'youtube' as the default; this version makes sure no row is left without one, then adds:
+# - ``insight``: the Author's own reels' Graph API insights (reach, saves, shares, watch time) over time;
+# - ``video.marks``: the Author's labels on a Reference (own reels: hypothesis tests such as ``closeup_emotion``);
+# - ``watchlist_pick``: References the Author picked by hand into a Watchlist (a reel link, any owner or none);
+# - ``rate`` and ``rate_pressure``: per-minute call counts of the hourly buckets (Instagram: about 200 calls an
+#   hour per user) and the last usage share Meta reported in its headers.
+V6 = """
+UPDATE channel SET platform = 'youtube' WHERE platform IS NULL OR platform = '';
+UPDATE video SET platform = 'youtube' WHERE platform IS NULL OR platform = '';
+CREATE INDEX video_platform ON video (platform, channel_id);
+ALTER TABLE video ADD COLUMN marks TEXT NOT NULL DEFAULT '[]';
+CREATE TABLE insight (
+    id             INTEGER PRIMARY KEY,
+    video_id       INTEGER NOT NULL REFERENCES video (id) ON DELETE CASCADE,
+    taken_at       TEXT NOT NULL,
+    views          INTEGER,
+    reach          INTEGER,
+    likes          INTEGER,
+    comments       INTEGER,
+    saved          INTEGER,
+    shares         INTEGER,
+    interactions   INTEGER,
+    avg_watch_ms   INTEGER,
+    total_watch_ms INTEGER,
+    UNIQUE (video_id, taken_at)
+);
+CREATE TABLE watchlist_pick (
+    watchlist_id INTEGER NOT NULL REFERENCES watchlist (id) ON DELETE CASCADE,
+    video_id     INTEGER NOT NULL REFERENCES video (id) ON DELETE CASCADE,
+    added_at     TEXT NOT NULL,
+    PRIMARY KEY (watchlist_id, video_id)
+);
+CREATE TABLE rate (
+    minute TEXT NOT NULL,
+    bucket TEXT NOT NULL,
+    method TEXT NOT NULL,
+    calls  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (minute, method)
+);
+CREATE TABLE rate_pressure (
+    bucket         TEXT PRIMARY KEY,
+    seen_at        TEXT NOT NULL,
+    pct            INTEGER NOT NULL,
+    regain_minutes INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+PLATFORMS = ("youtube", "instagram")
+
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6]  # MIGRATIONS[i] takes the store from version i to i + 1
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

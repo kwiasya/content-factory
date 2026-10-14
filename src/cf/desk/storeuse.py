@@ -32,6 +32,10 @@ def reading(db_path: Path) -> Iterator[Store]:
     conn.row_factory = sqlite3.Row
     with Store(conn, p) as s:
         version = s.schema_version()
+        if version > SCHEMA_VERSION:
+            raise Problem(409, "db_schema_newer", f"the research store {p} is schema version {version}, newer than "
+                                                  f"the {SCHEMA_VERSION} this Desk process reads; restart Desk",
+                          path=str(p), version=version, expected=SCHEMA_VERSION)
         if version != SCHEMA_VERSION:
             raise Problem(409, "db_schema", f"the research store {p} is schema version {version}, this code reads "
                                             f"{SCHEMA_VERSION}; {CREATE_HINT}",
