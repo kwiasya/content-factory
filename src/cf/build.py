@@ -46,8 +46,9 @@ Asset cues (``shots[].assets``, ``docs/script-schema.md`` Assets): the Library i
 over the part used, else under the target loudness), pictures on V4 "assets" (V5) from the file
 ``cf.assets.placement`` picks, with the ``pos`` transform (ZoomX ganged, Pan, Tilt); a meme's sound
 shares its cue on an A lane. Every item and value is read back, and each picture cue gets a still
-``stills/cue-<cue>.png``. ``--no-assets`` builds without them (their rules skipped, no Library opened). A cue-less Script creates the same
-tracks as before and never opens factory.db. The Pack is only read (Resolve imports by path).
+``stills/cue-<cue>.png`` (``--stills-only`` takes the cue plan from the last build-report.json).
+``--no-assets`` builds without them (their rules skipped, no Library opened). A cue-less Script
+creates the same tracks as before and never opens factory.db. The Pack is only read (Resolve imports by path).
 A Video folder (``videos/<slug>/`` with video.json) builds from ``<footage>/<script.walk>`` when
 ``--walk`` is absent.
 
@@ -1358,7 +1359,7 @@ class Builder:
                         before = d.call(it.GetProperties) or {}
                         if not before.get("ZoomGang"):
                             d.set_item_property_verified(it, "ZoomGang", True)
-                        for key in ("ZoomX", "Pan", "Tilt"):
+                        for key in ("ZoomX", "ZoomY", "Pan", "Tilt"):
                             d.set_item_property_verified(it, key, c.transform[key])
                         got = d.call(it.GetProperties) or {}
                         row["after"] = {k: got.get(k) for k in ("ZoomX", "ZoomY", "ZoomGang", "Pan", "Tilt")}
