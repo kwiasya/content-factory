@@ -1,7 +1,7 @@
 """References the Author picks by hand into a Watchlist: an Instagram reel or post link, with her Note.
 
 Business Discovery cannot look a reel up by its shortcode, so ``add_reference``
-finds the owner in this order (ADR 0007):
+finds the owner in this order (ADR 0010):
 
 1. the store already has the shortcode (a scout or snapshot of a Watchlist
    account read it, or an earlier pick): ``status`` ``store``;

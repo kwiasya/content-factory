@@ -71,6 +71,18 @@ npx --no-install remotion render src/index.ts Overlay <out> --props=<tmp> \
 | `scrim` | Optional, 0..1. Overrides the preset role's scrim strength. |
 | `in_frames`, `out_frames` | Optional ints ≥ 0. Replace `animation.in/out.frames` for this overlay; 0 = no fade on that side (a list item that cuts on with its shot, a header that must not blink at the cut). |
 | `canvas` | Optional. A style.json `canvases` name (`portrait`, `landscape`) or `WxH`; `--canvas` on the command line wins. The preset's size, `reference_width`, `safe_zone`, `overlay_positions` and `slots` replace the top-level ones. On `landscape` (3840×2160, reference 1920×1080) every overlay preset keeps its type system and takes its placement from `canvases.landscape.overlay_positions`, and `anchor` names resolve against `canvases.landscape.slots`; `designScale` is 2 on both 4K canvases, so text is the same size relative to the frame's short side. |
+| `font_file` | Optional. Absolute path to a `.ttf` or `.otf` (the Library font, see Overlay font); anything else, or a missing file, exits 2. |
+| `font_ref` | Optional string, the font's `@font/…` ref; only reported in the summary. |
+
+## Overlay font
+
+A Library font can replace the font family of **every overlay role** (hook, place, fact, line) of whatever preset; sizes, case, boxes and positions stay. Where it is set, first that applies:
+
+1. the Video's Format: a bullet `- Overlay font: `@font/komika-title`` in `formats/<id>/FORMAT.md`;
+2. `style.json` `typography.font` (`"@font/<name>"` or `null`, the default);
+3. neither: the presets keep their Google fonts.
+
+`python -m cf.assets font <script.json>` resolves it against the Library and prints one JSON line `{"ref", "path", "source"}` (or `{"ref": null}`); a broken ref exits 1 with the nearest matches. `/build-reel` puts `font_file` / `font_ref` into every spec. `render.mjs` copies the file into a temp public dir (`--public-dir`; the Pack is never linked or written), the composition registers it with `FontFace` for all weights and both styles (no faked bold or italic) and holds the render until it loads (a font that fails to load cancels the render). No macOS install and no network for this font. The summary's `font` is `{"ref", "file"}` or `null`.
 
 ## Presets
 

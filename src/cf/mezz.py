@@ -3,7 +3,7 @@
     python -m cf.mezz <walk_dir> [--clips IMG_1.MOV,IMG_2.MOV] [--force]
     python -m cf.mezz <clip.mov> <out.mov> [--force]
 
-Why (docs/adr/0008-hdr-clips-through-apple-tone-mapping.md): the author judges colour on her
+Why (docs/adr/0011-hdr-clips-through-apple-tone-mapping.md): the author judges colour on her
 Mac, where QuickTime and Photos show an iPhone HLG clip through Apple's own HDR -> SDR tone
 mapping. Resolve's HLG -> Rec.709 conversion does not match it (about +30 to +45 luma levels,
 flat, grey sky). So with ``hdr_source`` ``apple-sdr`` (the default, ``style.json``

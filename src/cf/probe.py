@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -352,6 +353,10 @@ def list_clips(raw_dir: Path) -> list[Path]:
     )
 
 
+def dangling_links(raw_dir: Path) -> list[Path]:
+    return sorted(p for p in raw_dir.iterdir() if p.is_symlink() and not p.exists() and not p.name.startswith("."))
+
+
 def build_manifest(raw_dir: Path) -> dict:
     raw_dir = raw_dir.resolve()
     clips = list_clips(raw_dir)
@@ -401,6 +406,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.raw_dir.is_dir():
         ap.error(f"not a directory: {args.raw_dir}")
+    dangling = dangling_links(args.raw_dir)
+    if dangling:
+        print(f"{len(dangling)} links in {args.raw_dir} point at missing files; clip_manifest.json is not written. "
+              "Re-point them to where the footage is now (or plug the drive back in), then probe again:",
+              file=sys.stderr)
+        for p in dangling:
+            print(f"  {p.name} -> {os.readlink(p)}", file=sys.stderr)
+        return 2
     manifest = build_manifest(args.raw_dir)
     if not manifest["clips"]:
         print(f"no video files in {args.raw_dir}", file=sys.stderr)

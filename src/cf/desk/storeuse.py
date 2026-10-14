@@ -1,6 +1,8 @@
 """How Desk opens factory.db: one Store per request, never seeded; reads never create or migrate the file.
 
 sqlite connections stay on the thread that made them, so every request opens and closes its own Store.
+`ABSENT` holds the Problem codes of `reading` that mean there is no store to read (missing, or another schema
+version); a caller that can do without the store catches those and goes on.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from cf.research.store import SCHEMA_VERSION, Store, open_store
 
 CREATE_COMMAND = "python -m cf.research watchlist list"
 CREATE_HINT = "any python -m cf.research command (for example: watchlist list) creates and migrates it"
+ABSENT = frozenset({"db_missing", "db_schema", "db_schema_newer"})
 
 
 def exists(db_path: Path) -> bool:

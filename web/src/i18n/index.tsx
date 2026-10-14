@@ -15,6 +15,7 @@ const LOCALES: Record<Lang, string> = { en: "en-US", ru: "ru-RU" };
 const LANGS: Lang[] = ["en", "ru"];
 const STORAGE = "desk.lang";
 const DEFAULT: Lang = "en";
+const EMPTY_LISTS: Record<string, string> = { format_unknown: "formats", channel_unknown: "channels" };
 
 export interface T {
   (key: Key, params?: Params): string;
@@ -59,6 +60,10 @@ function makeT(lang: Lang): T {
     const params = { ...(problem.params ?? {}) };
     if (problem.code === "idea_move_not_allowed" && typeof params.status === "string") {
       params.status = t.or(`ideas.status.${params.status}`, params.status);
+    }
+    const listed = EMPTY_LISTS[problem.code];
+    if (listed && Array.isArray(params[listed]) && (params[listed] as unknown[]).length === 0 && has(`${key}_none`)) {
+      return render(`${key}_none` as Key, params);
     }
     return render(key, params);
   };

@@ -2,7 +2,7 @@
 
 `<name>.json` is a Look spec; `python -m cf.look build looks/<name>.json -o looks/<name>.cube` writes the 33-point LUT in the timeline space (DWG / DaVinci Intermediate). cf.build puts the LUT on node 1 of the `cf-look` group's post-clip graph (`--look looks/<name>.cube`, or `style.json` `look.lut`).
 
-Since 2026-10-12 no Look is applied by default (`style.json` `look.lut` is null): the author's rule is original colour, as on her Mac (ADR 0008). These files are kept for an explicit `--look` only.
+Since 2026-10-12 no Look is applied by default (`style.json` `look.lut` is null): the author's rule is original colour, as on her Mac (ADR 0011). These files are kept for an explicit `--look` only.
 
 ## author-day.cube
 

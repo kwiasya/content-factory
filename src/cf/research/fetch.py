@@ -21,7 +21,7 @@ any ``references/*/``, whatever Watchlist is given now (nothing moves or doubles
 Adapters (yt-dlp, stable-ts, proxy, Shot log, OCR, Data API transport) come
 in through ``Adapters`` so tests replace them; the logic here is pure.
 
-An Instagram reel (a reel or post link, or ``ig:<shortcode>``; ADR 0007) is
+An Instagram reel (a reel or post link, or ``ig:<shortcode>``; ADR 0010) is
 fetched from what the store already has from the Graph API (scout, snapshot,
 ``watchlist add-reference``): counts, caption, owner. yt-dlp then tries the
 media without login or cookies; when Instagram refuses, the card is
@@ -350,7 +350,7 @@ def _shotlog_ocr(a: Adapters, d: Path, media: Path, transcript: dict, force: boo
 # --- Instagram ------------------------------------------------------------------
 
 CAPTION_ONLY = ("caption-only: yt-dlp could not get the video without login ({why}); no transcript, Shot log "
-                "or OCR. Cookies and login are never used (ADR 0007)")
+                "or OCR. Cookies and login are never used (ADR 0010)")
 
 
 def instagram_ref(text: str) -> str | None:

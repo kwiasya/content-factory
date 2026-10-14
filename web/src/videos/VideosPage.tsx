@@ -1,18 +1,14 @@
-import { useEffect, useState } from "react";
 import { formatTime } from "../format";
 import { videoHref } from "./routes";
-import { videosApi, type VideoSummary } from "./videosApi";
-import { useT, type Problem } from "../i18n";
+import { useT } from "../i18n";
 import { ErrorLine } from "../ErrorLine";
+import { useDeskData, useReloadOnMount } from "../shell/DeskData";
+import { NEW_VIDEO_HASH } from "../shell/routes";
 
 export function VideosPage() {
   const t = useT();
-  const [videos, setVideos] = useState<VideoSummary[] | null>(null);
-  const [error, setError] = useState<Problem | null>(null);
-
-  useEffect(() => {
-    videosApi.list().then(setVideos, setError);
-  }, []);
+  const { videos, error } = useDeskData();
+  useReloadOnMount();
 
   return (
     <main className="doc videos">
@@ -21,7 +17,7 @@ export function VideosPage() {
       {videos === null ? (
         !error && <p className="muted">{t("common.loading")}</p>
       ) : videos.length === 0 ? (
-        <p className="muted">{t.rich("videos.empty", { path: <code>videos/&lt;slug&gt;/video.json</code> })}</p>
+        <p className="muted">{t.rich("videos.empty", { link: <a href={NEW_VIDEO_HASH}>{t("nav.newVideo")}</a> })}</p>
       ) : (
         <table className="video-table">
           <thead>
@@ -43,7 +39,10 @@ export function VideosPage() {
                 </td>
                 <td>{v.format ?? "—"}</td>
                 <td>{v.channel ?? "—"}</td>
-                <td>{v.status ? <span className={`status-pill status-${v.status}`}>{t(`videos.status.${v.status}`)}</span> : "—"}</td>
+                <td>
+                  <span className={`stage-dot stage-${v.stage ?? "none"}`} aria-hidden="true" />{" "}
+                  {v.status ? <span className={`status-pill status-${v.status}`}>{t(`videos.status.${v.status}`)}</span> : "—"}
+                </td>
                 <td className="muted when">{formatTime(v.updated, t)}</td>
               </tr>
             ))}

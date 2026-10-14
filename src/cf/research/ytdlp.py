@@ -5,7 +5,7 @@ vertical Short comes as 720x1280 and a landscape video as 1280x720; H.264 and
 AAC are preferred so ffmpeg/VideoToolbox decode it. YouTube needs a JS runtime
 (deno, default) and the ``yt-dlp-ejs`` scripts (``yt-dlp[default]``). Sign-in
 walls are reported, never worked around with browser cookies. The same holds for
-Instagram (ADR 0007): no cookies, no login; a refusal makes the card caption-only.
+Instagram (ADR 0010): no cookies, no login; a refusal makes the card caption-only.
 """
 
 from __future__ import annotations

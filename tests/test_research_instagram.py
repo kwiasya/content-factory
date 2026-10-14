@@ -1,4 +1,4 @@
-"""Instagram as a second research source (ADR 0007): the V6 migration, ingest from recorded Graph API
+"""Instagram as a second research source (ADR 0010): the V6 migration, ingest from recorded Graph API
 payloads, channel refs, scout and snapshot over a fake Graph transport, the Outlier score per Platform,
 the hourly quota planner, the token, the own account and the Author's picks. No network."""
 
@@ -125,7 +125,7 @@ class MigrationV6Test(unittest.TestCase):
             conn.commit()
             conn.close()
             with st.open_store(path, seed=False) as s:
-                self.assertEqual(s.schema_version(), 6)
+                self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
                 self.assertEqual(s.one("SELECT platform FROM channel")["platform"], "youtube")
                 self.assertEqual(s.one("SELECT platform, marks FROM video"), {"platform": "youtube", "marks": "[]"})
                 self.assertLessEqual({"insight", "watchlist_pick", "rate", "rate_pressure"}, set(s.tables()))

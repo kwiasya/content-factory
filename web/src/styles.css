@@ -12,6 +12,8 @@
   --del-text: #a40e26;
   --warn: #fff6e0;
   --warn-line: #f0c36d;
+  --warm: #d97706;
+  --green: #16a34a;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 14px;
   color: var(--text);
@@ -33,6 +35,8 @@
     --del-text: #ff9aa8;
     --warn: #33290f;
     --warn-line: #8a6a1f;
+    --warm: #f59e0b;
+    --green: #4ade80;
   }
 }
 
@@ -85,17 +89,6 @@ pre {
   padding: 8px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
-}
-
-.checkout {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  color: var(--muted);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .branch {
@@ -436,16 +429,6 @@ pre {
 
 .doc a,
 .skill-links a {
-  color: var(--accent);
-}
-
-.top .nav {
-  color: var(--muted);
-  text-decoration: none;
-}
-
-.top .nav.active,
-.top .nav:hover {
   color: var(--accent);
 }
 

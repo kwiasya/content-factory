@@ -8,7 +8,7 @@ store already knows is reused, otherwise ``channels.list`` is called through
 A Watchlist holds channels of both Platforms. An Instagram account is given as
 ``ig:<username>`` or an ``instagram.com/<username>`` link and resolved through
 Business Discovery (``instagram``, one call of the hourly bucket), which sees
-public business and creator accounts only (ADR 0007). Search queries are
+public business and creator accounts only (ADR 0010). Search queries are
 YouTube's: Instagram has no search API.
 """
 
@@ -301,7 +301,7 @@ def resolve_instagram(store: Store, username: str, *, own: bool | None = None, m
     except instagram.InstagramError as exc:
         if exc.subcode in instagram.NOT_FOUND_SUBCODES or exc.code == 110:
             raise WatchlistError(f"@{handle}: Business Discovery found no public business or creator account "
-                                 f"(a personal or private account is invisible to the API; ADR 0007)") from None
+                                 f"(a personal or private account is invisible to the API; ADR 0010)") from None
         raise
     bd = p.get("business_discovery") or {}
     if not bd.get("id"):

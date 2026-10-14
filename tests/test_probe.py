@@ -1,7 +1,13 @@
 """Classifier tests on hand-built ffprobe stream dicts and exiftool tag dicts."""
 
+import contextlib
+import io
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
+from cf import probe
 from cf.probe import classify, parse_creation_time, parse_rate
 from cf.proxy import build_filter, proxy_size
 
@@ -130,6 +136,48 @@ class HelpersTest(unittest.TestCase):
         vf, approx = build_filter(clip, has_zscale=False)
         self.assertTrue(approx)
         self.assertNotIn("zscale", vf)
+
+
+class ListClipsThroughLinksTest(unittest.TestCase):
+    def test_symlinked_clips_are_listed_and_the_walk_is_the_raw_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            source = base / "vienna"
+            source.mkdir()
+            (source / "DJI_0001.MP4").write_bytes(b"v")
+            (source / "IMG_0001.JPG").write_bytes(b"s")
+            raw = base / "vienna-2026-07-31" / "raw"
+            raw.mkdir(parents=True)
+            for name in ("DJI_0001.MP4", "IMG_0001.JPG"):
+                (raw / name).symlink_to(source / name)
+            self.assertEqual([p.name for p in probe.list_clips(raw)], ["DJI_0001.MP4"])
+            with mock.patch.object(probe, "run_exiftool", return_value={}), \
+                    mock.patch.object(probe, "probe_clip", side_effect=lambda p, exif: {"path": str(p.resolve())}):
+                manifest = probe.build_manifest(raw)
+            self.assertEqual(manifest["walk"], "vienna-2026-07-31")
+            self.assertEqual(manifest["clips"], [{"path": str(source / "DJI_0001.MP4")}])
+
+
+class DanglingLinksTest(unittest.TestCase):
+    def test_dangling_links_stop_probe_and_keep_the_old_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            raw = base / "town-2026-07-31" / "raw"
+            raw.mkdir(parents=True)
+            (base / "ok.MP4").write_bytes(b"v")
+            (raw / "ok.MP4").symlink_to(base / "ok.MP4")
+            (raw / "gone.MP4").symlink_to(base / "unplugged" / "gone.MP4")
+            manifest = raw.parent / "clip_manifest.json"
+            manifest.write_text('{"kept": true}\n')
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), \
+                    mock.patch.object(probe, "build_manifest", side_effect=AssertionError("must not probe")):
+                code = probe.main([str(raw)])
+            self.assertEqual(code, 2)
+            self.assertIn("gone.MP4 -> " + str(base / "unplugged" / "gone.MP4"), err.getvalue())
+            self.assertNotIn("ok.MP4", err.getvalue())
+            self.assertEqual(manifest.read_text(), '{"kept": true}\n')
+            self.assertEqual(probe.dangling_links(raw), [raw / "gone.MP4"])
 
 
 if __name__ == "__main__":

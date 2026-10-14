@@ -8,6 +8,7 @@ import { mediaUrl } from "../api";
 import { videosApi, type VideoDetail, type VideoFile } from "./videosApi";
 import { useT, type Key, type Problem } from "../i18n";
 import { ErrorLine } from "../ErrorLine";
+import { useDeskData } from "../shell/DeskData";
 
 const TABS = ["script", "text", "brief", "subtitles", "renders", "overlays", "sources", "files", "references", "notes"] as const;
 
@@ -15,11 +16,14 @@ type Tab = (typeof TABS)[number];
 
 const byVersion = (a: VideoFile, b: VideoFile) => b.path.localeCompare(a.path, undefined, { numeric: true });
 
-export function VideoPage({ slug }: { slug: string }) {
+const isTab = (value: string | null | undefined): value is Tab => TABS.some((id) => id === value);
+
+export function VideoPage({ slug, initialTab }: { slug: string; initialTab?: string | null }) {
   const t = useT();
   const [detail, setDetail] = useState<VideoDetail | null>(null);
   const [error, setError] = useState<Problem | null>(null);
-  const [tab, setTab] = useState<Tab>("script");
+  const [tab, setTab] = useState<Tab>(isTab(initialTab) ? initialTab : "script");
+  const { reload } = useDeskData();
 
   const load = useCallback(() => {
     videosApi.get(slug).then(
@@ -61,7 +65,14 @@ export function VideoPage({ slug }: { slug: string }) {
         </div>
       </div>
 
-      <StatusStrip detail={detail} onChanged={setDetail} onReload={load} />
+      <StatusStrip
+        detail={detail}
+        onChanged={(d) => {
+          setDetail(d);
+          reload();
+        }}
+        onReload={load}
+      />
 
       <LinkedResearch references={video.references ?? []} ideas={video.ideas ?? []} />
 
@@ -118,7 +129,7 @@ export function VideoPage({ slug }: { slug: string }) {
   );
 }
 
-function LinkedResearch({ references, ideas }: { references: string[]; ideas: string[] }) {
+function LinkedResearch({ references, ideas }: { references: string[]; ideas: Array<string | number> }) {
   const t = useT();
   return (
     <dl className="facts linked">

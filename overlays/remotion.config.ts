@@ -14,5 +14,5 @@ Config.setProResProfile("4444");
 Config.setPixelFormat("yuva444p10le");
 // Tag the file Rec.709 (primaries, transfer, matrix) so Resolve does not guess.
 Config.setColorSpace("bt709");
-// 8 GB machine shared with Resolve and other jobs.
+// Set for the earlier 8 GB M2 shared with Resolve and other jobs; not re-measured on the M5 Max 36 GB.
 Config.setConcurrency(2);

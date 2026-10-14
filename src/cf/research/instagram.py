@@ -13,7 +13,7 @@ or a log. The HTTP transport reads Meta's usage headers
 (``X-Business-Use-Case-Usage``, ``X-App-Usage``) into ``_usage`` on the payload;
 ``_call`` stores the share with ``quota.record_pressure`` so the bucket pauses
 near Meta's limit, and a rate-limit error (codes 4, 17, 32, 613, 80002) pauses
-it at once (``QuotaExceeded``). ADR 0007 has the why and the limits.
+it at once (``QuotaExceeded``). ADR 0010 has the why and the limits.
 """
 
 from __future__ import annotations

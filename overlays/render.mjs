@@ -18,7 +18,8 @@
 // e.g. from a frame-aware picker) overrides the preset's placement; optional
 // `arrow_to` [x, y] (reference px) is where a preset with an arrow points; optional `scrim` (0..1) overrides its scrim strength;
 // optional `in_frames` / `out_frames` (0 = none) override the fade lengths.
-// A "\n" in `text` is a forced line break.
+// A "\n" in `text` is a forced line break. Optional `font_file` (absolute .ttf/.otf) and
+// `font_ref` (its @font/… ref, reported only) set the overlay font (README "Overlay font").
 // Relative style_path resolves against the spec file's folder; relative --spec and
 // --out resolve against the caller's cwd (INIT_CWD under npm run).
 // Last stdout line is a JSON summary; exit 0 ok, 1 render failed, 2 bad input,
@@ -173,6 +174,23 @@ if (spec.in_frames !== undefined || spec.out_frames !== undefined)
     out: { ...style.animation.out, ...(spec.out_frames !== undefined ? { frames: spec.out_frames } : {}) },
   };
 
+// Optional font_file (absolute .ttf/.otf, the Library font from `python -m cf.assets font`)
+// replaces every role's family; font_ref is only reported. The file is copied into a temp
+// public dir (never linked, the Pack stays untouched) and served with staticFile().
+const FONT_SUFFIXES = [".ttf", ".otf"];
+let fontCopy = null;
+if (spec.font_file !== undefined && spec.font_file !== null) {
+  if (typeof spec.font_file !== "string" || !path.isAbsolute(spec.font_file))
+    die(2, "spec.font_file must be an absolute path to a .ttf or .otf file");
+  const ext = path.extname(spec.font_file).toLowerCase();
+  if (!FONT_SUFFIXES.includes(ext)) die(2, `spec.font_file ${spec.font_file} is not a .ttf or .otf file`);
+  if (!fs.existsSync(spec.font_file) || !fs.statSync(spec.font_file).isFile())
+    die(2, `spec.font_file ${spec.font_file} does not exist`);
+  fontCopy = `cf-font${ext}`;
+}
+if (spec.font_ref !== undefined && spec.font_ref !== null && typeof spec.font_ref !== "string")
+  die(2, "spec.font_ref must be a string when present");
+
 const fps = style.canvas.fps;
 const durationInFrames = Math.round(spec.duration_s * fps);
 if (durationInFrames < 1) die(2, "duration_s is shorter than one frame");
@@ -229,8 +247,14 @@ fs.writeFileSync(propsFile, JSON.stringify({
     ...(spec.anchor !== undefined ? { anchor: spec.anchor } : {}),
     ...(spec.scrim !== undefined ? { scrim: spec.scrim } : {}),
     ...(spec.arrow_to !== undefined ? { arrowTo: spec.arrow_to } : {}),
+    ...(fontCopy ? { fontFile: fontCopy } : {}),
   }));
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
+let publicDir = null;
+if (fontCopy) {
+  publicDir = fs.mkdtempSync(path.join(os.tmpdir(), "cf-overlay-public-"));
+  fs.copyFileSync(spec.font_file, path.join(publicDir, fontCopy));
+}
 
 const cliArgs = [
   "--no-install",
@@ -248,6 +272,7 @@ const cliArgs = [
   "--color-space=bt709",
   "--overwrite",
   "--log=verbose",
+  ...(publicDir ? [`--public-dir=${publicDir}`] : []),
 ];
 
 await acquireLock();
@@ -280,6 +305,7 @@ const code = await new Promise((resolve) => {
   });
 });
 fs.rmSync(path.dirname(propsFile), { recursive: true, force: true });
+if (publicDir) fs.rmSync(publicDir, { recursive: true, force: true });
 
 const summary = {
   ok: code === 0,
@@ -294,6 +320,7 @@ const summary = {
   height: style.canvas.height,
   scale: designScale,
   render_s: Math.round((Date.now() - started) / 100) / 10,
+  font: fontCopy ? { ref: spec.font_ref ?? null, file: spec.font_file } : null,
   safe_zone_ok: !warnings.some((w) => w.startsWith("SAFE_ZONE_VIOLATION")),
   warnings,
 };

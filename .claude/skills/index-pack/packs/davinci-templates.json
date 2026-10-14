@@ -1,0 +1,25 @@
+{
+  "schema": "cf-pack/1",
+  "id": "davinci-templates",
+  "root": "/Users/madvil2/Movies/Videos/davinci templates",
+  "include": ["montage", "CinePacks Smoke FX FREE"],
+  "exclude": ["montage/1 pack/_каталог"],
+  "templates": true,
+  "folders": {
+    "montage/1 pack/звуковые эффекты": {"category": "sfx"},
+    "montage/1 pack/мемы видео": {"category": "meme"},
+    "montage/1 pack/мемы картинки": {"category": "img"},
+    "montage/1 pack/мемы новые": {"category": "img"},
+    "montage/1 pack/эмодзи анимированные": {"category": "emoji", "key": "green"},
+    "montage/1 pack/футажи": {"category": "footage", "key": "green"},
+    "montage/1 pack/stickers with my face": {"category": "face", "rights": "own", "group": "sticker"},
+    "montage/1 pack/стикеры лицо — Resolve": {"category": "face", "rights": "own", "group": "sticker"},
+    "montage/1 pack/фоны шортс": {"category": "bg"},
+    "montage/1 pack/фоны горизонтальные": {"category": "bg"},
+    "montage/1 pack/музыка чистая": {"category": "music", "rights": "free"},
+    "montage/1 pack/шрифты": {"category": "font"},
+    "CinePacks Smoke FX FREE/Smoke FX": {"category": "fx", "rights": "free"},
+    "montage/Davinci Shrine Pack/DAVINCI SHRINE PACK/Project Files": {"category": "fx"},
+    "montage/Davinci Shrine Pack/DAVINCI SHRINE PACK/Text/font": {"category": "font"}
+  }
+}

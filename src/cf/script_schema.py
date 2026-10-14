@@ -8,8 +8,12 @@ writer. Overlay and caption rules apply only when those fields are present
 CLI::
 
     python -m cf.script_schema validate <script.json> [--manifest m.json] [--style style.json]
+                                        [--footage-root PATH] [--db PATH] [--no-library]
 
-exits 1 and prints one violation per line when the Script breaks a rule.
+exits 1 and prints one violation per line when the Script breaks a rule; warnings print as
+``- WARN …`` and never fail. Shot ``assets`` (Library cues) are checked against the Library
+(``cf.assets.context``: the Video folder's footage root and factory.db, read-only); a Script
+without cues never opens the store.
 """
 
 from __future__ import annotations
@@ -20,11 +24,14 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cf import frames
 from cf import reframe as rf
 from cf.reframe import Reframe
+
+if TYPE_CHECKING:
+    from cf.assets import AssetContext
 
 SCHEMA = "cf-script/1"
 FORMATS = ("pov", "listicle", "levels", "day_in_the_life", "reveal", "contrast")
@@ -64,6 +71,20 @@ class Overlay:
     out_frames: int | None = None  # fade-out frames (0 = cuts off); None = style.animation
 
 
+CUE_KEYS = ("ref", "at_s", "dur_s", "pos", "db")
+
+
+@dataclass
+class AssetCue:
+    """One Library Asset placed in a shot: ``at_s`` timeline seconds from the shot's start."""
+    ref: str
+    at_s: float
+    dur_s: float | None = None
+    pos: str | None = None
+    db: float | None = None
+    extra: tuple[str, ...] = ()
+
+
 @dataclass
 class Shot:
     id: str
@@ -78,6 +99,7 @@ class Shot:
     fade_in_s: float = 0.0
     fade_out_s: float = 0.0
     reframe: Reframe | None = None  # None: the default for the clip (smart for landscape on portrait)
+    assets: list[AssetCue] = field(default_factory=list)
 
     @property
     def duration_s(self) -> float:
@@ -131,7 +153,12 @@ def _num(d: dict, key: str, where: str, default: Any = None) -> float:
 
 
 def _opt_num(d: dict, key: str, where: str) -> float | None:
-    return None if d.get(key) is None else _num(d, key, where)
+    v = d.get(key)
+    if v is None:
+        return None
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ScriptError(f"{where}: {key!r} must be a number or null, got {v!r}")
+    return float(v)
 
 
 def _str(d: dict, key: str, where: str, required: bool = True) -> str | None:
@@ -143,6 +170,14 @@ def _str(d: dict, key: str, where: str, required: bool = True) -> str | None:
     if not isinstance(v, str):
         raise ScriptError(f"{where}: {key!r} must be a string, got {v!r}")
     return v
+
+
+def cue_from_dict(d: Any, where: str) -> AssetCue:
+    if not isinstance(d, dict):
+        raise ScriptError(f"{where}: must be an object")
+    return AssetCue(ref=_str(d, "ref", where), at_s=_num(d, "at_s", where), dur_s=_opt_num(d, "dur_s", where),
+                    pos=_str(d, "pos", where, required=False), db=_opt_num(d, "db", where),
+                    extra=tuple(k for k in d if k not in CUE_KEYS))
 
 
 def shot_from_dict(d: dict, index: int) -> Shot:
@@ -175,6 +210,9 @@ def shot_from_dict(d: dict, index: int) -> Shot:
         reframe = rf.from_shot(d.get("reframe"), f"{where}.reframe")
     except ValueError as exc:
         raise ScriptError(str(exc)) from exc
+    cues = d.get("assets")
+    if cues is not None and not isinstance(cues, list):
+        raise ScriptError(f"{where}: 'assets' must be a list of cues or null, got {cues!r}")
     beat = d.get("beat_index")
     if beat is not None and (isinstance(beat, bool) or not isinstance(beat, int)):
         raise ScriptError(f"{where}: 'beat_index' must be an int or null, got {beat!r}")
@@ -191,6 +229,7 @@ def shot_from_dict(d: dict, index: int) -> Shot:
         fade_in_s=_num(d, "fade_in_s", where, 0.0),
         fade_out_s=_num(d, "fade_out_s", where, 0.0),
         reframe=reframe,
+        assets=[cue_from_dict(c, f"{where}.assets[{k}]") for k, c in enumerate(cues or [])],
     )
 
 
@@ -320,8 +359,34 @@ def overlay_cover(shots: list[Shot]) -> dict[int, int]:
     return cover
 
 
-def validate(script: Script, manifest: dict | None = None, style: dict | None = None) -> list[str]:
+@dataclass
+class Findings:
+    problems: list[str]
+    warnings: list[str]
+
+
+def has_cues(script: Script) -> bool:
+    return any(s.assets for s in script.shots)
+
+
+def check(script: Script, manifest: dict | None = None, style: dict | None = None,
+          assets: "AssetContext | None" = None, *, cues: bool = True) -> Findings:
+    """Violations and warnings; the Asset cue rules run only when the Script has cues and ``cues`` is true
+    (false: a build that leaves the cues out checks the rest of the Script only)."""
+    problems = _problems(script, manifest, style)
+    if not cues or not has_cues(script):
+        return Findings(problems, [])
+    f = asset_findings(script, assets, style or {}, manifest)
+    return Findings(problems + f.problems, f.warnings)
+
+
+def validate(script: Script, manifest: dict | None = None, style: dict | None = None,
+             assets: "AssetContext | None" = None) -> list[str]:
     """Return the list of rule violations (empty when the Script is valid)."""
+    return check(script, manifest, style, assets).problems
+
+
+def _problems(script: Script, manifest: dict | None = None, style: dict | None = None) -> list[str]:
     v: list[str] = []
     style = style or {}
     shot_s = (style.get("pacing") or {}).get("shot_s") or {}
@@ -534,6 +599,163 @@ def loop_seamless_problems(script: Script, clips: dict[str, dict], style: dict) 
     return v
 
 
+def _cue_fps(style: dict, script: Script) -> float:
+    try:
+        from cf.canvas import resolve  # noqa: PLC0415
+
+        return float(resolve(style, script.canvas).fps)
+    except ValueError:
+        return float((style.get("canvas") or {}).get("fps") or DEFAULT_FPS)
+
+
+def shot_starts_frames(script: Script, manifest: dict | None, fps: float) -> tuple[list[int], int]:
+    """Each shot's first timeline frame and the Reel's length in frames, laid back to back as the build lays
+    them without cuts.json (a clip's fps from the manifest, else the timeline's)."""
+    clips = manifest_clips(manifest)
+    starts, t = [], 0
+    for s in script.shots:
+        starts.append(t)
+        try:
+            cfps = float((clips.get(s.clip) or {}).get("fps") or fps)
+        except (TypeError, ValueError):
+            cfps = fps
+        t += frames.shot_frames(s.in_s, s.out_s, s.speed, cfps if cfps > 0 else fps, fps) if s.speed > 0 else 0
+    return starts, t
+
+
+def asset_findings(script: Script, ctx: "AssetContext | None", style: dict,
+                   manifest: dict | None = None) -> Findings:
+    """The Asset cue rules (docs/script-schema.md, Assets); ``ctx`` None means no Library was loaded. A cue's
+    span and the Reel's end are in timeline frames, snapped as the build snaps them."""
+    from cf import assets as ca  # noqa: PLC0415
+
+    problems: list[str] = []
+    warnings: list[str] = []
+    cfg = ca.settings(style)
+    fps = _cue_fps(style, script)
+    frame = 1.0 / fps
+    cues = [(i, s, k, c) for i, s in enumerate(script.shots) for k, c in enumerate(s.assets)]
+    for i, s, k, c in cues:
+        for key in c.extra:
+            problems.append(f"shots[{i}] ({s.id}).assets[{k}]: unknown key {key!r} "
+                            f"(known: {', '.join(CUE_KEYS)})")
+    library = ctx.library if ctx is not None else None
+    if library is None:
+        why = ctx.library_problem if ctx is not None else "no Library context was loaded (--no-library)"
+        hint = ("index a Pack with python -m cf.library index, or pass --footage-root/--db"
+                if ctx is None or ctx.cli else "index a Pack with /index-pack")
+        problems.append(f"assets: {len(cues)} cue(s) need the Library: {why} ({hint})")
+        return Findings(problems, warnings)
+    unlocked: dict[str, set[str]] = {}
+    for ref, files in ctx.md_refs.items():
+        try:
+            hit = ca.lookup(library, ref)
+        except ca.BadRef:
+            hit = None
+        if hit is not None:
+            unlocked.setdefault(hit.id, set()).update(files)
+    starts, total_f = shot_starts_frames(script, manifest, fps)
+    clear_f = round(float(cfg["loop_clear_s"]) * fps)
+    spans: dict[str, list[tuple[float, float, str]]] = {kind: [] for kind in ca.CUE_TRACKS}
+    for i, s, k, c in cues:
+        w = f"shots[{i}] ({s.id}).assets[{k}] ({c.ref})"
+        try:
+            a = ca.lookup(library, c.ref)
+        except ca.BadRef:
+            problems.append(f"{w}: not an Asset ref (expected @<category>/<name>)")
+            continue
+        if a is None:
+            near = ca.nearest_refs(library, c.ref, 5)
+            problems.append(f"{w}: no such Asset; nearest: {', '.join(near) if near else 'none'}")
+            continue
+        kind = ca.lane_kind(a)
+        if kind is None:
+            problems.append(f"{w}: {a.ref} is a {a.category} Asset; cues place {', '.join(ca.PLACEABLE)}")
+            continue
+        if a.rights == "unknown":
+            short = a.category == "sfx" and ca.finite(a.duration_s) and a.duration_s < float(cfg["sfx_free_max_s"])
+            if short:
+                warnings.append(f"{w}: unknown rights; allowed: a sound effect under {cfg['sfx_free_max_s']:g} s")
+            elif a.id in unlocked:
+                warnings.append(f"{w}: unknown rights; allowed: the Author referenced it in "
+                                f"{', '.join(sorted(unlocked[a.id]))}")
+            else:
+                problems.append(f"{w}: unknown rights: use it only after the Author references it in the Video's "
+                                "md files (brief.md, notes.md, …) or marks its rights own/free in Library")
+        place = ca.placement(a)
+        if place.problem:
+            problems.append(f"{w}: {place.problem}")
+            continue
+        if place.note:
+            warnings.append(f"{w}: {place.note}")
+        sound = ca.has_sound(a, place)
+        if sound and ca.loudness(a) is None:
+            problems.append(f"{w}: loudness not measured: run python -m cf.library index {a.pack} "
+                            "(without --no-loudness)")
+        if c.pos is not None:
+            if kind == "audio":
+                problems.append(f"{w}: pos is for pictures; {a.ref} is a sound")
+            elif c.pos not in ca.POS_PRESETS:
+                problems.append(f"{w}: pos {c.pos!r} is not one of {', '.join(ca.POS_PRESETS)}")
+        if c.db is not None:
+            lo, hi = ca.CUE_DB_RANGE
+            if not sound:
+                problems.append(f"{w}: db on a silent picture ({a.ref} has no sound)")
+            elif not lo <= c.db <= hi:
+                problems.append(f"{w}: db {c.db:g} must be in [{lo:g}, {hi:g}]")
+        d = s.duration_s
+        if not 0 <= c.at_s < d - EPS:
+            problems.append(f"{w}: at_s {c.at_s:g} must be in [0, {d:g}) (timeline seconds from the shot's start)")
+            continue
+        dur = c.dur_s if c.dur_s is not None else ca.default_dur_s(a, place, style)
+        if dur is None:
+            problems.append(f"{w}: the Asset's length is unknown: give dur_s")
+            continue
+        if dur < frame - EPS:
+            problems.append(f"{w}: dur_s {dur:g} must be at least one frame ({frame:.3f} s)")
+            continue
+        if place.still:
+            if dur > float(cfg["still_max_s"]) + EPS:
+                problems.append(f"{w}: dur_s {dur:g} is longer than a still may stay ({cfg['still_max_s']:g} s)")
+        elif ca.finite(a.duration_s) and dur > a.duration_s + frame + EPS:
+            problems.append(f"{w}: dur_s {dur:g} is longer than the Asset ({a.duration_s:g} s)")
+        at_f, dur_f = frames.cue_frames(c.at_s, dur, fps)
+        begin_f = starts[i] + at_f
+        end_f = begin_f + dur_f
+        begin, end = begin_f / fps, end_f / fps
+        if end_f > total_f:
+            problems.append(f"{w}: runs {(end_f - total_f) / fps:.2f} s past the end of the Reel "
+                            f"({end_f - total_f} frame(s) at {fps:g} fps)")
+        if kind == "video" and script.ending == "loop_seamless" and end_f > total_f - clear_f:
+            problems.append(f"{w}: a sticker or picture on screen at the loop seam jumps away when the Reel "
+                            f"loops: end it ≥ {cfg['loop_clear_s']:g} s before the end "
+                            f"(at_s + dur_s ≤ {round((total_f - clear_f - starts[i]) / fps, 3):g})")
+        label = f"{s.id} {c.ref}"
+        if kind == "video":
+            spans["video"].append((begin, end, label))
+        if sound:
+            spans["audio"].append((begin, end, label))
+    for kind, rows in spans.items():
+        problems.extend(f"{len(group)} {kind} cues overlap at {at:.2f} s ({', '.join(group)}); "
+                        f"at most {len(ca.CUE_TRACKS[kind])}" for at, group in overlaps(rows, len(ca.CUE_TRACKS[kind])))
+    return Findings(problems, warnings)
+
+
+def overlaps(spans: list[tuple[float, float, str]], limit: int) -> list[tuple[float, list[str]]]:
+    """Instants where more than ``limit`` spans are open: ``(time, labels by start)``, each set once."""
+    out: list[tuple[float, list[str]]] = []
+    seen: set[tuple[str, ...]] = set()
+    ordered = sorted(spans, key=lambda x: (x[0], x[2]))
+    for begin, _, _ in ordered:
+        active = [x for x in ordered if x[0] <= begin + EPS and x[1] > begin + EPS]
+        if len(active) > limit:
+            key = tuple(x[2] for x in active)
+            if key not in seen:
+                seen.add(key)
+                out.append((begin, list(key)))
+    return out
+
+
 def canvas_size(style: dict | None, spec: str | None = None) -> tuple[int, int]:
     """Width and height of the canvas ``spec`` (the Script's ``canvas``: a style.json
     ``canvases`` name or 'WxH'), else of style.json ``canvas`` (2160x3840 when missing).
@@ -554,21 +776,34 @@ def main(argv: list[str] | None = None) -> int:
     va.add_argument("script")
     va.add_argument("--manifest", help="the Walk's clip_manifest.json (enables clip and range checks)")
     va.add_argument("--style", default=str(DEFAULT_STYLE), help="style.json (default: repo style.json)")
+    va.add_argument("--footage-root", help="footage root for the Library (default: the Video folder's, "
+                                           "else CF_FOOTAGE_ROOT)")
+    va.add_argument("--db", help="factory.db for the Library (default: CF_FACTORY_DB, else <footage>/factory.db)")
+    va.add_argument("--no-library", action="store_true", help="do not load the Library (cues then fail)")
     args = ap.parse_args(argv)
     try:
         script = load(args.script)
     except (ScriptError, OSError) as exc:
         print(f"INVALID {args.script}\n- {exc}")
         return 1
-    problems = validate(script, load_json(args.manifest), load_json(args.style))
-    if problems:
-        print(f"INVALID {args.script} ({len(problems)} violations)")
-        for p in problems:
+    ctx = None
+    if has_cues(script) and not args.no_library:
+        from cf.assets import context  # noqa: PLC0415
+
+        ctx = context(Path(args.script).expanduser().resolve(),
+                      footage=Path(args.footage_root).expanduser() if args.footage_root else None,
+                      db_path=Path(args.db).expanduser() if args.db else None)
+    f = check(script, load_json(args.manifest), load_json(args.style), ctx)
+    if f.problems:
+        print(f"INVALID {args.script} ({len(f.problems)} violations)")
+        for p in f.problems:
             print(f"- {p}")
-        return 1
-    print(f"OK {args.script}: {len(script.shots)} shots, {script.total_s:.2f} s "
-          f"(target {script.target_length_s:g} s)")
-    return 0
+    else:
+        print(f"OK {args.script}: {len(script.shots)} shots, {script.total_s:.2f} s "
+              f"(target {script.target_length_s:g} s)")
+    for w in f.warnings:
+        print(f"- WARN {w}")
+    return 1 if f.problems else 0
 
 
 if __name__ == "__main__":

@@ -33,10 +33,10 @@ def footage_root() -> Path:
     return Path(env).expanduser() if env else DEFAULT_FOOTAGE_ROOT
 
 
-def default_db_path() -> Path:
-    """``CF_FACTORY_DB`` or ``<footage root>/factory.db``."""
+def default_db_path(footage: Path | None = None) -> Path:
+    """``CF_FACTORY_DB`` or ``<footage>/factory.db`` (``footage`` defaults to the footage root)."""
     env = os.environ.get("CF_FACTORY_DB")
-    return Path(env).expanduser() if env else footage_root() / "factory.db"
+    return Path(env).expanduser() if env else Path(footage or footage_root()) / "factory.db"
 
 
 def now_iso(now: datetime | None = None) -> str:
@@ -200,7 +200,7 @@ CREATE TABLE note (
 CREATE INDEX note_open ON note (kind, key) WHERE resolved_at IS NULL;
 """
 
-# Version 6 (Instagram, ADR 0007). ``channel.platform`` and ``video.platform`` exist since V1 with
+# Version 6 (Instagram, ADR 0010). ``channel.platform`` and ``video.platform`` exist since V1 with
 # 'youtube' as the default; this version makes sure no row is left without one, then adds:
 # - ``insight``: the Author's own reels' Graph API insights (reach, saves, shares, watch time) over time;
 # - ``video.marks``: the Author's labels on a Reference (own reels: hypothesis tests such as ``closeup_emotion``);
@@ -247,10 +247,49 @@ CREATE TABLE rate_pressure (
     regain_minutes INTEGER NOT NULL DEFAULT 0
 );
 """
+# Version 7: the Library (ADR 0007, Packs read in place): Packs, the Author's side of each Asset, aliases.
+V7 = """
+CREATE TABLE pack (
+    id          TEXT PRIMARY KEY,
+    root        TEXT NOT NULL,
+    config      TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    indexed_at  TEXT
+);
+CREATE TABLE asset_author (
+    asset_id    TEXT PRIMARY KEY,
+    pack_id     TEXT NOT NULL,
+    name        TEXT,
+    caption     TEXT,
+    tags        TEXT NOT NULL DEFAULT '[]',
+    rights      TEXT,
+    updated_at  TEXT NOT NULL
+);
+CREATE TABLE asset_alias (
+    ref         TEXT PRIMARY KEY,
+    asset_id    TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX asset_alias_asset ON asset_alias (asset_id);
+"""
+
+# Version 8: the Idea side of the Idea <-> Video link (ADR 0006); video.json "ideas" is the Video side;
+# the agent tags the Author hid on an Asset.
+V8 = """
+CREATE TABLE idea_video (
+    idea_id     INTEGER NOT NULL REFERENCES idea (id) ON DELETE CASCADE,
+    video_slug  TEXT NOT NULL,
+    linked_at   TEXT NOT NULL,
+    PRIMARY KEY (idea_id, video_slug)
+);
+CREATE INDEX idea_video_slug ON idea_video (video_slug);
+ALTER TABLE asset_author ADD COLUMN hidden_agent_tags TEXT NOT NULL DEFAULT '[]';
+"""
 
 PLATFORMS = ("youtube", "instagram")
 
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6]  # MIGRATIONS[i] takes the store from version i to i + 1
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8]  # MIGRATIONS[i] takes the store from version i to i + 1
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

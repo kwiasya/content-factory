@@ -9,7 +9,7 @@ ffprobe, exiftool when available) and the proxy goes to <out_dir>/<stem>.mp4 (or
 <stem>_approx.mp4), or exactly to out.mp4 when the destination ends in .mp4.
 From Python: proxy_file(src, dest, force=False) -> result dict with "proxy_path" and "clip".
 
-One ffmpeg at a time (8 GB machine). HLG sources are tone-mapped with
+One ffmpeg at a time (a limit set on the earlier 8 GB M2; not re-measured on the M5 Max 36 GB). HLG sources are tone-mapped with
 zscale + tonemap when the ffmpeg build has zscale. Without zscale they get an
 approximate conversion (BT.2020 gamma as a stand-in for HLG, then a mild
 contrast lift), written as <stem>_approx.mp4 so they are easy to find and

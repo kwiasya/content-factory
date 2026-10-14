@@ -19,7 +19,7 @@ views, likes and comments of every Reference of the Watchlist. Both plan the run
 with ``quota.check`` before the first call and, if the quota runs out midway,
 stop cleanly and report what was done.
 
-Instagram channels (ADR 0007) go through Business Discovery, one call per page
+Instagram channels (ADR 0010) go through Business Discovery, one call per page
 of 50 media of the hourly ``instagram`` bucket. A first run reads reels until
 ``IG_BACKFILL`` are known (at most ``IG_BACKFILL_PAGES`` pages), later runs page
 down to ``uploads_through`` as for YouTube; every reel read gets a snapshot
@@ -337,7 +337,7 @@ def token_check(*, transport: instagram.Transport | None = None,
     except instagram.InstagramError as exc:
         return None, f"token check failed: {exc}"
     if not st.valid:
-        return st.to_dict(), "the Instagram token is invalid or expired; issue a new one (ADR 0007)"
+        return st.to_dict(), "the Instagram token is invalid or expired; issue a new one (ADR 0010)"
     if st.days_left is not None and st.days_left < TOKEN_WARN_DAYS:
         return st.to_dict(), (f"the Instagram token expires in {st.days_left} days ({st.expires_at}); "
                               f"run `python -m cf.research ig token-refresh`")

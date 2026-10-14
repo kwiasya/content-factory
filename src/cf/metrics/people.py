@@ -12,7 +12,7 @@ subject-dominated (a box taller than SUBJECT_H in >= SUBJECT_COVERAGE of
 samples), the tallest box of every sample; and, when a subject track exists, a
 lone person in a sample (tracker IDs switch after occlusion).
 
-The model is loaded per call and released afterwards (8 GB machine). Weights
+The model is loaded per call and released afterwards (a limit set on the earlier 8 GB M2). Weights
 live outside the repo in $CF_MODELS_DIR (default ~/Movies/content-factory/_models)
 and are downloaded there by Ultralytics on first use.
 """

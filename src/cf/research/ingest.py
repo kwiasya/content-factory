@@ -5,7 +5,7 @@
 layer tests feed with fixtures; the network never reaches past ``youtube`` and
 ``instagram``.
 
-Instagram (ADR 0007): a Reference channel is keyed by the account's Graph id
+Instagram (ADR 0010): a Reference channel is keyed by the account's Graph id
 with its ``@username`` as handle; a Reference by its permalink shortcode (the
 ``DeUex6UKm5s`` of ``instagram.com/reel/DeUex6UKm5s/``), so a reel known from
 the Graph API, from yt-dlp or only from a pasted link is one row. Reels are

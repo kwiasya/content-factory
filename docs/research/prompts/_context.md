@@ -2,6 +2,8 @@
 
 Этот блок вставлен в начало каждого промпта. Если что-то в сетапе меняется, править здесь и во всех промптах.
 
+До 2026-10 сетап был MacBook Air M2, 8 ГБ RAM (жёсткое ограничение на тяжёлые локальные модели и параллельный рендер); промпты 01–06 отправлены с ним и оставлены как есть.
+
 ```
 CONTEXT (same for every research task in this series)
 
@@ -11,8 +13,7 @@ The content: vertical 9:16 Reels up to 60 seconds, travel walks, scenic strolls,
 plus text overlays (place names, short facts) and transitions.
 
 Setup:
-- macOS, MacBook Air M2, 8 GB RAM (this is a hard constraint: heavy local ML models and
-  parallel rendering are problematic; cloud APIs are acceptable).
+- macOS, MacBook Pro M5 Max, 36 GB RAM; cloud APIs are acceptable.
 - DaVinci Resolve Studio 21.1.1 (paid version, external scripting enabled, Python API available).
 - The agent is Claude Code (Anthropic's CLI agent) running in a git repo. It can run shell
   commands, Python 3.12 (venv), Node 24, ffmpeg, and can call MCP servers and "skills"

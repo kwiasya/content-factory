@@ -5,7 +5,7 @@ description: Create a Watchlist for one niche (Format, Channel, language, seed R
 
 # Create a Watchlist
 
-A Watchlist scopes all research for one niche and one Format (`GLOSSARY.md`, section Исследование) and may hold channels of both Platforms. CLI: `.venv/bin/python -m cf.research watchlist --help`. Adding a YouTube channel calls the YouTube Data API (1 unit of 10 000 a day) and needs `YOUTUBE_API_KEY`. Adding an Instagram account calls Business Discovery (1 call of the hourly `instagram` bucket, 100 in any 60 minutes) and needs `INSTAGRAM_ACCESS_TOKEN` and `INSTAGRAM_USER_ID` (ADR 0007); it sees public business and creator accounts only. Keys live in `.env` (see `.env.example`); never print them.
+A Watchlist scopes all research for one niche and one Format (`GLOSSARY.md`, section Исследование) and may hold channels of both Platforms. CLI: `.venv/bin/python -m cf.research watchlist --help`. Adding a YouTube channel calls the YouTube Data API (1 unit of 10 000 a day) and needs `YOUTUBE_API_KEY`. Adding an Instagram account calls Business Discovery (1 call of the hourly `instagram` bucket, 100 in any 60 minutes) and needs `INSTAGRAM_ACCESS_TOKEN` and `INSTAGRAM_USER_ID` (ADR 0010); it sees public business and creator accounts only. Keys live in `.env` (see `.env.example`); never print them.
 
 ## Steps
 

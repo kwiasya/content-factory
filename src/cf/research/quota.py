@@ -11,7 +11,7 @@ at midnight Pacific time. ``check`` tests a run's whole plan up front.
 
 Hourly buckets (``HOURLY_LIMITS``) count calls over a rolling 60 minutes, one
 ``rate`` row per minute and method: the Instagram Graph API allows about 200
-calls an hour per user (ADR 0007), but Meta's header reported 51 % after 62
+calls an hour per user (ADR 0010), but Meta's header reported 51 % after 62
 calls on the live account (2026-10-12), so the default limit is 100;
 ``CF_QUOTA_INSTAGRAM`` overrides it. Meta also
 reports its own count in the ``X-Business-Use-Case-Usage`` / ``X-App-Usage``

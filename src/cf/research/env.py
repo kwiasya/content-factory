@@ -22,7 +22,7 @@ KEY_VAR = "YOUTUBE_API_KEY"
 KEY_HELP = (f"{KEY_VAR} is not set; create an API key for YouTube Data API v3 in Google Cloud Console "
             f"and put `{KEY_VAR}=...` into {ENV_PATH} (gitignored; another file via {PATH_VAR}) or export it")
 
-# Instagram Graph API (ADR 0007): a long-lived Facebook user token of the Meta app, the Author's
+# Instagram Graph API (ADR 0010): a long-lived Facebook user token of the Meta app, the Author's
 # Instagram business account id (Business Discovery runs as that account) and the app id and secret.
 IG_TOKEN_VAR = "INSTAGRAM_ACCESS_TOKEN"
 IG_USER_VAR = "INSTAGRAM_USER_ID"
@@ -30,7 +30,7 @@ IG_APP_ID_VAR = "INSTAGRAM_APP_ID"
 IG_APP_SECRET_VAR = "INSTAGRAM_APP_SECRET"
 IG_HELP = (f"{IG_TOKEN_VAR} and {IG_USER_VAR} are not set; put them into {ENV_PATH} (gitignored; another file "
            f"via {PATH_VAR}, key names in .env.example) or export them. The token is a long-lived Facebook "
-           f"user token with instagram_basic and instagram_manage_insights (ADR 0007)")
+           f"user token with instagram_basic and instagram_manage_insights (ADR 0010)")
 
 
 def env_path(path: Path | None = None) -> Path:

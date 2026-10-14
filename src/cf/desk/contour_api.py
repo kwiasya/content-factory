@@ -82,6 +82,29 @@ def _taxonomy_value(kind: str, value: str) -> None:
                       value=value)
 
 
+def idea_of(s: Store, idea_id: int) -> ideas.Idea:
+    try:
+        return ideas.get(s, idea_id)
+    except ideas.IdeaError as e:
+        raise Problem(404, "idea_not_found", str(e), id=idea_id) from None
+
+
+def brief_file(footage: Path, idea: ideas.Idea) -> Path:
+    if not idea.brief_path:
+        command = f"python -m cf.research ideas brief {idea.id}"
+        raise Problem(404, "brief_missing", f"Idea {idea.id} has no Brief yet; shortlist it, then run "
+                                            f"{command} (skill /suggest-ideas)", id=idea.id, command=command)
+    rel = paths.relative_under(footage, Path(idea.brief_path))
+    path = paths.contained(footage, rel) if rel is not None else None
+    if path is None or path.suffix != ".md":
+        raise Problem(404, "brief_outside", f"the Brief of Idea {idea.id} is not a .md file under the footage "
+                                            "root (no `..`, no symlink)", id=idea.id)
+    if not path.is_file():
+        raise Problem(404, "brief_file_missing", f"the Brief of Idea {idea.id} is missing on disk: {path}",
+                      id=idea.id, path=str(path))
+    return path
+
+
 def router(db_path: Path, footage_root: Path) -> APIRouter:
     footage = Path(footage_root)
     api = APIRouter(prefix="/api/contour")
@@ -152,27 +175,6 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
             return {**summary.summarize(s, name, what, days=days, limit=SUMMARY_LIMIT).to_dict(),
                     "weight_code": "outlier_sum"}
 
-    def idea_of(s: Store, idea_id: int) -> ideas.Idea:
-        try:
-            return ideas.get(s, idea_id)
-        except ideas.IdeaError as e:
-            raise Problem(404, "idea_not_found", str(e), id=idea_id) from None
-
-    def brief_file(idea: ideas.Idea) -> Path:
-        if not idea.brief_path:
-            command = f"python -m cf.research ideas brief {idea.id}"
-            raise Problem(404, "brief_missing", f"Idea {idea.id} has no Brief yet; shortlist it, then run "
-                                                f"{command} (skill /suggest-ideas)", id=idea.id, command=command)
-        rel = paths.relative_under(footage, Path(idea.brief_path))
-        path = paths.contained(footage, rel) if rel is not None else None
-        if path is None or path.suffix != ".md":
-            raise Problem(404, "brief_outside", f"the Brief of Idea {idea.id} is not a .md file under the footage "
-                                                "root (no `..`, no symlink)", id=idea.id)
-        if not path.is_file():
-            raise Problem(404, "brief_file_missing", f"the Brief of Idea {idea.id} is missing on disk: {path}",
-                          id=idea.id, path=str(path))
-        return path
-
     @api.get("/ideas")
     def get_ideas(watchlist: str | None = None, status: str | None = None) -> dict:
         _one_of(status, ideas.STATUSES, "idea_status_invalid", "status")
@@ -206,14 +208,14 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
     @api.get("/ideas/{idea_id}/brief")
     def get_brief(idea_id: int) -> dict:
         with store() as s:
-            path = brief_file(idea_of(s, idea_id))
+            path = brief_file(footage, idea_of(s, idea_id))
         data = path.read_bytes()
         return {"idea": idea_id, "path": str(path), "text": data.decode("utf-8"), "hash": digest(data)}
 
     @api.put("/ideas/{idea_id}/brief", response_model=None)
     def put_brief(idea_id: int, body: BriefWrite) -> dict | JSONResponse:
         with store() as s:
-            path = brief_file(idea_of(s, idea_id))
+            path = brief_file(footage, idea_of(s, idea_id))
         conflict = stale(path.read_bytes(), body.hash, "the Brief changed on disk since it was read", "brief_changed")
         if conflict:
             return conflict

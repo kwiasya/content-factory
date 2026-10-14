@@ -1,6 +1,6 @@
 # apple-sdr
 
-Turns an HDR clip (iPhone HLG with Dolby Vision 8.4) into an SDR Rec.709 mezzanine. The tone mapping is AVFoundation's own, so the clip looks the way QuickTime and Photos show it on a Mac. `cf.mezz` and `cf.build` (`--hdr-source apple-sdr`, the default) use it. Why: `docs/adr/0008-hdr-clips-through-apple-tone-mapping.md`.
+Turns an HDR clip (iPhone HLG with Dolby Vision 8.4) into an SDR Rec.709 mezzanine. The tone mapping is AVFoundation's own, so the clip looks the way QuickTime and Photos show it on a Mac. `cf.mezz` and `cf.build` (`--hdr-source apple-sdr`, the default) use it. Why: `docs/adr/0011-hdr-clips-through-apple-tone-mapping.md`.
 
 Requirements: macOS 15 or later on Apple Silicon, Swift 6 toolchain (Command Line Tools are enough, no Xcode). No third-party dependencies.
 

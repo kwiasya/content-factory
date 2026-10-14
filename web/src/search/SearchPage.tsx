@@ -3,7 +3,9 @@ import { searchApi, type SearchResult } from "./api";
 import { useT, type Problem } from "../i18n";
 import { ErrorLine } from "../ErrorLine";
 
-const PREFIX = "#/search/";
+export const SEARCH_PREFIX = "#/search/";
+
+const PREFIX = SEARCH_PREFIX;
 
 export const searchHref = (q: string) => PREFIX + encodeURIComponent(q);
 
