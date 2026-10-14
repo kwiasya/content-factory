@@ -144,7 +144,12 @@ function NewVideoPage() {
         )}
         <label>
           <span>{t("newVideo.fieldBrief")}</span>
-          <select value={ideaId} disabled={briefError !== null} onChange={(e) => pickBrief(e.target.value)}>
+          <select
+            value={ideaId}
+            disabled={briefError !== null}
+            aria-describedby={pickedVideos.length > 0 ? "brief-has-video" : undefined}
+            onChange={(e) => pickBrief(e.target.value)}
+          >
             <option value="">{t("newVideo.noBrief")}</option>
             {ideas.map((i) => (
               <option key={i.id} value={String(i.id)}>
@@ -153,23 +158,23 @@ function NewVideoPage() {
               </option>
             ))}
           </select>
-          {pickedVideos.length > 0 && (
-            <span className="muted brief-has-video">
-              {t("newVideo.briefVideosNote")}{" "}
-              {pickedVideos.map((slug, n) => (
-                <span key={slug}>
-                  {n > 0 && ", "}
-                  <a href={videoHref(slug)}>{videoTitle(slug)}</a>
-                </span>
-              ))}
-            </span>
-          )}
           {briefError && (
             <span className="muted brief-unavailable">
               {t("newVideo.briefUnavailable")} {t.problem(briefError)}
             </span>
           )}
         </label>
+        {pickedVideos.length > 0 && (
+          <p id="brief-has-video" className="muted brief-has-video">
+            {t("newVideo.briefVideosNote")}{" "}
+            {pickedVideos.map((slug, n) => (
+              <span key={slug}>
+                {n > 0 && ", "}
+                <a href={videoHref(slug)}>{videoTitle(slug)}</a>
+              </span>
+            ))}
+          </p>
+        )}
         <ErrorLine error={problem} />
         <div className="toolbar">
           <button type="submit" className="primary" disabled={!ready}>
