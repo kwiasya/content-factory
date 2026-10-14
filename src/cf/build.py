@@ -870,7 +870,7 @@ class Builder:
     def follow_analysis(self) -> None:
         """Person boxes on the proxies for every reframed landscape shot; the follow windows.
 
-        Runs before Resolve is touched (the detector and Resolve together are heavy on 8 GB).
+        Runs before Resolve is touched (the detector and Resolve together were heavy on the earlier 8 GB M2).
         ``follow`` shots get the window from ``cf.follow.choose_window`` (the loop-seam pair
         shares one window over both ranges); ``center``/``pan`` shots get the coverage of their
         fixed window, for the report. Raw detections are cached in ``<reel>/follow-boxes.json``.
