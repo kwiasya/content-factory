@@ -570,7 +570,7 @@ def asset_findings(script: Script, ctx: "AssetContext | None", style: dict,
             unlocked.setdefault(hit.id, set()).update(files)
     starts, total_f = shot_starts_frames(script, manifest, fps)
     clear_f = round(float(cfg["loop_clear_s"]) * fps)
-    spans: dict[str, list[tuple[float, float, str]]] = {"audio": [], "visual": []}
+    spans: dict[str, list[tuple[float, float, str]]] = {kind: [] for kind in ca.CUE_TRACKS}
     for i, s, k, c in cues:
         w = f"shots[{i}] ({s.id}).assets[{k}] ({c.ref})"
         try:
@@ -640,18 +640,18 @@ def asset_findings(script: Script, ctx: "AssetContext | None", style: dict,
         if end_f > total_f:
             problems.append(f"{w}: runs {(end_f - total_f) / fps:.2f} s past the end of the Reel "
                             f"({end_f - total_f} frame(s) at {fps:g} fps)")
-        if kind == "visual" and script.ending == "loop_seamless" and end_f > total_f - clear_f:
+        if kind == "video" and script.ending == "loop_seamless" and end_f > total_f - clear_f:
             problems.append(f"{w}: a sticker or picture on screen at the loop seam jumps away when the Reel "
                             f"loops: end it ≥ {cfg['loop_clear_s']:g} s before the end "
                             f"(at_s + dur_s ≤ {round((total_f - clear_f - starts[i]) / fps, 3):g})")
         label = f"{s.id} {c.ref}"
-        if kind == "visual":
-            spans["visual"].append((begin, end, label))
+        if kind == "video":
+            spans["video"].append((begin, end, label))
         if sound:
             spans["audio"].append((begin, end, label))
     for kind, rows in spans.items():
         problems.extend(f"{len(group)} {kind} cues overlap at {at:.2f} s ({', '.join(group)}); "
-                        f"at most {ca.MAX_LANES}" for at, group in overlaps(rows, ca.MAX_LANES))
+                        f"at most {len(ca.CUE_TRACKS[kind])}" for at, group in overlaps(rows, len(ca.CUE_TRACKS[kind])))
     return Findings(problems, warnings)
 
 

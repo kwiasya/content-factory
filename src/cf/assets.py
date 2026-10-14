@@ -27,13 +27,13 @@ from cf.library import refs as librefs
 from cf.library.errors import LibraryError, RefError
 from cf.research.store import default_db_path, footage_root
 
-LANE_OF = {"sfx": "audio", "meme": "visual", "img": "visual", "emoji": "visual", "face": "visual",
-           "footage": "visual", "fx": "visual"}
+LANE_OF = {"sfx": "audio", "meme": "video", "img": "video", "emoji": "video", "face": "video",
+           "footage": "video", "fx": "video"}
 PLACEABLE = tuple(LANE_OF)
 POS_PRESETS = ("center", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right", "full", "fit")
 FULL_MODES = {"full": "cover", "fit": "contain"}
 CUE_DB_RANGE = (-24.0, 12.0)
-MAX_LANES = 2
+CUE_TRACKS: dict[str, tuple[int, ...]] = {"audio": (3, 4), "video": (4, 5)}
 TILT_SIGN = 1
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
 REPO_ROOT = Path(__file__).resolve().parents[2]

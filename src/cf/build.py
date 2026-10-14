@@ -402,9 +402,6 @@ def plan_track(script: Script, reel_dir: str | Path, start_frame: int, duration:
                         fade_out=fade), notes
 
 
-CUE_LANES = {"audio": (3, 4), "video": (4, 5)}
-
-
 @dataclass
 class PlannedCue:
     cue: str                    # "s03.1": shot id + 1-based cue index; a meme's picture and sound share it
@@ -509,7 +506,7 @@ def plan_cues(script: Script, shots: list[PlannedShot], library: Any, *, fps: fl
         common = dict(cue=cue, shot=s.id, ref=c.ref, canonical=a.ref, asset_id=a.id, category=a.category,
                       path=path, variant=place.role, file_fps=None if place.still else ffps,
                       record_offset=offset, record_frame=start + offset, duration=duration, src_start=0)
-        if kind == "visual":
+        if kind == "video":
             pos = c.pos or cfg["default_pos"].get(a.category) or "center"
             if not (place.width and place.height):
                 raise BuildError(f"cue {cue} ({c.ref}): the placed file's size is unknown")
@@ -529,9 +526,9 @@ def plan_cues(script: Script, shots: list[PlannedShot], library: Any, *, fps: fl
                 notes.append(f"cue {cue} ({c.ref}): loudness measured padded (a very short sound reads lower "
                              "than it feels); adjust with db if it is too loud")
             out.append(PlannedCue(lane="", track_type="audio", track_index=0, media_type=2,
-                                  src_end=src_end if kind == "visual" else duration, volume_db=level["volume_db"],
+                                  src_end=src_end if kind == "video" else duration, volume_db=level["volume_db"],
                                   level=level, **common))
-    for track_type, lanes in CUE_LANES.items():
+    for track_type, lanes in ca.CUE_TRACKS.items():
         free_at = {idx: None for idx in lanes}
         for c in sorted((c for c in out if c.track_type == track_type), key=lambda c: (c.record_frame, c.cue)):
             idx = next((i for i in lanes if free_at[i] is None or free_at[i] <= c.record_frame), None)
@@ -554,7 +551,7 @@ def cue_plan_from_report(report: dict) -> list[PlannedCue]:
 
 def cue_tracks(cues: list[PlannedCue], base_audio: int = 1) -> dict[str, int]:
     """Track counts once the cues are placed (V1–V3 always exist; A1, plus A2 with a Track)."""
-    v = max([3, *(c.track_index for c in cues if c.track_type == "video")])
+    v = max([len(VIDEO_TRACK_NAMES), *(c.track_index for c in cues if c.track_type == "video")])
     a = max([base_audio, *(c.track_index for c in cues if c.track_type == "audio")])
     return {"video": v, "audio": a}
 
@@ -1305,6 +1302,8 @@ class Builder:
 
     def place_cues(self, tl: Any, shots: list[PlannedShot]) -> None:
         """Asset cues: sounds on A3/A4 at their level, pictures on V4/V5 with the pos transform; read back."""
+        from cf import assets as ca  # noqa: PLC0415
+
         if not self.cues_on():
             return
         d, r = self.d, self.r
@@ -1326,8 +1325,9 @@ class Builder:
         base_audio = 2 if self.track_on else 1
         want = cue_tracks(cues, base_audio)
         has_audio = any(c.track_type == "audio" for c in cues)
-        v_names = {i: n for i, n in {4: "assets", 5: "assets 2"}.items() if i <= want["video"]}
-        a_names = {i: n for i, n in {2: AUDIO_TRACK_NAMES[2], 3: "sfx", 4: "sfx 2"}.items() if i <= want["audio"]}
+        v_names = {i: n for i, n in zip(ca.CUE_TRACKS["video"], ("assets", "assets 2")) if i <= want["video"]}
+        a_names = {i: n for i, n in {2: AUDIO_TRACK_NAMES[2], **dict(zip(ca.CUE_TRACKS["audio"], ("sfx", "sfx 2")))}
+                   .items() if i <= want["audio"]}
         got_v = d.ensure_tracks(tl, "video", want["video"], v_names)
         got_a = d.ensure_tracks(tl, "audio", want["audio"], a_names, sub_type="stereo") if has_audio else \
             int(d.call(tl.GetTrackCount, "audio"))
