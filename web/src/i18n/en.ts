@@ -559,6 +559,7 @@ export const en = {
   "err.reference_not_found": "No Reference {id} in the store.",
   "err.card_missing": "Reference {id} has no card yet: run {command} (skill /analyze-reference).",
   "err.idea_not_found": "No Idea {id}.",
+  "err.idea_link_failed": "Could not link Idea {id} to the new Video ({detail}); nothing was created.",
   "err.idea_action_unknown": "Unknown Idea action {action}.",
   "err.idea_move_not_allowed": "Idea {id} is {status}; this action does not apply to it.",
   "err.idea_status_invalid": "Unknown Idea status {status}.",
