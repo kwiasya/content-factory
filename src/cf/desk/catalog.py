@@ -90,6 +90,7 @@ GROUPS: tuple[Group, ...] = (
     )),
     Group("formats", "Formats", (
         Source("formats/*/FORMAT.md", title=folder_title(1)),
+        Source("formats/*/style.json", title=folder_title(1)),
         Source("formats/*/hook-library.md", editable=False, title=folder_title(1)),
     )),
     Group("research", "Research", (

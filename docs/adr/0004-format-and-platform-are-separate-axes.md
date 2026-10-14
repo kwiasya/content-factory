@@ -10,5 +10,5 @@ Content Factory начиналась как фабрика одного Reel д�
 ## Consequences
 
 - `/reel` становится картой Format Walk Reel; у Tech explainer и Travel long появляются свои карты.
-- `style.json` и `script-schema.md` в нынешнем виде описывают Walk Reel; при вводе второго Format общие поля выносятся, остальное уезжает в `formats/<name>/`.
+- `style.json` и `script-schema.md` в нынешнем виде описывают Walk Reel; при вводе второго Format общие поля выносятся, остальное уезжает в `formats/<name>/`. Для Style profile это заменено ADR 0009 (superseded): у каждого Format свой полный `formats/<id>/style.json`, без общего слоя.
 - Исследование (Watchlist, Hook library) тоже делится по Format: хуки лонгов и хуки шортсов не смешиваются.

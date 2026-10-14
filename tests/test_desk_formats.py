@@ -96,6 +96,21 @@ class FormatListTest(FormatsTestCase):
         self.assertFalse(formats[0]["has_hook_library"])
 
 
+class FormatCatalogTest(FormatsTestCase):
+    def test_a_format_style_profile_is_listed_as_editable_next_to_format_md(self):
+        (self.repo / "formats/walk-reel/style.json").write_text('{"schema": "cf-style/1"}\n')
+        r = self.client.get("/api/catalog")
+        self.assertEqual(r.status_code, 200, r.text)
+        group = next(g for g in r.json()["groups"] if g["id"] == "formats")
+        docs = {d["path"]: d for d in group["docs"]}
+        style = docs["formats/walk-reel/style.json"]
+        self.assertTrue(style["editable"])
+        self.assertEqual(style["kind"], "json")
+        self.assertEqual(style["title"], "walk-reel · style.json")
+        self.assertNotIn("formats/tech-explainer/style.json", docs)
+        self.assertFalse(docs["formats/walk-reel/hook-library.md"]["editable"])
+
+
 class FormatPageTest(FormatsTestCase):
     def test_format_carries_its_text_and_hook_library(self):
         fmt = self.get("/api/formats/walk-reel")
