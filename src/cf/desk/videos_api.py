@@ -20,7 +20,6 @@ from pydantic import BaseModel
 
 from cf import assets, library, script_schema
 from cf.desk import channels, contour_api, formats_api, media, paths, storeuse
-from cf.desk.library_api import STORE_ABSENT
 from cf.desk.hashed import atomic_write, digest, stale
 from cf.desk.problems import Problem, body as problem_body
 from cf.desk.videofolders import (NAME, NOT_WALKS, SCHEMA, STAGES, STATUSES, VIDEO_SUFFIXES, Folder, find_folder,
@@ -131,7 +130,7 @@ def asset_context(footage: Path, folder: Path | None, db_path: Path | None) -> "
             with storeuse.reading(db_path) as s:
                 lib = library.load(footage, s)
         except Problem as exc:
-            if exc.code not in STORE_ABSENT:
+            if exc.code not in storeuse.ABSENT:
                 raise
             problem = exc.detail
     if lib is None:

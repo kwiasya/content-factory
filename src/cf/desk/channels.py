@@ -12,9 +12,6 @@ from cf.desk.problems import Problem
 from cf.research import watchlist as watchlists
 from cf.research.brief import UNASSIGNED
 
-STORE_PROBLEMS = {"db_missing", "db_schema"}
-
-
 def valid_name(name: object) -> bool:
     return isinstance(name, str) and name != UNASSIGNED and bool(videofolders.NAME.match(name))
 
@@ -24,7 +21,7 @@ def store_watchlists(db_path: Path) -> list[watchlists.Watchlist]:
         with storeuse.reading(db_path) as s:
             return watchlists.list_watchlists(s)
     except Problem as e:
-        if e.code in STORE_PROBLEMS:
+        if e.code in storeuse.ABSENT:
             return []
         raise
 
