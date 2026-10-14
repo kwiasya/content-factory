@@ -1,7 +1,8 @@
 """Desk Library API: Packs, Asset cards, the Author's fields, refs for the editor, and "Show in Finder".
 
 The Library is loaded per request from the index files and the store (read-only; writes go through
-`storeuse.writing`). With no factory.db, or one at another schema version, there are no Packs and every Asset
+`storeuse.writing`). The one cache: the paths each Pack's index lists, for `/api/media`, re-read when
+`index.json` changes (`_indexed`). With no factory.db, or one at another schema version, there are no Packs and every Asset
 route is 404. "Show in Finder" runs `/usr/bin/open -R`, the only process Desk launches (ADR 0007).
 """
 
@@ -22,7 +23,6 @@ from cf.desk.problems import Problem, body as problem_body
 from cf.library import CATEGORIES, RIGHTS, LibraryError, RefError, card
 from cf.library.index import index_path, read_index
 
-STORE_ABSENT = ("db_missing", "db_schema")
 STATUS = {"asset_not_found": 404, "ref_not_found": 404, "pack_not_found": 404, "ref_name_taken": 409}
 AUTHOR_FIELDS = ("caption", "tags", "rights", "name", "hidden_agent_tags")
 MAX_LIMIT = 5000
@@ -51,7 +51,7 @@ def pack_files(db_path: Path, footage: Path) -> dict[str, tuple[Path, frozenset[
         with storeuse.reading(db_path) as s:
             packs = library.list_packs(s)
     except Problem as exc:
-        if exc.code in STORE_ABSENT:
+        if exc.code in storeuse.ABSENT:
             return {}
         raise
     return {p.id: (p.root, _indexed_paths(footage, p.id)) for p in packs}
@@ -62,7 +62,7 @@ def load(db_path: Path, footage: Path) -> library.Library:
         with storeuse.reading(db_path) as s:
             return library.load(footage, s)
     except Problem as exc:
-        if exc.code in STORE_ABSENT:
+        if exc.code in storeuse.ABSENT:
             return library.load(footage, None)
         raise
 

@@ -166,7 +166,7 @@ Code: `src/cf/library/` (no Desk imports; CLI `python -m cf.library`, skill `/in
 - **Author fields** (`asset_author`: name, caption, tags, rights, `hidden_agent_tags` (schema version 7): agent tags the Author rejected; they match no tag filter or text search and leave cards and facets, while the index keeps the agent's proposal) and **aliases** (`asset_alias`: old refs after a rename, an Author rename or the face-sticker label import) live in the store, keyed by the Asset id (content id of the primary variant).
 - **Refs** `@<category>/<name>`, categories `sfx meme img emoji face bg footage fx music font template`. Grammar (Python `cf.library.refs.REF_RE`, JS `web/src/library/refs.ts`): `@` at the start or after whitespace or one of `([«"'`, a category, `/`, letters, digits and `-`. A new category means editing both. Resolution: the Author's name, then the file-derived name, then an alias.
 
-The Library is loaded per request; with no `factory.db` or one at another schema version there are no Packs and every Asset route is 404. Errors carry a `code` and `params` (`err.<code>` in the frontend).
+The Library is loaded per request. The one cache is in `/api/media`: per Pack, the set of paths its `index.json` lists (what `packs/<pack>/…` may serve), kept in memory and re-read when the file's mtime changes (`library_api._indexed`), so a media range request does not parse the index each time. With no `factory.db` or one at another schema version there are no Packs and every Asset route is 404. Errors carry a `code` and `params` (`err.<code>` in the frontend).
 
 | Endpoint | Returns |
 |---|---|
