@@ -213,15 +213,40 @@ export function AssetDrawer({ id, onClose, onChanged, onReveal }: {
         {asset.agent_tags.length > 0 && (
           <p className="lib-agent">
             {t("library.card.agent")}:{" "}
-            {asset.agent_tags.map((tag) =>
-              asset.tags.some((x) => x.toLowerCase() === tag.toLowerCase()) ? (
-                <span key={tag} className="lib-chip muted">{tag}</span>
-              ) : (
-                <button key={tag} className="lib-chip adopt" title={t("library.card.adopt")} onClick={() => save("tags", [...asset.tags, tag])}>
-                  + {tag}
+            {asset.agent_tags.map((tag) => (
+              <span key={tag} className="lib-agent-tag">
+                {asset.tags.some((x) => x.toLowerCase() === tag.toLowerCase()) ? (
+                  <span className="lib-chip muted">{tag}</span>
+                ) : (
+                  <button className="lib-chip adopt" title={t("library.card.adopt")} onClick={() => save("tags", [...asset.tags, tag])}>
+                    + {tag}
+                  </button>
+                )}
+                <button
+                  className="lib-chip-x"
+                  aria-label={t("library.card.hideAgentTag", { tag })}
+                  title={t("library.card.hideAgentTag", { tag })}
+                  onClick={() => save("hidden_agent_tags", [...asset.hidden_agent_tags, tag])}
+                >
+                  ×
                 </button>
-              ),
-            )}
+              </span>
+            ))}
+          </p>
+        )}
+        {asset.hidden_agent_tags.length > 0 && (
+          <p className="lib-agent muted">
+            {t("library.card.hiddenAgentTags")}:{" "}
+            {asset.hidden_agent_tags.map((tag) => (
+              <button
+                key={tag}
+                className="lib-chip adopt"
+                title={t("library.card.showAgentTag", { tag })}
+                onClick={() => save("hidden_agent_tags", asset.hidden_agent_tags.filter((x) => x !== tag))}
+              >
+                ↺ {tag}
+              </button>
+            ))}
           </p>
         )}
         <label>

@@ -181,6 +181,29 @@ class AuthorTest(LibraryTestCase):
         self.assertEqual(body["params"], {"name": "Шок!", "slug": "шок"})
         self.err(self.put("nope", caption="x"), 404, "asset_not_found")
 
+    def test_author_tag_hits_rank_before_agent_only_hits(self):
+        other = "e" * 16
+        self.write_index(INDEX_ASSETS + [asset(other, "sfx", "аа", "audio", [variant("sfx/a.mp3")],
+                                               agent={"caption": None, "tags": ["удар"], "at": "x"})])
+        self.ok(self.put(SFX, tags=["удар"]))
+        data = self.ok(self.client.get("/api/library/assets", params={"tags": "удар"}))
+        self.assertEqual([a["ref"] for a in data["assets"]], ["@sfx/вуш-2", "@sfx/аа"])
+        self.ok(self.put(FACE, tags=["удар", "крик"]))
+        data = self.ok(self.client.get("/api/library/assets", params={"tags": "удар"}))
+        self.assertEqual([a["ref"] for a in data["assets"]], ["@face/1-sticker", "@sfx/вуш-2", "@sfx/аа"])
+
+    def test_a_hidden_agent_tag_stops_matching_and_leaves_cards_and_facets(self):
+        a = self.ok(self.put(SFX, hidden_agent_tags=[" Ветер "]))["asset"]
+        self.assertEqual((a["agent_tags"], a["hidden_agent_tags"]), (["переход"], ["Ветер"]))
+        self.assertEqual(self.ok(self.client.get("/api/library/assets", params={"tags": "ветер"}))["assets"], [])
+        self.assertEqual(self.ok(self.client.get("/api/library/assets", params={"q": "ветер"}))["assets"], [])
+        facets = self.ok(self.client.get("/api/library/assets"))["tags"]
+        self.assertNotIn("ветер", [f["tag"] for f in facets])
+        self.assertEqual(self.ok(self.client.get("/api/library/tags", params={"q": "вет"}))["tags"], [])
+        self.err(self.put(SFX, hidden_agent_tags="ветер"), 422, "tags_invalid")
+        a = self.ok(self.put(SFX, hidden_agent_tags=[]))["asset"]
+        self.assertEqual((a["agent_tags"], a["hidden_agent_tags"]), (["переход", "ветер"], []))
+
     def test_name_taken_names_the_holder(self):
         self.ok(self.put(SFX, name="ветер"))
         self.ok(self.put(SFX, name="вжух"))

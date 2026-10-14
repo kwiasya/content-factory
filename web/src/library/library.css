@@ -349,6 +349,16 @@
   border-style: dashed;
 }
 
+.lib-agent-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+}
+
+.lib-agent-tag .lib-chip {
+  margin-right: 0;
+}
+
 .lib-chip-x {
   border: 0;
   background: none;

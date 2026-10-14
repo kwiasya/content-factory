@@ -22,15 +22,22 @@ class _Unset:
 
 
 UNSET: Any = _Unset()
+JSON_COLUMNS = ("tags", "hidden_agent_tags")
+
+
+def _json_tags(raw: str | None) -> list[str]:
+    try:
+        value = json.loads(raw or "[]")
+    except ValueError:
+        return []
+    return [t for t in value if isinstance(t, str)] if isinstance(value, list) else []
 
 
 def rows(store: Store) -> dict[str, dict]:
     out = {}
     for r in store.query("SELECT * FROM asset_author"):
-        try:
-            r["tags"] = [t for t in json.loads(r["tags"] or "[]") if isinstance(t, str)]
-        except ValueError:
-            r["tags"] = []
+        for col in JSON_COLUMNS:
+            r[col] = _json_tags(r.get(col))
         out[r["asset_id"]] = r
     return out
 
@@ -97,8 +104,9 @@ def write(store: Store, asset_id: str, pack_id: str, fields: dict) -> None:
     if not fields:
         return
     cols = {"asset_id": asset_id, "pack_id": pack_id, "updated_at": now_iso(), **fields}
-    if "tags" in cols:
-        cols["tags"] = dumps(cols["tags"])
+    for col in JSON_COLUMNS:
+        if col in cols:
+            cols[col] = dumps(cols[col])
     names = ", ".join(cols)
     marks = ", ".join("?" for _ in cols)
     updates = ", ".join(f"{k} = excluded.{k}" for k in cols if k != "asset_id")
@@ -120,7 +128,7 @@ def drop_alias(store: Store, ref: str, asset_id: str) -> None:
 
 
 def set_author(store: Store, library: "Library", asset_id: str, *, caption: Any = UNSET, tags: Any = UNSET,
-               rights: Any = UNSET, name: Any = UNSET) -> "Asset":
+               rights: Any = UNSET, name: Any = UNSET, hidden_agent_tags: Any = UNSET) -> "Asset":
     from cf.library.library import load
 
     asset = library.get(asset_id)
@@ -131,6 +139,8 @@ def set_author(store: Store, library: "Library", asset_id: str, *, caption: Any 
         fields["caption"] = _caption(caption)
     if tags is not UNSET:
         fields["tags"] = normalise_tags(tags)
+    if hidden_agent_tags is not UNSET:
+        fields["hidden_agent_tags"] = normalise_tags(hidden_agent_tags)
     if rights is not UNSET:
         fields["rights"] = _rights(rights)
     if name is not UNSET:

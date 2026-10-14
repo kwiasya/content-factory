@@ -51,6 +51,7 @@ export interface AssetCard {
   tags: string[];
   agent_caption: string | null;
   agent_tags: string[];
+  hidden_agent_tags: string[];
   updated_at: string | null;
   variants?: Variant[];
 }
@@ -98,6 +99,7 @@ export interface AuthorFields {
   tags?: string[] | null;
   rights?: Rights | null;
   name?: string | null;
+  hidden_agent_tags?: string[];
 }
 
 function params(filter: Filter, extra: Record<string, string> = {}): string {

@@ -226,7 +226,8 @@ CREATE TABLE asset_alias (
 CREATE INDEX asset_alias_asset ON asset_alias (asset_id);
 """
 
-# Version 7: the Idea side of the Idea <-> Video link (ADR 0006); video.json "ideas" is the Video side.
+# Version 7: the Idea side of the Idea <-> Video link (ADR 0006); video.json "ideas" is the Video side;
+# the agent tags the Author hid on an Asset.
 V7 = """
 CREATE TABLE idea_video (
     idea_id     INTEGER NOT NULL REFERENCES idea (id) ON DELETE CASCADE,
@@ -235,6 +236,7 @@ CREATE TABLE idea_video (
     PRIMARY KEY (idea_id, video_slug)
 );
 CREATE INDEX idea_video_slug ON idea_video (video_slug);
+ALTER TABLE asset_author ADD COLUMN hidden_agent_tags TEXT NOT NULL DEFAULT '[]';
 """
 
 MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7]  # MIGRATIONS[i] takes the store from version i to i + 1

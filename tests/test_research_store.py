@@ -125,6 +125,8 @@ class V7Test(unittest.TestCase):
                 self.assertEqual(s.one("SELECT id, root FROM pack"), {"id": "p", "root": "/x"})
                 cols = [r["name"] for r in s.query("PRAGMA table_info(idea_video)")]
                 self.assertEqual(cols, ["idea_id", "video_slug", "linked_at"])
+                author_cols = [r["name"] for r in s.query("PRAGMA table_info(asset_author)")]
+                self.assertEqual(author_cols[-1], "hidden_agent_tags")
 
 
 class ConcurrentOpenTest(unittest.TestCase):

@@ -26,7 +26,7 @@ GREY = (64, 64, 64)
 
 def tag_todo(library: Library, pack_id: str) -> list[Asset]:
     return [a for a in sorted(library.assets, key=lambda a: (a.category, a.ref))
-            if a.pack == pack_id and not a.agent_caption and not a.agent_tags]
+            if a.pack == pack_id and not a.agent_caption and not a.proposed_agent_tags]
 
 
 def _tile(a: Asset) -> np.ndarray:

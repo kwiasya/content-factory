@@ -170,6 +170,7 @@ def _card_human(a: Asset) -> str:
             ("Громкость", f"{a.loudness['i']} LUFS ({a.loudness['method']})" if a.loudness else None),
             ("Права", f"{a.rights} (по умолчанию {a.rights_default})"), ("Подпись", a.caption),
             ("Теги", ", ".join(a.tags)), ("Подпись агента", a.agent_caption), ("Теги агента", ", ".join(a.agent_tags)),
+            ("Скрытые теги агента", ", ".join(a.hidden_agent_tags)),
             ("Варианты", "; ".join(f"{v['role']}: {v['path']}" for v in a.variants)), ("id", a.id)]
     return md_table(["Поле", "Значение"], rows)
 
@@ -225,6 +226,10 @@ def cmd_author_set(args, store) -> int:
         kw["caption"] = args.caption
     if args.clear_tags or args.tag:
         kw["tags"] = ([] if args.clear_tags else list(a.tags)) + list(args.tag or ())
+    if args.hide_agent_tag or args.show_agent_tag:
+        shown = {t.lower() for t in args.show_agent_tag or ()}
+        kw["hidden_agent_tags"] = [t for t in (*a.hidden_agent_tags, *(args.hide_agent_tag or ()))
+                                   if t.lower() not in shown]
     if args.rights is not None:
         kw["rights"] = None if args.rights == "default" else args.rights
     if args.name is not None:
@@ -251,6 +256,8 @@ def register_author(sub, common) -> None:
     p.add_argument("--caption")
     p.add_argument("--tag", action="append", help="add a tag (repeatable)")
     p.add_argument("--clear-tags", action="store_true", help="drop the current tags first")
+    p.add_argument("--hide-agent-tag", action="append", help="hide a wrong agent tag (repeatable)")
+    p.add_argument("--show-agent-tag", action="append", help="bring a hidden agent tag back (repeatable)")
     p.add_argument("--rights", choices=(*RIGHTS, "default"), help="'default' goes back to the Pack default")
     p.add_argument("--name", help="the Author's ref name inside the category; empty clears it")
     p.set_defaults(func=cmd_author_set)

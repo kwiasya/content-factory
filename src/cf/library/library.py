@@ -48,6 +48,7 @@ class Asset:
     agent: dict | None
     aliases: tuple[str, ...]
     updated_at: str | None
+    hidden_agent_tags: tuple[str, ...] = ()
 
     @property
     def ref(self) -> str:
@@ -121,8 +122,18 @@ class Asset:
         return (self.agent or {}).get("caption")
 
     @property
-    def agent_tags(self) -> tuple[str, ...]:
+    def proposed_agent_tags(self) -> tuple[str, ...]:
         return tuple((self.agent or {}).get("tags") or ())
+
+    @property
+    def agent_tags(self) -> tuple[str, ...]:
+        """The agent's tags minus those the Author hid."""
+        hidden = {t.lower() for t in self.hidden_agent_tags}
+        return tuple(t for t in self.proposed_agent_tags if t.lower() not in hidden)
+
+    def author_hits(self, wanted: Iterable[str]) -> int:
+        mine = {t.lower() for t in self.tags}
+        return sum(1 for t in wanted if t.lower() in mine)
 
     def all_tags(self) -> list[str]:
         out, seen = [], set()
@@ -247,6 +258,8 @@ class Library:
 
     def query(self, *, pack: str | None = None, category: str | None = None, tags: Iterable[str] = (),
               text: str = "", rights: str | None = None) -> list[Asset]:
+        """Assets matching every filter. With tags, those whose Author tags hit more of them come first
+        (the Author's tags weigh more than the agent's); then by category and ref."""
         want = [t.lower() for t in tags if t.strip()]
         text = text.strip().lower()
         out = []
@@ -264,7 +277,7 @@ class Library:
             if text and text not in a.haystack():
                 continue
             out.append(a)
-        return sorted(out, key=lambda a: (a.category, a.ref))
+        return sorted(out, key=lambda a: (-a.author_hits(want), a.category, a.ref))
 
     def tag_counts(self, assets: Iterable[Asset] | None = None) -> list[dict]:
         author_n: Counter = Counter()
@@ -296,7 +309,8 @@ def _asset(info: PackInfo, cache: Path, a: dict, row: dict | None, aliases: tupl
         loudness=a.get("loudness"), derived=dict(a.get("derived") or {}),
         rights_default=a.get("rights_default") or "unknown", rights_override=row.get("rights"),
         caption=row.get("caption"), tags=tuple(row.get("tags") or ()), agent=a.get("agent"),
-        aliases=aliases, updated_at=row.get("updated_at"))
+        aliases=aliases, updated_at=row.get("updated_at"),
+        hidden_agent_tags=tuple(row.get("hidden_agent_tags") or ()))
 
 
 def load(footage: Path, store: Store | None) -> Library:
@@ -339,7 +353,8 @@ def card(a: Asset, *, full: bool = True) -> dict:
         "alpha": a.alpha, "green_screen": a.green_screen, "loudness": a.loudness,
         "rights": a.rights, "rights_default": a.rights_default, "rights_override": a.rights_override,
         "caption": a.caption, "tags": list(a.tags), "agent_caption": a.agent_caption,
-        "agent_tags": list(a.agent_tags), "updated_at": a.updated_at,
+        "agent_tags": list(a.agent_tags), "hidden_agent_tags": list(a.hidden_agent_tags),
+        "updated_at": a.updated_at,
     }
     if full:
         served = a.kind in SERVED_KINDS
