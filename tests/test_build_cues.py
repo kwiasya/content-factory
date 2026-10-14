@@ -82,7 +82,8 @@ class CuePlanTest(unittest.TestCase):
         self.assertEqual((img.path, img.variant), (str(self.footage / f"library/{PACK}/png/{IDS['img']}.png"), "png"))
         self.assertEqual((img.duration, img.src_end), (45, 45))
         cues, notes = self.plan(script([[{"ref": "@face/1750770-sticker", "at_s": 0.0}], []]))
-        self.assertEqual(cues[0].variant, "png")
+        self.assertEqual((cues[0].variant, cues[0].path),
+                         ("still", str(self.pack / "face-resolve/still — улыбка — 1750770_sticker.png")))
         self.assertTrue(any("placing the still png" in n for n in notes), notes)
         (silent,) = self.one("@meme/silent")
         self.assertEqual((silent.path, silent.variant), (str(self.pack / "memes/silent.mp4"), "original"))

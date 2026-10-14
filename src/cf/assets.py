@@ -1,8 +1,9 @@
 """Library Assets in a Script: where a Script's Video folder is, the refs its md files hold, the Library
 context the validator and the build read, which file of an Asset is placed, and where on the canvas.
 
-This module is the one seam between the Editor (``cf.script_schema``, ``cf.build``) and ``cf.library``:
-those two never read an Asset's fields themselves. Rules: ``docs/script-schema.md`` (Assets).
+This module is the one seam between the Editor (``cf.script_schema``, ``cf.build``) and ``cf.library``: the
+Editor picks files, positions and levels only through this module; it reads an Asset's public fields (id, ref,
+category, rights, duration_s, pack) directly. Rules: ``docs/script-schema.md`` (Assets).
 
 CLI::
 
@@ -87,11 +88,12 @@ def video_of(script_path: Path) -> VideoFolder | None:
 
 
 def md_refs(folder: Path) -> dict[str, list[str]]:
-    """Refs in the folder's top-level, non-hidden ``*.md`` files: ``{ref as written: [file names]}``."""
+    """Refs in the folder's top-level, non-hidden ``*.md`` files: ``{ref as written: [file names]}``. Scripts
+    (``script*.md``, written by the Editor) are left out: only the Author's notes unlock an Asset."""
     out: dict[str, set[str]] = {}
     try:
         files = sorted(p for p in Path(folder).iterdir() if p.suffix == ".md" and not p.name.startswith(".")
-                       and p.is_file())
+                       and not p.name.startswith("script") and p.is_file())
     except OSError:
         return {}
     for p in files:
@@ -199,13 +201,13 @@ def _suffix(asset: Any) -> str:
 
 
 def _still(a: Any, note: str | None) -> Placement | None:
-    png = a.derived.get("png")
-    if png:
-        return Placement(a.cache / png, "png", a.width, a.height, None, True, note)
     still = a.variant("still")
     if still is not None:
         return Placement(a.root / still["path"], "still", still.get("width") or a.width,
                          still.get("height") or a.height, None, True, note)
+    png = a.derived.get("png")
+    if png:
+        return Placement(a.cache / png, "png", a.width, a.height, None, True, note)
     return None
 
 

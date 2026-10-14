@@ -148,6 +148,8 @@ class RightsTest(AssetsTestCase):
             (folder / "sub/x.md").write_text("@sfx/вуш-2")
             (folder / ".hidden.md").write_text("@sfx/вуш-2-2")
             (folder / "script.json").write_text('{"ref": "@face/шок"}')
+            (folder / "script.md").write_text("@sfx/boom")
+            (folder / "script.v2.md").write_text("@face/шок")
             self.assertEqual(ca.md_refs(folder), {"@meme/chipi": ["brief.md", "notes.md"], "@sfx/boom": ["notes.md"]})
 
     def test_video_of_finds_new_and_legacy_video_folders(self):
