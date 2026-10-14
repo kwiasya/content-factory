@@ -299,10 +299,11 @@ def has_cues(script: Script) -> bool:
 
 
 def check(script: Script, manifest: dict | None = None, style: dict | None = None,
-          assets: "AssetContext | None" = None) -> Findings:
-    """Violations and warnings; the Asset cue rules run only when the Script has cues."""
+          assets: "AssetContext | None" = None, *, cues: bool = True) -> Findings:
+    """Violations and warnings; the Asset cue rules run only when the Script has cues and ``cues`` is true
+    (false: a build that leaves the cues out checks the rest of the Script only)."""
     problems = _problems(script, manifest, style)
-    if not has_cues(script):
+    if not cues or not has_cues(script):
         return Findings(problems, [])
     f = asset_findings(script, assets, style or {})
     return Findings(problems + f.problems, f.warnings)
@@ -541,8 +542,9 @@ def asset_findings(script: Script, ctx: "AssetContext | None", style: dict) -> F
     library = ctx.library if ctx is not None else None
     if library is None:
         why = ctx.library_problem if ctx is not None else "no Library context was loaded (--no-library)"
-        problems.append(f"assets: {len(cues)} cue(s) need the Library: {why} (index a Pack with "
-                        "python -m cf.library index, or pass --footage-root/--db)")
+        hint = ("index a Pack with python -m cf.library index, or pass --footage-root/--db"
+                if ctx is None or ctx.cli else "index a Pack with /index-pack")
+        problems.append(f"assets: {len(cues)} cue(s) need the Library: {why} ({hint})")
         return Findings(problems, warnings)
     unlocked: dict[str, set[str]] = {}
     for ref, files in ctx.md_refs.items():

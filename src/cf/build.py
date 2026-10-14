@@ -46,7 +46,7 @@ Asset cues (``shots[].assets``, ``docs/script-schema.md`` Assets): the Library i
 over the part used, else under the target loudness), pictures on V4 "assets" (V5) from the file
 ``cf.assets.placement`` picks, with the ``pos`` transform (ZoomX ganged, Pan, Tilt); a meme's sound
 shares its cue on an A lane. Every item and value is read back, and each picture cue gets a still
-``stills/cue-<cue>.png``. ``--no-assets`` builds without them. A cue-less Script creates the same
+``stills/cue-<cue>.png``. ``--no-assets`` builds without them (their rules skipped, no Library opened). A cue-less Script creates the same
 tracks as before and never opens factory.db. The Pack is only read (Resolve imports by path).
 A Video folder (``videos/<slug>/`` with video.json) builds from ``<footage>/<script.walk>`` when
 ``--walk`` is absent.
@@ -815,15 +815,17 @@ class Builder:
         self.cue_plan: list[PlannedCue] = []
         self.assets_ctx = None
         if has_cues(self.script):
+            self.r.assets = {"enabled": use_assets, "library_problem": None, "warnings": [], "cues": [],
+                             "tracks": {}, "stills": []}
+        if has_cues(self.script) and use_assets:
             from cf.assets import context  # noqa: PLC0415
 
             self.assets_ctx = context(script_path or reel_dir / "script.json", footage=footage_root, db_path=db_path)
-            self.r.assets = {"enabled": use_assets, "library_problem": self.assets_ctx.library_problem,
-                             "warnings": [], "cues": [], "tracks": {}, "stills": []}
+            self.r.assets["library_problem"] = self.assets_ctx.library_problem
 
     # ---- steps
     def validate(self) -> None:
-        f = check(self.script, self.manifest, self.style, self.assets_ctx)
+        f = check(self.script, self.manifest, self.style, self.assets_ctx, cues=self.use_assets)
         if f.problems:
             raise BuildError("script.json does not validate:\n- " + "\n- ".join(f.problems))
         for w in f.warnings:
@@ -2027,7 +2029,7 @@ def main(argv: list[str] | None = None) -> int:
                                            "else CF_FOOTAGE_ROOT)")
     ap.add_argument("--db", help="factory.db for the Library (default: CF_FACTORY_DB, else <footage>/factory.db)")
     ap.add_argument("--no-assets", action="store_true",
-                    help="build without the Script's Asset cues (the Script must still validate)")
+                    help="build without the Script's Asset cues (their rules are skipped; no Library is needed)")
     args = ap.parse_args(argv)
     if args.canvas:
         from cf.canvas import resolve  # noqa: PLC0415

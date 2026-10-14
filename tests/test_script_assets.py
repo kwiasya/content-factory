@@ -228,6 +228,10 @@ class TimingTest(AssetsTestCase):
                                "python -m cf.library index, or pass --footage-root/--db)"])
         self.assertEqual(len(check(from_dict(d), None, STYLE, None).problems), 1)
 
+    def test_structural_check_without_cue_rules(self):
+        d = with_cues([{"ref": "@sfx/own-hit", "at_s": 0.0, "dur": 1}])
+        self.assertEqual(check(from_dict(d), None, STYLE, None, cues=False), check(from_dict(good()), None, STYLE))
+
 
 class PosBoxesTest(unittest.TestCase):
     def test_pos_boxes_in_style_json_are_inside_the_safe_zone(self):

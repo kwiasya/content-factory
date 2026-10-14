@@ -416,7 +416,8 @@ class ScriptCuesTest(VideosTestCase):
         (self.footage / "factory.db").rename(self.footage / "moved.db")
         r = self.save_cues([{"ref": "@sfx/own-hit", "at_s": 0.0}])
         self.assertEqual(r.status_code, 422, r.text)
-        self.assertTrue(any("need the Library" in v for v in r.json()["violations"]), r.text)
+        self.assertTrue(any("need the Library" in v and "/index-pack" in v for v in r.json()["violations"]), r.text)
+        self.assertFalse(any("--footage-root" in v for v in r.json()["violations"]), r.text)
         self.ok(self.save_cues(None))
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import replace
 import shutil
 import unicodedata
 from datetime import datetime, timezone
@@ -134,8 +135,8 @@ def asset_context(footage: Path, folder: Path | None, db_path: Path | None) -> "
                 raise
             problem = exc.detail
     if lib is None:
-        return assets.AssetContext(None, problem, video, assets.md_refs(video.path) if video else {})
-    return assets.context(None, footage=footage, library=lib, video=video)
+        return assets.AssetContext(None, problem, video, assets.md_refs(video.path) if video else {}, cli=False)
+    return replace(assets.context(None, footage=footage, library=lib, video=video), cli=False)
 
 
 def script_violations(footage: Path, repo: Path, text: str, *, script: bool, folder: Path | None = None,

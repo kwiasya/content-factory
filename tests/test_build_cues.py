@@ -181,6 +181,28 @@ class CuePlanTest(unittest.TestCase):
              "recordFrame": START}])
 
 
+class NoAssetsBuildTest(unittest.TestCase):
+    def test_no_assets_builds_a_cue_script_without_the_library(self):
+        from cf.build import Builder
+        from test_script_schema import MANIFEST as SCHEMA_MANIFEST, good
+
+        with tempfile.TemporaryDirectory() as t:
+            walk = Path(t) / "test-walk"
+            reel = walk / "reels/r1"
+            reel.mkdir(parents=True)
+            (walk / "clip_manifest.json").write_text(json.dumps(SCHEMA_MANIFEST))
+            d = good()
+            d["shots"][0]["assets"] = [{"ref": "@sfx/own-hit", "at_s": 0.0}]
+            (reel / "script.json").write_text(json.dumps(d))
+            none = Path(t) / "none.db"
+            b = Builder(reel, walk, None, stills=False, footage_root=Path(t), db_path=none, use_assets=False)
+            b.validate()
+            self.assertIn("--no-assets: the Script's Asset cues are left out of this build", b.r.notes)
+            self.assertFalse(b.cues_on())
+            with self.assertRaisesRegex(BuildError, "need the Library"):
+                Builder(reel, walk, None, stills=False, footage_root=Path(t), db_path=none).validate()
+
+
 class WalkDirTest(unittest.TestCase):
     def test_default_walk_dir_for_legacy_reels_and_video_folders(self):
         sc = script([[]])

@@ -113,6 +113,7 @@ class AssetContext:
     library_problem: str | None
     video: VideoFolder | None
     md_refs: dict[str, list[str]]
+    cli: bool = True  # messages may name CLI flags (False: the caller is Desk)
 
 
 def _footage_root() -> Path:
