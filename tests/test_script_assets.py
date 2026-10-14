@@ -196,6 +196,21 @@ class TimingTest(AssetsTestCase):
         self.assertNoProblems(with_cues([{"ref": own, "at_s": 2.5}]))
         self.assertProblem(with_cues([], [], [{"ref": own, "at_s": 2.6}]), "runs 0.60 s past the end of the Reel")
 
+    def test_the_reel_end_is_checked_in_frames_as_the_build_snaps_them(self):
+        d = good()
+        d["shots"][2]["out_s"] = 3.03
+        own = "@sfx/own-hit"
+        self.assertProblem(with_cues([], [], [{"ref": own, "at_s": 2.03}], base=d), "past the end of the Reel")
+        self.assertNoProblems(with_cues([], [], [{"ref": own, "at_s": 2.0}], base=d))
+        manifest = {"clips": [{"file": "A.MOV", "fps": 30.0, "duration_s": 30.0}, {"file": "B.MOV", "fps": 30.0, "duration_s": 30.0},
+                              {"file": "C.mov", "fps": 30.0, "duration_s": 30.0}]}
+        d["shots"][2].update(in_s=0.02, out_s=3.02)
+        late = from_dict(with_cues([], [], [{"ref": own, "at_s": 2.0}], base=d))
+        self.assertTrue(any("past the end of the Reel" in p for p in check(late, manifest, STYLE, self.ctx()).problems))
+        d["shots"][2].update(in_s=0.0, out_s=3.0)
+        self.assertEqual(check(from_dict(with_cues([], [], [{"ref": own, "at_s": 2.0}], base=d)), manifest, STYLE,
+                               self.ctx()).problems, [])
+
     def test_visual_cue_must_clear_the_loop_seam(self):
         base = looping()
         self.assertEqual(validate(from_dict(base), None, STYLE), [])

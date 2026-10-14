@@ -225,8 +225,7 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
         if cut is not None and abs(in_s - s.in_s) > 1.0 / cfps + 1e-6:
             notes.append(f"{s.id}: cuts.json src_in_s {in_s:g} differs from the script's in_s {s.in_s:g}")
         src_start = frames.first_frame(in_s, cfps)
-        efps = float(frames.exact_fps(cfps))
-        fit = snap_frames((out_s * efps - src_start) / efps / s.speed, fps)
+        fit = frames.shot_frames(in_s, out_s, s.speed, cfps, fps)
         if cut is not None:
             off = int(cut["record_frame_offset"])
             dur = int(cut["duration_frames"])
@@ -496,11 +495,11 @@ def plan_cues(script: Script, shots: list[PlannedShot], library: Any, *, fps: fl
         if place.note:
             notes.append(f"cue {cue} ({c.ref}): {place.note}")
         dur_s = c.dur_s if c.dur_s is not None else ca.default_dur_s(a, place, style)
-        duration = snap_frames(dur_s or 0.0, fps)
+        at, duration = frames.cue_frames(c.at_s, dur_s or 0.0, fps)
         if duration < 1:
             raise BuildError(f"cue {cue} ({c.ref}): {dur_s!r} s is shorter than one frame")
         start = p.record_frame - p.record_offset
-        offset = p.record_offset + round(c.at_s * fps)
+        offset = p.record_offset + at
         if offset + start + duration > end:
             raise BuildError(f"cue {cue} ({c.ref}): ends at +{offset + duration}, past the end of the Reel "
                              f"(+{end - start})")

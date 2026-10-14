@@ -94,7 +94,7 @@ Validator rules (`python -m cf.script_schema validate` loads the Library itself:
 - **Loop seam:** on a `loop_seamless` Reel a picture ends at least `assets.loop_clear_s` (0.5 s) before the end (it would blink away when the Reel restarts); sounds may run to the last frame.
 - **Lanes:** at most 2 sounds (sound effects plus memes' sounds: A3, A4) and 2 pictures (V4, V5) at any instant.
 
-Timing is checked on the back-to-back shot model; the build re-checks lanes and the end in frames (`cuts.json` can move a shot by a frame) and fails loudly.
+Timing is checked in timeline frames on the back-to-back shot model the build uses without `cuts.json` (`cf.frames.shot_frames`: each shot from its first whole source frame at or after `in_s`, at the clip's manifest fps, snapped down; a cue starts `round(at_s × fps)` frames into its shot and lasts `dur_s` snapped down, `cf.frames.cue_frames`), so a cue the validator passes at the end of the Reel also fits the build. The build re-checks lanes and the end in frames (`cuts.json` can move a shot by a frame) and fails loudly.
 
 **Positions** (`style.json` `assets.pos`, reference px of the 1080×1920 frame; `canvases.landscape.asset_pos` for 16:9). The Asset is scaled to fit inside the box, centred in it; every portrait box lies inside the safe zone and clear of the right rail.
 

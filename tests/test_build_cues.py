@@ -10,7 +10,7 @@ from cf import assets as ca
 from cf.build import (BuildError, cue_append_infos, cue_plan_from_report, cue_tracks, default_walk_dir, plan_cues, plan_shots,
                       reference_level, source_end, sfx_volume)
 from cf.canvas import resolve
-from cf.script_schema import from_dict
+from cf.script_schema import check, from_dict
 
 from library_fixture import IDS, PACK, make_library
 from test_script_schema import STYLE
@@ -157,6 +157,26 @@ class CuePlanTest(unittest.TestCase):
         cues, notes = self.plan(sc)
         self.assertEqual(len(cues), 1)
         self.assertTrue(any("loop seam" in n for n in notes), notes)
+
+    def test_validator_and_planner_agree_on_a_cue_at_the_reel_end(self):
+        ctx = ca.AssetContext(self.lib, None, None, {})
+        sc = script([[], [{"ref": "@sfx/own-hit", "at_s": 2.0}]])
+        self.assertEqual(check(sc, MANIFEST, STYLE, ctx).problems, [])
+        (c,), _ = self.plan(sc)
+        shots, _ = plan_shots(sc, MANIFEST, START, 30)
+        self.assertEqual(c.record_end, shots[-1].record_end)
+        for in_s, out_s, at_s, fits in ((3.0, 6.03, 2.03, False), (3.02, 6.02, 2.0, False), (3.0, 6.0, 2.0, True),
+                                        (3.0, 6.03, 2.0, True)):
+            with self.subTest(in_s=in_s, out_s=out_s, at_s=at_s):
+                sc = script([[], [{"ref": "@sfx/own-hit", "at_s": at_s}]])
+                sc.shots[1].in_s, sc.shots[1].out_s = in_s, out_s
+                ends = [p for p in check(sc, MANIFEST, STYLE, ctx).problems if "past the end" in p]
+                self.assertEqual(not ends, fits, ends)
+                if fits:
+                    self.plan(sc)
+                else:
+                    with self.assertRaisesRegex(BuildError, "past the end of the Reel"):
+                        self.plan(sc)
 
     def test_no_cues_plan_nothing_and_need_no_library(self):
         sc = script([[], []])

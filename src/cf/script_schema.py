@@ -305,7 +305,7 @@ def check(script: Script, manifest: dict | None = None, style: dict | None = Non
     problems = _problems(script, manifest, style)
     if not cues or not has_cues(script):
         return Findings(problems, [])
-    f = asset_findings(script, assets, style or {})
+    f = asset_findings(script, assets, style or {}, manifest)
     return Findings(problems + f.problems, f.warnings)
 
 
@@ -524,8 +524,25 @@ def _cue_fps(style: dict, script: Script) -> float:
         return float((style.get("canvas") or {}).get("fps") or DEFAULT_FPS)
 
 
-def asset_findings(script: Script, ctx: "AssetContext | None", style: dict) -> Findings:
-    """The Asset cue rules (docs/script-schema.md, Assets); ``ctx`` None means no Library was loaded."""
+def shot_starts_frames(script: Script, manifest: dict | None, fps: float) -> tuple[list[int], int]:
+    """Each shot's first timeline frame and the Reel's length in frames, laid back to back as the build lays
+    them without cuts.json (a clip's fps from the manifest, else the timeline's)."""
+    clips = manifest_clips(manifest)
+    starts, t = [], 0
+    for s in script.shots:
+        starts.append(t)
+        try:
+            cfps = float((clips.get(s.clip) or {}).get("fps") or fps)
+        except (TypeError, ValueError):
+            cfps = fps
+        t += frames.shot_frames(s.in_s, s.out_s, s.speed, cfps if cfps > 0 else fps, fps) if s.speed > 0 else 0
+    return starts, t
+
+
+def asset_findings(script: Script, ctx: "AssetContext | None", style: dict,
+                   manifest: dict | None = None) -> Findings:
+    """The Asset cue rules (docs/script-schema.md, Assets); ``ctx`` None means no Library was loaded. A cue's
+    span and the Reel's end are in timeline frames, snapped as the build snaps them."""
     from cf import assets as ca  # noqa: PLC0415
 
     problems: list[str] = []
@@ -533,7 +550,6 @@ def asset_findings(script: Script, ctx: "AssetContext | None", style: dict) -> F
     cfg = ca.settings(style)
     fps = _cue_fps(style, script)
     frame = 1.0 / fps
-    total = script.total_s
     cues = [(i, s, k, c) for i, s in enumerate(script.shots) for k, c in enumerate(s.assets)]
     for i, s, k, c in cues:
         for key in c.extra:
@@ -554,10 +570,8 @@ def asset_findings(script: Script, ctx: "AssetContext | None", style: dict) -> F
             hit = None
         if hit is not None:
             unlocked.setdefault(hit.id, set()).update(files)
-    starts, t = [], 0.0
-    for s in script.shots:
-        starts.append(t)
-        t += s.duration_s
+    starts, total_f = shot_starts_frames(script, manifest, fps)
+    clear_f = round(float(cfg["loop_clear_s"]) * fps)
     spans: dict[str, list[tuple[float, float, str]]] = {"audio": [], "visual": []}
     for i, s, k, c in cues:
         w = f"shots[{i}] ({s.id}).assets[{k}] ({c.ref})"
@@ -621,16 +635,17 @@ def asset_findings(script: Script, ctx: "AssetContext | None", style: dict) -> F
                 problems.append(f"{w}: dur_s {dur:g} is longer than a still may stay ({cfg['still_max_s']:g} s)")
         elif ca.finite(a.duration_s) and dur > a.duration_s + frame + EPS:
             problems.append(f"{w}: dur_s {dur:g} is longer than the Asset ({a.duration_s:g} s)")
-        begin = starts[i] + c.at_s
-        end = begin + dur
-        if end > total + EPS:
-            problems.append(f"{w}: runs {end - total:.2f} s past the end of the Reel")
-        if kind == "visual" and script.ending == "loop_seamless":
-            clear = float(cfg["loop_clear_s"])
-            if end > total - clear + EPS:
-                problems.append(f"{w}: a sticker or picture on screen at the loop seam jumps away when the Reel "
-                                f"loops: end it ≥ {clear:g} s before the end "
-                                f"(at_s + dur_s ≤ {total - clear - starts[i]:g})")
+        at_f, dur_f = frames.cue_frames(c.at_s, dur, fps)
+        begin_f = starts[i] + at_f
+        end_f = begin_f + dur_f
+        begin, end = begin_f / fps, end_f / fps
+        if end_f > total_f:
+            problems.append(f"{w}: runs {(end_f - total_f) / fps:.2f} s past the end of the Reel "
+                            f"({end_f - total_f} frame(s) at {fps:g} fps)")
+        if kind == "visual" and script.ending == "loop_seamless" and end_f > total_f - clear_f:
+            problems.append(f"{w}: a sticker or picture on screen at the loop seam jumps away when the Reel "
+                            f"loops: end it ≥ {cfg['loop_clear_s']:g} s before the end "
+                            f"(at_s + dur_s ≤ {round((total_f - clear_f - starts[i]) / fps, 3):g})")
         label = f"{s.id} {c.ref}"
         if kind == "visual":
             spans["visual"].append((begin, end, label))

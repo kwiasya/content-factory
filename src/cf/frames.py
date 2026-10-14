@@ -52,6 +52,19 @@ def snap_frames(seconds: float, fps: float) -> int:
     return max(0, math.floor(seconds * fps + FRAME_EPS))
 
 
+def shot_frames(in_s: float, out_s: float, speed: float, clip_fps: float, fps: float) -> int:
+    """Timeline frames of a shot laid back to back: from the first whole source frame at or after ``in_s`` to
+    ``out_s``, after speed, snapped down."""
+    src_start = first_frame(in_s, clip_fps)
+    efps = float(exact_fps(clip_fps))
+    return snap_frames((out_s * efps - src_start) / efps / speed, fps)
+
+
+def cue_frames(at_s: float, dur_s: float, fps: float) -> tuple[int, int]:
+    """A cue's offset from its shot's first frame and its length, in timeline frames."""
+    return round(at_s * fps), snap_frames(dur_s, fps)
+
+
 def ratio(clip_fps: float, timeline_fps: float, speed: float = 1.0) -> Fraction:
     """Source frames per timeline frame."""
     return exact_fps(clip_fps) * Fraction(speed).limit_denominator(1000) / exact_fps(timeline_fps)
