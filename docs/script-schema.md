@@ -64,7 +64,7 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 
 ## Assets (Library cues)
 
-A cue places one Library Asset (`@<category>/<name>`, `GLOSSARY.md` Asset ref) in the Reel: a sound effect on A3, a picture, meme, sticker or effect on V4, a meme's own sound on an A lane. Cues sit under the shot they start in:
+A cue places one Library Asset (`@<category>/<name>`, `GLOSSARY.md` Asset ref) in the Reel: a sound effect on A3 or A4, a picture, meme, sticker or effect on V4 or V5, a meme's own sound on an A lane. Cues sit under the shot they start in:
 
 ```json
 "assets": [
