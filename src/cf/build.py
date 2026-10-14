@@ -544,6 +544,14 @@ def plan_cues(script: Script, shots: list[PlannedShot], library: Any, *, fps: fl
     return out, notes
 
 
+def cue_plan_from_report(report: dict) -> list[PlannedCue]:
+    """The cue plan a build wrote to build-report.json (``cue_plan``); [] when absent or unreadable."""
+    try:
+        return [PlannedCue(**row) for row in report.get("cue_plan") or []]
+    except TypeError:
+        return []
+
+
 def cue_tracks(cues: list[PlannedCue], base_audio: int = 1) -> dict[str, int]:
     """Track counts once the cues are placed (V1–V3 always exist; A1, plus A2 with a Track)."""
     v = max([3, *(c.track_index for c in cues if c.track_type == "video")])
@@ -1831,6 +1839,12 @@ class Builder:
         self.vids = [it for it in (d.call(tl.GetItemListInTrack, "video", 1) or [])
                      if d.call(it.GetMediaPoolItem) is not None]
         r.check("V1 items on the existing timeline", len(self.plan), len(self.vids))
+        built = self.reel_dir / "build-report.json"
+        if self.cues_on() and built.exists():
+            self.cue_plan = cue_plan_from_report(load_json(built) or {})
+            r.assets.setdefault("stills", [])
+            if not self.cue_plan:
+                r.notes.append(f"no cue plan in {built}: no cue stills (rebuild to get them)")
         for s, v in zip(self.plan, self.vids):
             r.check(f"{s.id} V1 item start", [s.clip, s.record_frame], [d.call(v.GetName), int(d.call(v.GetStart))])
 

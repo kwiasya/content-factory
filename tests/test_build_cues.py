@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from cf import assets as ca
-from cf.build import (BuildError, cue_append_infos, cue_tracks, default_walk_dir, plan_cues, plan_shots,
+from cf.build import (BuildError, cue_append_infos, cue_plan_from_report, cue_tracks, default_walk_dir, plan_cues, plan_shots,
                       reference_level, source_end, sfx_volume)
 from cf.canvas import resolve
 from cf.script_schema import from_dict
@@ -169,6 +169,15 @@ class CuePlanTest(unittest.TestCase):
             sc = script([[{"ref": "@sfx/own-hit", "at_s": 0.0}], []])
             plan_cues(sc, plan_shots(sc, MANIFEST, START, 30)[0], None, fps=30, canvas=CANVAS, style=STYLE,
                       reference_lufs=-14.0, reference_source="x")
+
+    def test_cue_plan_round_trips_through_the_build_report(self):
+        from dataclasses import asdict
+
+        cues, _ = self.plan(script([[{"ref": "@meme/chipi", "at_s": 0.0, "dur_s": 1.0}], []]))
+        report = json.loads(json.dumps({"cue_plan": [asdict(c) for c in cues]}))
+        self.assertEqual(cue_plan_from_report(report), cues)
+        self.assertEqual(cue_plan_from_report({}), [])
+        self.assertEqual(cue_plan_from_report({"cue_plan": [{"cue": "x"}]}), [])
 
     def test_cue_append_infos(self):
         cues, _ = self.plan(script([[{"ref": "@meme/chipi", "at_s": 0.0, "dur_s": 1.0}], []]))
