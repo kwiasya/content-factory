@@ -33,10 +33,10 @@ def footage_root() -> Path:
     return Path(env).expanduser() if env else DEFAULT_FOOTAGE_ROOT
 
 
-def default_db_path() -> Path:
-    """``CF_FACTORY_DB`` or ``<footage root>/factory.db``."""
+def default_db_path(footage: Path | None = None) -> Path:
+    """``CF_FACTORY_DB`` or ``<footage>/factory.db`` (``footage`` defaults to the footage root)."""
     env = os.environ.get("CF_FACTORY_DB")
-    return Path(env).expanduser() if env else footage_root() / "factory.db"
+    return Path(env).expanduser() if env else Path(footage or footage_root()) / "factory.db"
 
 
 def now_iso(now: datetime | None = None) -> str:

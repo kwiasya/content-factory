@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import re
 import sys
 from dataclasses import dataclass
@@ -26,6 +25,7 @@ from typing import Any
 from cf import library as lib
 from cf.library import refs as librefs
 from cf.library.errors import LibraryError, RefError
+from cf.research.store import default_db_path, footage_root
 
 LANE_OF = {"sfx": "audio", "meme": "visual", "img": "visual", "emoji": "visual", "face": "visual",
            "footage": "visual", "fx": "visual"}
@@ -125,12 +125,6 @@ class AssetContext:
     cli: bool = True  # messages may name CLI flags (False: the caller is Desk)
 
 
-def _footage_root() -> Path:
-    from cf.research.store import footage_root  # noqa: PLC0415
-
-    return footage_root()
-
-
 def load_library(footage: Path, db_path: Path) -> tuple[lib.Library | None, str | None]:
     try:
         store = lib.open_readonly(db_path)
@@ -153,11 +147,8 @@ def context(script_path: Path | None, *, footage: Path | None = None, db_path: P
     refs_in = md_refs(video.path) if video else {}
     if library is not None:
         return AssetContext(library, None, video, refs_in)
-    root = Path(footage) if footage else (video.footage if video else _footage_root())
-    if db_path is None:
-        env = os.environ.get("CF_FACTORY_DB")
-        db_path = Path(env).expanduser() if env else root / "factory.db"
-    found, problem = load_library(root, Path(db_path))
+    root = Path(footage) if footage else (video.footage if video else footage_root())
+    found, problem = load_library(root, Path(db_path) if db_path is not None else default_db_path(root))
     return AssetContext(found, problem, video, refs_in)
 
 
