@@ -170,7 +170,7 @@ export function LibraryPage({ id, query }: { id: string | null; query: URLSearch
                     disabled={!byCategory[c] && filter.category !== c}
                     onClick={() => go({ ...filter, category: filter.category === c ? undefined : c })}
                   >
-                    {t(`library.category.${c}` as "library.category.sfx")} <span className="muted">{byCategory[c] ?? 0}</span>
+                    {t.or(`library.category.${c}`, c)} <span className="muted">{byCategory[c] ?? 0}</span>
                   </button>
                 ))}
               </div>

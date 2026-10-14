@@ -157,7 +157,7 @@ export function AssetDrawer({ id, onClose, onChanged, onReveal }: {
           </Field>
         )}
         <Field label={t("library.card.category")}>
-          {t(`library.category.${asset.category}` as "library.category.sfx")}
+          {t.or(`library.category.${asset.category}`, asset.category)}
           {asset.category_source === "fallback" && <span className="muted"> · {t("library.card.fallback")}</span>}
         </Field>
         <Field label={t("library.card.folder")}>
@@ -172,7 +172,7 @@ export function AssetDrawer({ id, onClose, onChanged, onReveal }: {
             {t("library.card.loudnessValue", {
               i: ld.i?.toFixed(1) ?? "—",
               tp: ld.tp?.toFixed(1) ?? "—",
-              method: t(`library.loudness.${ld.method}`),
+              method: t.or(`library.loudness.${ld.method}`, ld.method),
             })}
           </Field>
         )}
@@ -265,7 +265,7 @@ export function AssetDrawer({ id, onClose, onChanged, onReveal }: {
           <ul className="lib-variants">
             {asset.variants.map((v) => (
               <li key={v.path}>
-                <span className="lib-badge">{t(`library.role.${v.role}`)}</span>{" "}
+                <span className="lib-badge">{t.or(`library.role.${v.role}`, v.role)}</span>{" "}
                 {v.media ? <a href={mediaUrl(v.media)} target="_blank" rel="noreferrer">{v.path}</a> : <code>{v.path}</code>}
               </li>
             ))}
