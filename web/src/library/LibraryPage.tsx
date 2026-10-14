@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorLine } from "../ErrorLine";
 import { formatTime } from "../format";
 import { useT, type Problem } from "../i18n";
@@ -129,8 +129,16 @@ export function LibraryPage({ id, query }: { id: string | null; query: URLSearch
     setNotice(null);
     libraryApi.reveal(asset.id).then(() => undefined, (e: Error) => setNotice(e));
   };
+  const facetsSeq = useRef(0);
   const changed = (asset: AssetCard) => {
     setPage((p) => (p ? { ...p, assets: p.assets.map((a) => (a.id === asset.id ? { ...a, ...asset } : a)) } : p));
+    const seq = ++facetsSeq.current;
+    libraryApi.assets(filter).then(
+      (fresh) => {
+        if (seq === facetsSeq.current) setPage((p) => (p ? { ...p, tags: fresh.tags } : p));
+      },
+      () => undefined,
+    );
   };
 
   const byCategory = useMemo(() => {
