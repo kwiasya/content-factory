@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from cf.assets import is_script_file
 from cf.desk.problems import Problem
 
 SCHEMA = "cf-video/1"
@@ -83,7 +84,7 @@ def legacy_status(reel: Path) -> str:
     overlays = reel / "overlays"
     if (reel / "cuts.json").is_file() or (overlays.is_dir() and any(overlays.iterdir())):
         return "edit"
-    if any(reel.glob("script*.json")):
+    if any(is_script_file(p.name) and p.suffix.lower() == ".json" for p in reel.iterdir()):
         return "script"
     return "idea"
 

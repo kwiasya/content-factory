@@ -87,13 +87,22 @@ def video_of(script_path: Path) -> VideoFolder | None:
     return video_folder(Path(script_path).parent)
 
 
+SCRIPT_FILE = re.compile(r"^script(?:[._-][^/]*)?\.(?i:md|json)$")
+
+
+def is_script_file(name: str) -> bool:
+    """A Script file of a Video folder (Desk's ``script`` file kind): ``script.md``/``.json`` or ``script``
+    followed by ``.``, ``-`` or ``_`` (``script.v2.md``, ``script-long.json``); ``scripting-notes.md`` is not."""
+    return bool(SCRIPT_FILE.match(name))
+
+
 def md_refs(folder: Path) -> dict[str, list[str]]:
     """Refs in the folder's top-level, non-hidden ``*.md`` files: ``{ref as written: [file names]}``. Scripts
-    (``script*.md``, written by the Editor) are left out: only the Author's notes unlock an Asset."""
+    (``is_script_file``, written by the Editor) are left out: only the Author's notes unlock an Asset."""
     out: dict[str, set[str]] = {}
     try:
         files = sorted(p for p in Path(folder).iterdir() if p.suffix == ".md" and not p.name.startswith(".")
-                       and not p.name.startswith("script") and p.is_file())
+                       and not is_script_file(p.name) and p.is_file())
     except OSError:
         return {}
     for p in files:

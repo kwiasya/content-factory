@@ -88,7 +88,7 @@ Validator rules (`python -m cf.script_schema validate` loads the Library itself:
 
 - **The Library:** no Library (no `factory.db`, an old schema) is one problem for the whole Script.
 - **Refs:** a ref that is not `@<category>/<name>` fails; an unknown ref fails with up to 5 nearest refs.
-- **Rights:** `own` and `free` pass. `unknown` is allowed, with a warning, only for a sound effect under `assets.sfx_free_max_s` (2 s) or for an Asset the Author named in one of the Video folder's top-level md files except `script*.md` (`brief.md`, `notes.md`, `voiceover.md`, …; the Scripts are the Editor's; any ref form counts). Otherwise it fails. The agent never writes refs into those files on its own.
+- **Rights:** `own` and `free` pass. `unknown` is allowed, with a warning, only for a sound effect under `assets.sfx_free_max_s` (2 s) or for an Asset the Author named in one of the Video folder's top-level md files except the Scripts (`script.md`, `script.v2.md`, `script-long.md`, … by `cf.assets.is_script_file`, the same rule as Desk's Script file kind; `scripting-notes.md` counts; `brief.md`, `notes.md`, `voiceover.md`, …; the Scripts are the Editor's; any ref form counts). Otherwise it fails. The agent never writes refs into those files on its own.
 - **Variant:** see below; a green-screen Asset that is not keyed yet, or a sticker with only a VP9 `.webm`, fails; a sticker placed from its still png is a warning.
 - **Loudness:** a sound without a measured loudness fails (`python -m cf.library index <pack>` without `--no-loudness`).
 - **Loop seam:** on a `loop_seamless` Reel a picture ends at least `assets.loop_clear_s` (0.5 s) before the end (it would blink away when the Reel restarts); sounds may run to the last frame.

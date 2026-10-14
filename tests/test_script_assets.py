@@ -150,7 +150,20 @@ class RightsTest(AssetsTestCase):
             (folder / "script.json").write_text('{"ref": "@face/шок"}')
             (folder / "script.md").write_text("@sfx/boom")
             (folder / "script.v2.md").write_text("@face/шок")
+            (folder / "script-long.md").write_text("@face/шок")
             self.assertEqual(ca.md_refs(folder), {"@meme/chipi": ["brief.md", "notes.md"], "@sfx/boom": ["notes.md"]})
+            (folder / "scripting-notes.md").write_text("@sfx/вуш-2")
+            self.assertEqual(ca.md_refs(folder)["@sfx/вуш-2"], ["scripting-notes.md"])
+
+    def test_the_script_file_rule_is_the_one_desk_uses(self):
+        from cf.desk.videos_api import kind_of
+
+        for name, script in (("script.md", True), ("script.json", True), ("script.v2.md", True),
+                             ("script-long.json", True), ("script_2.md", True), ("scripting-notes.md", False),
+                             ("scripts.md", False), ("script.txt", False), ("notes.md", False)):
+            with self.subTest(name=name):
+                self.assertEqual(ca.is_script_file(name), script)
+                self.assertEqual(kind_of(name) == "script", script)
 
     def test_video_of_finds_new_and_legacy_video_folders(self):
         with tempfile.TemporaryDirectory() as t:

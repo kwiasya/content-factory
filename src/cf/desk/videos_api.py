@@ -49,7 +49,7 @@ def kind_of(rel: str) -> str:
     suffix = Path(name).suffix.lower()
     if rel == "video.json":
         return "video"
-    if len(parts) == 1 and name.startswith("script") and suffix in (".md", ".json"):
+    if len(parts) == 1 and assets.is_script_file(name):
         return "script"
     if len(parts) == 1 and name in TOP_TEXTS:
         return TOP_TEXTS[name]
