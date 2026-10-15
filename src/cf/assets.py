@@ -140,6 +140,11 @@ def load_library(root: Path, db_path: Path) -> tuple[lib.Library | None, str | N
         store.close()
 
 
+def library_root(root: Path | None = None) -> Path:
+    """Where the Library cache and its factory.db live: ``root`` when given, else the shared root."""
+    return Path(root) if root else shared_root()
+
+
 def context(script_path: Path | None, *, root: Path | None = None, db_path: Path | None = None,
             library: lib.Library | None = None, video: VideoFolder | None = None) -> AssetContext:
     """The Library and the Video's md refs for a Script. The store is opened read-only."""
@@ -147,7 +152,7 @@ def context(script_path: Path | None, *, root: Path | None = None, db_path: Path
     refs_in = md_refs(video.path) if video else {}
     if library is not None:
         return AssetContext(library, None, video, refs_in)
-    lib_root = Path(root) if root else (video.root if video else shared_root())
+    lib_root = library_root(root)
     found, problem = load_library(lib_root, Path(db_path) if db_path is not None else default_db_path(lib_root))
     return AssetContext(found, problem, video, refs_in)
 
@@ -416,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
     fp.add_argument("--formats", default=str(REPO_ROOT / "formats"), help="the formats/ folder")
     for p in (rp, fp):
         p.add_argument("--shared-root", dest="shared_root",
-                       help="shared root holding library/ (default: the Video's root, else CF_SHARED_ROOT)")
+                       help="shared root holding library/ (default: CF_SHARED_ROOT)")
         p.add_argument("--footage-root", dest="shared_root", help=argparse.SUPPRESS)
         p.add_argument("--db", help="factory.db (default: CF_FACTORY_DB, else <shared root>/factory.db)")
     args = ap.parse_args(argv)

@@ -128,14 +128,14 @@ def asset_context(root: Path, folder: Path | None, db_path: Path | None) -> "ass
     else:
         try:
             with storeuse.reading(db_path) as s:
-                lib = library.load(root, s)
+                lib = library.load(assets.library_root(root), s)
         except Problem as exc:
             if exc.code not in storeuse.ABSENT:
                 raise
             problem = exc.detail
     if lib is None:
         return assets.AssetContext(None, problem, video, assets.md_refs(video.path) if video else {}, cli=False)
-    return replace(assets.context(None, root=root, library=lib, video=video), cli=False)
+    return replace(assets.context(None, library=lib, video=video), cli=False)
 
 
 def script_violations(root: Path, repo: Path, text: str, *, script: bool, folder: Path | None = None,

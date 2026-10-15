@@ -12,7 +12,7 @@ CLI::
 
 exits 1 and prints one violation per line when the Script breaks a rule; warnings print as
 ``- WARN …`` and never fail. Shot ``assets`` (Library cues) are checked against the Library
-(``cf.assets.context``: the Video folder's root, else the shared root, and factory.db, read-only); a Script
+(``cf.assets.context``: the shared root's Library and factory.db, read-only); a Script
 without cues never opens the store.
 """
 
@@ -796,7 +796,7 @@ def main(argv: list[str] | None = None) -> int:
     va.add_argument("--manifest", help="the Footage's clip_manifest.json (enables clip and range checks)")
     va.add_argument("--style", default=str(DEFAULT_STYLE), help="style.json (default: repo style.json)")
     va.add_argument("--shared-root", dest="shared_root",
-                    help="shared root holding the Library (default: the Video folder's root, else CF_SHARED_ROOT)")
+                    help="shared root holding the Library (default: CF_SHARED_ROOT)")
     va.add_argument("--footage-root", dest="shared_root", help=argparse.SUPPRESS)
     va.add_argument("--db", help="factory.db for the Library (default: CF_FACTORY_DB, else <shared root>/factory.db)")
     va.add_argument("--no-library", action="store_true", help="do not load the Library (cues then fail)")

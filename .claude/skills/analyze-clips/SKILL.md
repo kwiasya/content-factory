@@ -5,7 +5,7 @@ description: Build a Shot log per Clip from the proxies — per-second exposure,
 
 # Analyze Clips into Shot logs
 
-The Editor sees Clips only through Shot logs (`docs/adr/0002-agent-sees-shot-log-not-frames.md`). Schema: `docs/research/04-video-understanding-shot-quality/result-a.md` Section C, versioned `reel-shotlog/1.2` (1.0 and 1.1 logs stay readable). All analysis runs on `proxy/`, one clip at a time; only speech reads the audio of `raw/` (proxies have no audio).
+The Editor sees Clips only through Shot logs (`docs/adr/0002-agent-sees-shot-log-not-frames.md`). Schema: `docs/research/04-video-understanding-shot-quality/result-a.md` Section C, versioned `reel-shotlog/1.3` (1.0, 1.1 and 1.2 logs stay readable). All analysis runs on `proxy/`, one clip at a time; only speech reads the audio of `raw/` (proxies have no audio).
 
 ## Steps
 

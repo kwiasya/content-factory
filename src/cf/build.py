@@ -2340,7 +2340,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="after the build, ApplyGradeFromDRX each shot's <shot>.drx / <shot>_*.drx from DIR "
                          "(a hand grade saved with ExportStills, e.g. reels/<reel>/author-grade)")
     ap.add_argument("--shared-root", dest="shared_root",
-                    help="shared root holding the Library (default: the Video folder's root, else CF_SHARED_ROOT)")
+                    help="shared root holding the Library (default: CF_SHARED_ROOT)")
     ap.add_argument("--footage-root", dest="shared_root", help=argparse.SUPPRESS)
     ap.add_argument("--db", help="factory.db for the Library (default: CF_FACTORY_DB, else <shared root>/factory.db)")
     ap.add_argument("--no-assets", action="store_true",

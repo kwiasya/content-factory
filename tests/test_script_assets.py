@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from cf import assets as ca
 from cf.canvas import resolve
@@ -259,6 +260,27 @@ class TimingTest(AssetsTestCase):
     def test_structural_check_without_cue_rules(self):
         d = with_cues([{"ref": "@sfx/own-hit", "at_s": 0.0, "dur": 1}])
         self.assertEqual(check(from_dict(d), None, STYLE, None, cues=False), check(from_dict(good()), None, STYLE))
+
+
+class LibraryRootTest(unittest.TestCase):
+    def test_the_library_and_its_db_come_from_the_shared_root_not_the_videos_root(self):
+        with tempfile.TemporaryDirectory() as t:
+            _, shared, _ = make_library(Path(t), root=Path(t) / "shared")
+            local = Path(t) / "local"
+            video = local / "videos/boat"
+            video.mkdir(parents=True)
+            (video / "video.json").write_text(json.dumps({"format": "walk-reel"}))
+            env = {"CF_SHARED_ROOT": str(shared), "CF_LOCAL_ROOT": str(local)}
+            with mock.patch.dict(os.environ, env):
+                os.environ.pop("CF_FACTORY_DB", None)
+                ctx = ca.context(video / "script.json")
+                self.assertIsNone(ctx.library_problem)
+                self.assertEqual(ctx.library.root, shared)
+                self.assertEqual(ctx.video.root, local)
+                self.assertEqual(ca.library_root(), shared)
+                other = ca.context(video / "script.json", root=local)
+                self.assertIsNone(other.library)
+                self.assertIn(str(local / "factory.db"), other.library_problem)
 
 
 class PosBoxesTest(unittest.TestCase):

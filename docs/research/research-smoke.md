@@ -3,9 +3,9 @@
 - Date: 2026-10-11, MacBook Air M2 8 GB, macOS 26, repo `.venv` (Python 3.12.13)
 - Packages (extra `research` in `pyproject.toml`, installed with `uv pip install --python .venv/bin/python 'yt-dlp[default]' stable-ts`): yt-dlp 2026.08.19, yt-dlp-ejs 0.8.0, stable-ts 2.19.1, openai-whisper 20250625, torchaudio 2.11.0 with torch 2.14.1 (untouched). `import torch, torchaudio, stable_whisper, yt_dlp` works; `torchaudio.functional.resample` runs. JS runtime for YouTube: deno at `/opt/homebrew/bin/deno` (yt-dlp default).
 - OCR: `tools/vision-score` gained `--text` (Apple Vision `RecognizeTextRequest`) and `--until S`; built with `swift build -c release` (31 s).
-- Store and footage: a scratch `--db` and `CF_SHARED_ROOT` in a temp dir, so the real `factory.db` was not touched. Model weights went to the default `~/Movies/content-factory/_models` (Whisper `small`, Silero VAD v5.1.2, `yolo26n.pt`: first download).
+- Store and footage: a scratch `--db` and `CF_FOOTAGE_ROOT` in a temp dir, so the real `factory.db` was not touched. Model weights went to the default `~/Movies/content-factory/_models` (Whisper `small`, Silero VAD v5.1.2, `yolo26n.pt`: first download).
 
-## Data API part: PASS (2026-10-11, key from `.env`, scratch DB and shared root)
+## Data API part: PASS (2026-10-11, key from `.env`, scratch DB and footage root)
 
 Watchlist `smoke` (Format `tech-explainer`, en, US), Reference channel `@GoogleDevelopers`, one query «claude code tutorial».
 
@@ -24,7 +24,7 @@ Quota accounting matched the calls one to one. A Watchlist with 15–20 channels
 Video: "Me at the zoo", `jNQXAC9IVRw`, 19 s, public, no sign-in. Command:
 
 ```
-CF_SHARED_ROOT=<tmp>/footage PYTHONPATH=src .venv/bin/python -m cf.research fetch "https://www.youtube.com/watch?v=jNQXAC9IVRw" --db <tmp>/factory.db
+CF_FOOTAGE_ROOT=<tmp>/footage PYTHONPATH=src .venv/bin/python -m cf.research fetch "https://www.youtube.com/watch?v=jNQXAC9IVRw" --db <tmp>/factory.db
 ```
 
 | Run | Steps | Wall time |
