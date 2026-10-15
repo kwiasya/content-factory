@@ -104,7 +104,7 @@ class FakeTransport:
 class StoreCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.store = st.open_store(Path(self.tmp.name) / "f.db", seed=False)
+        self.store = st.open_store(Path(self.tmp.name) / "f.db", seed=False, create=True)
 
     def tearDown(self):
         self.store.close()
@@ -589,6 +589,7 @@ class FetchCliTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         (Path(self.tmp.name) / "footage").mkdir()
+        st.open_store(Path(self.tmp.name) / "f.db", seed=False, create=True).close()
         self.fake = FakeAdapters(FakeTransport(fixture("channels_list_handle.json")))
 
     def tearDown(self):

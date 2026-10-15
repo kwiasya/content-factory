@@ -40,7 +40,7 @@ class StoreUseTest(unittest.TestCase):
         self.assertFalse(self.db.exists())
 
     def test_a_read_does_not_seed_the_taxonomy(self):
-        with st.open_store(self.db, seed=False):
+        with st.open_store(self.db, seed=False, create=True):
             pass
         r = self.client.get("/api/contour/taxonomy")
         self.assertEqual((r.status_code, r.json()["values"]), (200, []))
@@ -86,14 +86,14 @@ class StoreUseTest(unittest.TestCase):
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 0)
 
     def test_a_note_written_to_an_existing_store_does_not_seed_it(self):
-        st.open_store(self.db, seed=False).close()
+        st.open_store(self.db, seed=False, create=True).close()
         r = self.client.post("/api/notes", json={"kind": "general", "key": "", "text": "x"})
         self.assertEqual(r.status_code, 201, r.text)
         with sqlite3.connect(self.db) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM taxonomy").fetchone()[0], 0)
 
     def test_a_write_while_another_connection_holds_the_lock_is_503_db_busy(self):
-        st.open_store(self.db, seed=False).close()
+        st.open_store(self.db, seed=False, create=True).close()
         holder = sqlite3.connect(self.db)
         self.addCleanup(holder.close)
         holder.execute("BEGIN EXCLUSIVE")

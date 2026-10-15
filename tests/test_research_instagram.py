@@ -95,7 +95,7 @@ class Case(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.store = st.open_store(Path(self.tmp.name) / "f.db")
+        self.store = st.open_store(Path(self.tmp.name) / "f.db", create=True)
         self.addCleanup(self.store.close)
         patcher = mock.patch.dict(os.environ, IG_ENV)
         patcher.start()
@@ -124,7 +124,7 @@ class MigrationV6Test(unittest.TestCase):
             conn.execute("INSERT INTO video (external_id, channel_id, kind) VALUES ('dQw4w9WgXcQ', 1, 'short')")
             conn.commit()
             conn.close()
-            with st.open_store(path, seed=False) as s:
+            with st.open_store(path, seed=False, create=True) as s:
                 self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
                 self.assertEqual(s.one("SELECT platform FROM channel")["platform"], "youtube")
                 self.assertEqual(s.one("SELECT platform, marks FROM video"), {"platform": "youtube", "marks": "[]"})

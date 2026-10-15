@@ -58,12 +58,36 @@ class OpenTest(Base):
         self.assertIn("smb://", str(cm.exception))
         self.assertFalse((self.dir / "Volumes").exists())
 
-    def test_an_explicit_path_is_created_and_create_false_refuses(self):
+    def test_an_explicit_path_is_not_created_unless_create_is_true(self):
+        for kw in ({}, {"create": False}):
+            with self.assertRaises(st.StoreMissing) as cm:
+                st.open_store(self.dir / "f.db", **kw)
+            self.assertIn("db init", str(cm.exception))
+        self.assertFalse((self.dir / "f.db").exists())
         with self.assertRaises(st.StoreMissing):
-            st.open_store(self.dir / "a" / "f.db", create=False)
+            st.open_store(self.dir / "a" / "f.db")
         self.assertFalse((self.dir / "a").exists())
-        with st.open_store(self.dir / "a" / "f.db") as s:
+        with st.open_store(self.dir / "a" / "f.db", create=True) as s:
             self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
+
+    def test_create_true_refuses_a_dangling_symlink_on_the_way(self):
+        link = self.dir / "content-factory"
+        link.symlink_to(self.dir / "Volumes" / "Shared" / "content-factory")
+        with self.assertRaises(st.StoreMissing) as cm:
+            st.open_store(link / "factory.db", create=True)
+        self.assertIn("smb://", str(cm.exception))
+        self.assertFalse((self.dir / "Volumes").exists())
+
+    def test_cli_with_a_missing_db_path_creates_nothing(self):
+        for argv in (["watchlist", "list"], ["notes", "list"]):
+            code, _, err = run([*argv, "--db", str(self.dir / "f.db")])
+            self.assertEqual(code, 1)
+            self.assertIn("db init", err)
+        from cf.library import cli as library_cli
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(library_cli.main(["pack", "list", "--db", str(self.dir / "f.db")]), 1)
+        self.assertIn("db init", err.getvalue())
+        self.assertFalse((self.dir / "f.db").exists())
 
     def test_create_true_creates_the_default_path(self):
         os.environ["CF_FACTORY_DB"] = str(self.dir / "x" / "factory.db")
@@ -72,25 +96,25 @@ class OpenTest(Base):
         self.assertTrue((self.dir / "x" / "factory.db").is_file())
 
     def test_every_connection_waits_for_the_lock(self):
-        with st.open_store(self.dir / "f.db") as s:
+        with st.open_store(self.dir / "f.db", create=True) as s:
             self.assertGreaterEqual(s.conn.execute("PRAGMA busy_timeout").fetchone()[0], 10000)
         conn = st.connect(self.dir / "f.db", readonly=True)
         self.addCleanup(conn.close)
         self.assertGreaterEqual(conn.execute("PRAGMA busy_timeout").fetchone()[0], 10000)
 
     def test_a_wal_store_is_refused(self):
-        st.open_store(self.dir / "f.db").close()
+        st.open_store(self.dir / "f.db", create=True).close()
         conn = sqlite3.connect(self.dir / "f.db")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.close()
         with self.assertRaises(st.StoreError) as cm:
-            st.open_store(self.dir / "f.db")
+            st.open_store(self.dir / "f.db", create=True)
         self.assertIn("WAL", str(cm.exception))
 
     def test_migrate_false_refuses_another_version_and_leaves_it(self):
         sqlite3.connect(self.dir / "f.db").close()
         with self.assertRaises(st.SchemaMismatch) as cm:
-            st.open_store(self.dir / "f.db", migrate=False)
+            st.open_store(self.dir / "f.db", migrate=False, create=True)
         self.assertEqual(cm.exception.version, 0)
         with sqlite3.connect(self.dir / "f.db") as conn:
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 0)
@@ -101,7 +125,7 @@ class OpenTest(Base):
         for v, script in enumerate(st.MIGRATIONS[:5]):
             conn.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {v + 1};\nCOMMIT;")
         conn.close()
-        st.open_store(path, seed=False).close()
+        st.open_store(path, seed=False, create=True).close()
         files = [p.name for p in (self.dir / "backups").iterdir()]
         self.assertEqual(len(files), 1)
         self.assertTrue(files[0].endswith(f"-pre-v{st.SCHEMA_VERSION}.db"))
@@ -109,7 +133,7 @@ class OpenTest(Base):
             self.assertEqual(old.execute("PRAGMA user_version").fetchone()[0], 5)
 
     def test_a_fresh_file_is_not_backed_up(self):
-        st.open_store(self.dir / "f.db").close()
+        st.open_store(self.dir / "f.db", create=True).close()
         self.assertFalse((self.dir / "backups").exists())
 
     def test_a_held_lock_during_migration_is_store_busy(self):
@@ -119,15 +143,15 @@ class OpenTest(Base):
         conn.execute("BEGIN IMMEDIATE")
         self.addCleanup(conn.close)
         with mock.patch.object(st, "BUSY_TIMEOUT_S", 0.1), self.assertRaises(st.StoreBusy) as cm:
-            st.open_store(path, seed=False)
+            st.open_store(path, seed=False, create=True)
         self.assertIn("busy", str(cm.exception))
 
 
 class SeedTest(Base):
     def test_seeding_a_seeded_store_opens_no_transaction(self):
         path = self.dir / "f.db"
-        st.open_store(path).close()
-        with st.open_store(path, seed=False) as s:
+        st.open_store(path, create=True).close()
+        with st.open_store(path, seed=False, create=True) as s:
             statements: list[str] = []
             s.conn.set_trace_callback(statements.append)
             self.assertEqual(taxonomy.load_seed(s), 0)
@@ -135,7 +159,7 @@ class SeedTest(Base):
 
     def test_watchlist_list_on_a_seeded_store_does_not_write_it(self):
         path = self.dir / "f.db"
-        st.open_store(path).close()
+        st.open_store(path, create=True).close()
         before = sha(path)
         self.assertEqual(run(["watchlist", "list", "--db", str(path)])[0], 0)
         self.assertEqual(sha(path), before)
@@ -145,7 +169,7 @@ class BackupTest(Base):
     def setUp(self):
         super().setUp()
         self.path = self.dir / "f.db"
-        self.store = st.open_store(self.path)
+        self.store = st.open_store(self.path, create=True)
         self.addCleanup(self.store.close)
 
     def test_name_and_label(self):
@@ -206,7 +230,7 @@ class DbCommandsTest(Base):
         code, out, _ = run(["db", "check", "--json"])
         self.assertEqual(code, 1)
         self.assertFalse(json.loads(out)["exists"])
-        st.open_store(path).close()
+        st.open_store(path, create=True).close()
         before = sha(path)
         code, out, _ = run(["db", "check", "--json"])
         data = json.loads(out)
@@ -228,7 +252,7 @@ class DbCommandsTest(Base):
 
     def test_backup_and_migrate(self):
         path = self.dir / "f.db"
-        st.open_store(path).close()
+        st.open_store(path, create=True).close()
         code, out, _ = run(["db", "backup", "--label", "pre-shared", "--db", str(path), "--json"])
         self.assertEqual(code, 0)
         self.assertTrue(json.loads(out)["backup"].endswith("-pre-shared.db"))
@@ -237,7 +261,7 @@ class DbCommandsTest(Base):
 
     def test_the_first_command_of_the_day_takes_the_daily_backup(self):
         path = self.dir / "f.db"
-        st.open_store(path).close()
+        st.open_store(path, create=True).close()
         run(["watchlist", "list", "--db", str(path)])
         run(["watchlist", "list", "--db", str(path)])
         labels = [label for _, label, _ in backup.listing(self.dir / "backups")]

@@ -18,7 +18,7 @@ D = "UCdddddddddddddddddddddd"
 class FeedTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        s = self.store = st.open_store(Path(self.tmp.name) / "f.db")
+        s = self.store = st.open_store(Path(self.tmp.name) / "f.db", create=True)
         wl.create(s, "lisbon", format_id="walk_reel")
         wl.create(s, "other", format_id="travel_long")
         add_member(s, "lisbon", A, "@alpha")

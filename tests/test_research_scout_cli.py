@@ -28,7 +28,7 @@ class ScoutCliTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db = str(Path(self.tmp.name) / "f.db")
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             wl.create(s, "lisbon", format_id="walk_reel", queries=["lisbon walk"])
             add_member(s, "lisbon", CH, "@alpha")
         self.yt = yt = FakeYouTube()
@@ -102,7 +102,7 @@ class ScoutCliTest(unittest.TestCase):
         self.assertIn("quota", err)
 
     def test_a_failing_channel_gets_one_line_and_the_run_still_succeeds(self):
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             add_member(s, "lisbon", DEAD, "@dead")
         healthy = self.yt
 

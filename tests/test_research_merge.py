@@ -70,7 +70,7 @@ class MergeTest(unittest.TestCase):
         make_old_store(self.base)
         with sqlite3.connect(self.base) as conn:
             conn.execute("INSERT INTO note (kind, key, text, created_at) VALUES ('card', 'DAbc', 'nice', 'x')")
-        st.open_store(self.other, seed=False).close()
+        st.open_store(self.other, seed=False, create=True).close()
         with sqlite3.connect(self.other) as conn:
             conn.executescript(OTHER_SQL)
         self.sums = (merge.sha256(self.base), merge.sha256(self.other))

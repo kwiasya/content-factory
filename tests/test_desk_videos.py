@@ -490,7 +490,7 @@ class CreateTest(VideosTestCase):
         for fid, text in FORMAT_MD.items():
             write(self.repo / "formats" / fid / "FORMAT.md", text)
         self.db = self.footage / "factory.db"
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             wl.create(s, "tools", format_id="tech-explainer", author_channel="tech-en", language="ru")
             add_member(s, "tools", CHANNEL_A, "@alpha")
             add_videos(s, [video_item(V1, CHANNEL_A, ago(2), 40, 9000, title="Alfama at dusk"),
@@ -661,7 +661,7 @@ class CreateTest(VideosTestCase):
         second = self.create(title="Second take", idea_id=self.briefed)["slug"]
         self.assertEqual(self.brief_ideas(), {self.briefed: [first, second]})
         self.create(title="No brief")
-        with st.open_store(self.db, seed=False) as s:
+        with st.open_store(self.db, seed=False, create=True) as s:
             self.assertEqual(s.query("SELECT idea_id, owner, video_slug FROM idea_video ORDER BY rowid"),
                              [{"idea_id": self.briefed, "owner": st.person(), "video_slug": first},
                               {"idea_id": self.briefed, "owner": st.person(), "video_slug": second}])
@@ -727,7 +727,7 @@ class ChannelsTest(VideosTestCase):
     def setUp(self):
         super().setUp()
         self.db = self.footage / "factory.db"
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             wl.create(s, "tools", format_id="tech-explainer", author_channel="tech-en", language="en")
             wl.create(s, "more-tools", format_id="tech-short", author_channel="tech-en", language="de")
             wl.create(s, "nobody", format_id="walk-reel")

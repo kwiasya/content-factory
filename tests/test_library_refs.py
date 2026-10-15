@@ -64,7 +64,7 @@ class RefsTest(SyntheticPack):
         self.assertEqual((shown["canonical"], shown["alias"]), ("@sfx/плюс", True))
 
     def test_check_returns_suggestions_for_broken_refs(self):
-        with open_store(self.db, seed=False) as s:
+        with open_store(self.db, seed=False, create=True) as s:
             lib = library.load(self.footage, s)
         out = lib.check(["@sfx/вуш-2", "@sfx/вуш-3", "@face/несуществует"])
         self.assertEqual(out["@sfx/вуш-2"].ref, "@sfx/вуш-2")

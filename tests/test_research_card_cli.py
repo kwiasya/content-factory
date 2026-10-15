@@ -29,7 +29,7 @@ class CardCliTest(unittest.TestCase):
         self.dir.mkdir(parents=True)
         (self.dir / "transcript.json").write_text(json.dumps({"segments": [{"words": [
             {"word": f" {w}", "start": float(i)} for i, w in enumerate(TRANSCRIPT.split())]}]}))
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             with s.transaction() as c:
                 vid = c.execute("INSERT INTO video (external_id, title) VALUES (?, 'Alfama at dusk')",
                                 (VID,)).lastrowid

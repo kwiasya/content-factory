@@ -31,7 +31,7 @@ class IdeasCliTest(unittest.TestCase):
         env = mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(self.root), "CF_SHARED_ROOT": str(self.root)})
         env.start()
         self.addCleanup(env.stop)
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             wl.create(s, "lisbon", format_id="walk_reel", author_channel="travelwalks")
             add_member(s, "lisbon", A, "@alpha")
             add_videos(s, [video_item(f"base{i:07d}", A, ago(days=10 + i), 40, 1000) for i in range(5)]

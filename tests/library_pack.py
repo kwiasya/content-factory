@@ -13,6 +13,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from cf.research.store import open_store
+
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 needs_ffmpeg = unittest.skipUnless(HAVE_FFMPEG, "ffmpeg and ffprobe are needed")
 
@@ -109,6 +111,7 @@ class SyntheticPack(unittest.TestCase):
         self.footage = base / "footage"
         self.footage.mkdir()
         self.db = base / "factory.db"
+        open_store(self.db, seed=False, create=True).close()
         self.config_path = base / "synth.json"
         self.write_config(CONFIG)
 

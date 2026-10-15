@@ -52,7 +52,7 @@ class ContourCase(unittest.TestCase):
         (base / "repo").mkdir()
         self.footage = base / "footage"
         self.db = self.footage / "factory.db"
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             wl.create(s, "lisbon", format_id="walk-reel", author_channel="travelwalks", queries=["lisbon walk"])
             wl.create(s, "empty", format_id="tech-explainer")
             add_member(s, "lisbon", CHANNEL_A, "@alpha")
@@ -209,7 +209,7 @@ class IdeasTest(ContourCase):
     def test_shortlist_discard_and_restore_persist(self):
         moved = self.send("POST", f"/api/contour/ideas/{self.inbox}/shortlist")
         self.assertEqual(moved["status"], "shortlisted")
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             self.assertEqual(ideas.get(s, self.inbox).status, "shortlisted")
         refused = self.send("POST", f"/api/contour/ideas/{self.inbox}/discard", 422)
         self.assertIn("inbox", refused["detail"])
@@ -231,7 +231,7 @@ class IdeasTest(ContourCase):
     def test_a_note_is_appended_and_kept(self):
         got = self.send("PUT", f"/api/contour/ideas/{self.inbox}/notes", body={"text": "Shoot it at dawn"})
         self.assertEqual([n["text"] for n in got["notes"]], ["Shoot it at dawn"])
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             self.assertEqual([n["text"] for n in ideas.get(s, self.inbox).notes], ["Shoot it at dawn"])
         empty = self.send("PUT", f"/api/contour/ideas/{self.inbox}/notes", 422, body={"text": "  "})
         self.assertEqual(empty["code"], "note_empty")
@@ -265,7 +265,7 @@ class BriefTest(ContourCase):
 
 
     def point_brief_at(self, path) -> None:
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             with s.transaction() as conn:
                 conn.execute("UPDATE idea SET brief_path = ? WHERE id = ?", (str(path), self.briefed))
 
@@ -308,7 +308,7 @@ class TaxonomyTest(ContourCase):
     def test_approve_drops_the_proposed_prefix_in_the_stored_card_and_its_file(self):
         got = self.send("POST", self.PROPOSED + "/approve")
         self.assertEqual((got["status"], got["cards"]), ("approved", [V1]))
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             stored = card.load(s, card.video(s, V1)["id"])
         self.assertEqual(stored["analysis"]["visual_layout"]["sub_category"], "golden_hour_descent")
         on_disk = json.loads((self.ref / "card.json").read_text())
@@ -355,7 +355,7 @@ class InstagramTest(ContourCase):
     def test_own_reels_report_after_a_sync(self):
         from cf.research import ingest
         with mock.patch.dict(os.environ, {"INSTAGRAM_USER_ID": "17841400000000099"}):
-            with st.open_store(self.db) as s:
+            with st.open_store(self.db, create=True) as s:
                 cid = ingest.ingest_ig_account(s, {"id": "17841400000000099", "username": "kwi_asya",
                                                    "followers_count": 1742}, own=True)
                 vid = ingest.ingest_ig_media(s, cid, [{"id": "1", "media_product_type": "REELS", "like_count": 5,

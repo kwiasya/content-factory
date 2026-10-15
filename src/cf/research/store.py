@@ -515,24 +515,26 @@ def journal_mode(conn: sqlite3.Connection) -> str:
     return str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
 
 
-def open_store(path: str | Path | None = None, *, seed: bool = True, create: bool | None = None,
+def open_store(path: str | Path | None = None, *, seed: bool = True, create: bool = False,
                migrate: bool = True) -> Store:
     """Open the store at ``path`` or ``default_db_path()``.
 
-    ``create``: None creates the file only when ``path`` was given (an explicit ``--db`` or a test's
-    temp file), never at the default path; True creates it (``db init``); False never does. A missing
-    file raises ``StoreMissing``. The journal must be ``delete`` (WAL does not work over SMB). With
+    Only ``create=True`` creates a missing file and its folder (``db init``, test fixtures); otherwise a
+    missing file, at the default path or an explicit ``--db``, raises ``StoreMissing`` with the
+    ``db init`` hint (or the mount hint when its folder is not there). A dangling symlink on the way
+    (the share not mounted) is refused even with ``create=True``. The journal must be ``delete`` (WAL does not work over SMB). With
     ``migrate`` the store is brought to ``SCHEMA_VERSION``; without it another version raises
     ``SchemaMismatch``. Unless ``seed`` is false, taxonomy seed values the store lacks are added
     (nothing is written when none is missing).
     """
-    explicit = path is not None
-    p = Path(path).expanduser() if explicit else default_db_path()
-    if create is None:
-        create = explicit
+    p = Path(path).expanduser() if path is not None else default_db_path()
     if not p.exists():
         if not create:
             raise StoreMissing(missing_message(p))
+        dangling = next((a for a in (p, *p.parents) if a.is_symlink() and not a.exists()), None)
+        if dangling is not None:
+            raise StoreMissing(f"cannot create {p}: {dangling} is a symlink to a missing folder; "
+                               f"{mount_hint(dangling)}")
         p.parent.mkdir(parents=True, exist_ok=True)
     conn = connect(p)
     conn.execute("PRAGMA foreign_keys = ON")

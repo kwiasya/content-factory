@@ -28,7 +28,7 @@ class NotesApiTest(unittest.TestCase):
         base = Path(self.tmp.name)
         (base / "repo").mkdir()
         self.db = base / "footage" / "factory.db"
-        st.open_store(self.db, seed=False).close()
+        st.open_store(self.db, seed=False, create=True).close()
         self.client = TestClient(create_app(base / "repo", local_root=base / "footage", db_path=self.db,
                                             web_dist=base / "dist"))
 
@@ -47,7 +47,7 @@ class NotesApiTest(unittest.TestCase):
         self.assertEqual((n["kind"], n["key"], n["text"], n["resolved_at"]),
                          ("document", ".claude/skills/reel/SKILL.md", "Mention the loop rule", None))
         self.assertEqual(self.listed(), [n])
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             self.assertEqual([x.to_dict() for x in notes.list(s)], [n])
 
     def test_list_filters_by_kind_and_key(self):
@@ -115,7 +115,7 @@ class SkillHookTest(unittest.TestCase):
         return out["additionalContext"]
 
     def seed(self):
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             notes.add(s, "skill", "reel", "Shorter hook")
             notes.add(s, "document", ".claude/skills/reel/SKILL.md", "Fix step 3")
             notes.add(s, "general", "", "No word vibe")
@@ -169,7 +169,7 @@ class SkillHookTest(unittest.TestCase):
         self.assert_silent(self.skill_call("reel"))
 
     def test_silent_when_no_note_concerns_the_skill(self):
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             notes.add(s, "skill", "write-script", "Other skill")
         self.assert_silent(self.skill_call("reel"))
 

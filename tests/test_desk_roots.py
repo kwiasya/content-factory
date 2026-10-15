@@ -28,7 +28,7 @@ class TwoRootsTest(unittest.TestCase):
         self.local, self.shared = base / "local", base / "shared"
         self.local.mkdir()
         self.db = self.shared / "factory.db"
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             wl.create(s, "lisbon", format_id="walk-reel", author_channel="travelwalks")
             add_member(s, "lisbon", CHANNEL_A, "@alpha")
             add_videos(s, [video_item(V1, CHANNEL_A, iso(NOW), 40, 9000)], taken_at=iso(NOW))
@@ -78,7 +78,7 @@ class TwoRootsTest(unittest.TestCase):
         self.assertEqual(copy["analysis"]["visual_layout"]["sub_category"], "golden_hour_descent")
 
     def test_a_brief_of_another_person_is_not_opened_and_names_the_owner(self):
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             s.conn.execute("UPDATE idea SET brief_owner = 'someone-else' WHERE id = ?", (self.idea,))
             s.conn.commit()
         r = self.client.get(f"/api/contour/ideas/{self.idea}/brief")

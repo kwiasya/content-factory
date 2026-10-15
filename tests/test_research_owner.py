@@ -27,7 +27,7 @@ class OwnerTest(unittest.TestCase):
         env = mock.patch.dict(os.environ, {"CF_PERSON": "author"})
         env.start()
         self.addCleanup(env.stop)
-        self.store = st.open_store(self.db)
+        self.store = st.open_store(self.db, create=True)
         self.addCleanup(self.store.close)
         wl.create(self.store, "w", format_id="walk-reel", author_channel="me")
         add_member(self.store, "w", CHANNEL_A, "@alpha")

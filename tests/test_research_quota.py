@@ -25,7 +25,7 @@ NEXT_PT = datetime(2026, 10, 12, 8, 0, tzinfo=timezone.utc)
 class QuotaTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.store = st.open_store(Path(self.tmp.name) / "f.db")
+        self.store = st.open_store(Path(self.tmp.name) / "f.db", create=True)
 
     def tearDown(self):
         self.store.close()

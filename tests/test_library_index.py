@@ -92,7 +92,7 @@ class IndexTest(SyntheticPack):
 
     def test_alpha_path_points_at_a_file_build_can_use(self):
         self.add_and_index()
-        with open_store(self.db, seed=False) as s:
+        with open_store(self.db, seed=False, create=True) as s:
             lib = load(self.footage, s)
         gif = lib.resolve("@img/anim")
         self.assertEqual(gif.alpha_path, self.footage / f"library/synth/converted/{gif.id}.mov")
@@ -228,7 +228,7 @@ class IndexTest(SyntheticPack):
         self.assertFalse(inner.exists())
 
     def test_alias_rows_of_a_vanished_asset_do_not_take_file_names(self):
-        with open_store(self.db, seed=False) as s:
+        with open_store(self.db, seed=False, create=True) as s:
             s.conn.execute("INSERT INTO asset_alias VALUES ('@sfx/вуш-2', 'ffffffffffffffff', 'rename', 'x')")
             s.conn.commit()
         self.add_and_index("--no-key", "--no-previews", "--no-loudness")
@@ -397,5 +397,5 @@ class IndexTest(SyntheticPack):
                 code, _, err = self.run_cli("pack", "add", "--config", str(self.config_path))
                 self.assertEqual(code, 1)
                 self.assertIn(message, err)
-        with open_store(self.db, seed=False) as s:
+        with open_store(self.db, seed=False, create=True) as s:
             self.assertEqual(s.query("SELECT id FROM pack"), [])

@@ -31,7 +31,7 @@ class OldNumberingTest(unittest.TestCase):
         make_old_store(self.path)
         before = self.path.read_bytes()
         with self.assertRaises(st.StoreError) as cm:
-            st.open_store(self.path)
+            st.open_store(self.path, create=True)
         self.assertIn("db renumber", str(cm.exception))
         self.assertNotIn("already exists", str(cm.exception))
         self.assertEqual(self.path.read_bytes(), before)
@@ -48,7 +48,7 @@ class OldNumberingTest(unittest.TestCase):
         new = counts(self.path)
         self.assertEqual({t: new[t] for t in old}, old)
         self.assertLessEqual({"insight", "watchlist_pick", "rate", "rate_pressure"}, set(new))
-        with st.open_store(self.path) as s:
+        with st.open_store(self.path, create=True) as s:
             self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
             self.assertEqual(s.one("SELECT platform FROM channel"), {"platform": "youtube"})
             self.assertEqual(s.one("SELECT marks FROM video"), {"marks": "[]"})
@@ -60,7 +60,7 @@ class OldNumberingTest(unittest.TestCase):
         make_old_store(self.path, version=6)
         r = renumber.renumber(self.path)
         self.assertEqual((r["from_version"], r["renumbered_to"], r["version"]), (6, 7, st.SCHEMA_VERSION))
-        with st.open_store(self.path, seed=False) as s:
+        with st.open_store(self.path, seed=False, create=True) as s:
             self.assertIn("idea_video", s.tables())
             self.assertIn("hidden_agent_tags", [c["name"] for c in s.query("PRAGMA table_info(asset_author)")])
 

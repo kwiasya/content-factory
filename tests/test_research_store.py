@@ -34,12 +34,12 @@ class StoreLocationTest(unittest.TestCase):
 
     def test_open_creates_the_file_and_its_folder(self):
         path = self.dir / "nested" / "factory.db"
-        with st.open_store(path) as s:
+        with st.open_store(path, create=True) as s:
             self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
         self.assertTrue(path.exists())
 
     def test_fresh_store_has_every_table_of_the_spec(self):
-        with st.open_store(self.dir / "f.db") as s:
+        with st.open_store(self.dir / "f.db", create=True) as s:
             self.assertLessEqual(
                 {"watchlist", "channel", "watchlist_channel", "video", "snapshot", "card",
                  "idea", "hook", "taxonomy", "quota", "note"},
@@ -47,17 +47,17 @@ class StoreLocationTest(unittest.TestCase):
 
     def test_reopening_keeps_the_schema_version(self):
         path = self.dir / "f.db"
-        with st.open_store(path):
+        with st.open_store(path, create=True):
             pass
-        with st.open_store(path) as s:
+        with st.open_store(path, create=True) as s:
             self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
 
     def test_a_newer_database_is_refused(self):
         path = self.dir / "f.db"
-        with st.open_store(path) as s:
+        with st.open_store(path, create=True) as s:
             s.conn.execute(f"PRAGMA user_version = {st.SCHEMA_VERSION + 1}")
         with self.assertRaises(st.StoreError) as cm:
-            st.open_store(path)
+            st.open_store(path, create=True)
         self.assertIn("newer", str(cm.exception))
 
 
@@ -82,7 +82,7 @@ class MigrationTest(unittest.TestCase):
 
     def test_v3_renames_the_authors_channel_of_a_watchlist_and_keeps_the_data(self):
         self.make_v2()
-        with st.open_store(self.path, seed=False) as s:
+        with st.open_store(self.path, seed=False, create=True) as s:
             self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
             cols = [r["name"] for r in s.query("PRAGMA table_info(watchlist)")]
             self.assertIn("author_channel", cols)
@@ -104,7 +104,7 @@ class V7Test(unittest.TestCase):
             conn.execute("INSERT INTO note (kind, key, text, created_at) VALUES ('skill', 'reel', 'keep', 'x')")
             conn.commit()
             conn.close()
-            with st.open_store(path, seed=False) as s:
+            with st.open_store(path, seed=False, create=True) as s:
                 self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
                 self.assertLessEqual({"pack", "asset_author", "asset_alias"}, set(s.tables()))
                 self.assertEqual(s.one("SELECT kind, key, text FROM note"),
@@ -121,7 +121,7 @@ class V8Test(unittest.TestCase):
             conn.execute("INSERT INTO pack (id, root, config, created_at) VALUES ('p', '/x', '{}', 'x')")
             conn.commit()
             conn.close()
-            with st.open_store(path, seed=False) as s:
+            with st.open_store(path, seed=False, create=True) as s:
                 self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
                 self.assertIn("idea_video", s.tables())
                 self.assertEqual(s.one("SELECT id, root FROM pack"), {"id": "p", "root": "/x"})
@@ -151,7 +151,7 @@ class V9Test(unittest.TestCase):
                     ("skill", "reel"), ("video", "x~y"), ("document", ".claude/skills/ingest-walker/a.md"),
                     ("general", "ingest-walk")]
             for _ in range(2):
-                with st.open_store(path, seed=False) as s:
+                with st.open_store(path, seed=False, create=True) as s:
                     self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
                     self.assertEqual([(r["kind"], r["key"]) for r in s.query("SELECT kind, key FROM note ORDER BY id")],
                                      want)
@@ -172,7 +172,7 @@ class V10Test(unittest.TestCase):
                 INSERT INTO note (kind, key, text, created_at) VALUES ('video', 'a-walk', 'n', 'x');
             """)
             conn.close()
-            with st.open_store(path, seed=False) as s:
+            with st.open_store(path, seed=False, create=True) as s:
                 self.assertEqual(s.schema_version(), 10)
                 self.assertEqual(s.one("SELECT idea_id, owner, video_slug FROM idea_video"),
                                  {"idea_id": 1, "owner": "", "video_slug": "a-walk"})
@@ -193,7 +193,7 @@ class ConcurrentOpenTest(unittest.TestCase):
                 def opener():
                     gate.wait()
                     try:
-                        with st.open_store(path) as s:
+                        with st.open_store(path, create=True) as s:
                             results.append((s.schema_version(), len(s.query("SELECT 1 FROM taxonomy"))))
                     except Exception as exc:  # noqa: BLE001 - the test reports any failure
                         results.append(repr(exc))

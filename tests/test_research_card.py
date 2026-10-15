@@ -12,7 +12,7 @@ from cf.research import store as st
 class CardSaveTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.store = st.open_store(Path(self.tmp.name) / "f.db", seed=False)
+        self.store = st.open_store(Path(self.tmp.name) / "f.db", seed=False, create=True)
         with self.store.transaction() as c:
             self.vid = c.execute("INSERT INTO video (external_id, title) VALUES ('dQw4w9WgXcQ', 't')").lastrowid
 

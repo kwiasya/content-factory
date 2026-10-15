@@ -185,7 +185,7 @@ class IdeasCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        s = self.store = st.open_store(Path(self.tmp.name) / "f.db")
+        s = self.store = st.open_store(Path(self.tmp.name) / "f.db", create=True)
         self.addCleanup(s.close)
         wl.create(s, "lisbon", format_id="walk_reel", author_channel="travelwalks")
         wl.create(s, "other", format_id="travel_long")
@@ -217,7 +217,7 @@ def hook(category: str, formula: str = "a formula", spoken: str | None = "a spok
 class SummaryCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        s = self.store = st.open_store(Path(self.tmp.name) / "f.db")
+        s = self.store = st.open_store(Path(self.tmp.name) / "f.db", create=True)
         wl.create(s, "lisbon", format_id="walk-reel")
         wl.create(s, "other", format_id="tech-explainer")
         add_member(s, "lisbon", CHANNEL_A, "@alpha")

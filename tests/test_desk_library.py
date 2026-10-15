@@ -68,7 +68,7 @@ class LibraryTestCase(unittest.TestCase):
         os.symlink(base / "outside.mp3", self.pack / "sfx/link.mp3")
         self.footage = base / "footage"
         self.db = self.footage / "factory.db"
-        with open_store(self.db, seed=False) as s:
+        with open_store(self.db, seed=False, create=True) as s:
             register_pack(s, {"schema": "cf-pack/1", "id": "p", "root": str(self.pack),
                               "folders": {"sfx": {"category": "sfx"}}})
         self.write_index()
@@ -166,7 +166,7 @@ class AuthorTest(LibraryTestCase):
         self.assertEqual((a["ref"], a["author_name"], a["aliases"]), ("@sfx/ветер", "ветер", []))
         a = self.ok(self.put(SFX, name="вжух"))["asset"]
         self.assertEqual((a["ref"], a["aliases"]), ("@sfx/вжух", ["@sfx/ветер"]))
-        with open_store(self.db, seed=False) as s:
+        with open_store(self.db, seed=False, create=True) as s:
             s.conn.execute("INSERT INTO asset_alias VALUES ('@sfx/вуш-2', ?, 'import', 'x')", (SFX,))
             s.conn.commit()
         a = self.ok(self.client.get(f"/api/library/assets/{SFX}"))["asset"]

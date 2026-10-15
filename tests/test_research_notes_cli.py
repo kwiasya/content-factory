@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from cf.research import cli
+from cf.research import store as st
 
 
 class NotesCliTest(unittest.TestCase):
@@ -15,6 +16,7 @@ class NotesCliTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.db = str(Path(self.tmp.name) / "f.db")
+        st.open_store(self.db, create=True).close()
 
     def run_cli(self, *argv):
         out, err = io.StringIO(), io.StringIO()

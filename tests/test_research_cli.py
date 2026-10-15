@@ -22,6 +22,7 @@ class CliTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db = str(Path(self.tmp.name) / "f.db")
+        st.open_store(self.db, create=True).close()
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -51,7 +52,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(self.json_of("watchlist", "list"), [])
 
     def test_show_lists_channels_and_queries(self):
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             wl.create(s, "claude-jobs", format_id="tech_explainer")
             payload = json.loads((FIX / "channels_list_handle.json").read_text())
             wl.add_channel(s, "claude-jobs", "@slowwalks", own=True, transport=lambda m, p: payload)

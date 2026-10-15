@@ -115,7 +115,7 @@ def make_library(tmp: Path, root: Path | None = None, db: Path | None = None
             write_file(pack / v["path"])
     root = Path(root) if root else tmp / "footage"
     db = Path(db) if db else root / "factory.db"
-    with open_store(db, seed=False) as s:
+    with open_store(db, seed=False, create=True) as s:
         library.register_pack(s, {"schema": "cf-pack/1", "id": PACK, "root": str(pack)})
         write_index(root, PACK, {"schema": "cf-library-index/1", "pack": PACK, "root": str(pack),
                                  "indexed_at": "2026-10-14T10:00:00Z", "assets": data, "report": {}})

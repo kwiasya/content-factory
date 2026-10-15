@@ -24,7 +24,7 @@ class SummaryCliTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db = str(Path(self.tmp.name) / "f.db")
-        with st.open_store(self.db) as s:
+        with st.open_store(self.db, create=True) as s:
             wl.create(s, "lisbon", format_id="walk-reel")
             add_member(s, "lisbon", A, "@alpha")
             add_videos(s, [video_item(f"baseline0{i:02d}", A, real_ago(days=20 + i), 40, 1000) for i in range(6)]
