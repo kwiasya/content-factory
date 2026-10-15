@@ -7,7 +7,7 @@ A Script is the text plan of one Reel, written before anything touches Resolve. 
 | Field | Type | Rule |
 |---|---|---|
 | `schema` | `"cf-script/1"` | — |
-| `walk` | string | Walk id, e.g. `potsdam-2026-10-04` |
+| `footage` | string | Footage id, e.g. `potsdam-2026-10-04` (the legacy key `walk` is still read; both present must agree) |
 | `concept` | string | One sentence, one idea. The hook must promise what the first shot shows. |
 | `canvas` | string, optional | Output canvas: a `style.json` `canvases` name (`portrait` · `landscape`) or `WxH`. Absent = `style.json` `canvas` (2160×3840 portrait). `landscape` = 3840×2160 16:9 with its own safe zone and overlay positions; cf.build, cf.render, cf.render_check and the overlay specs honour it, and their `--canvas` wins over it. Landscape clips on a landscape canvas get no reframe |
 | `audience` | string | Who this is for, one line, from `style.json` unless overridden |

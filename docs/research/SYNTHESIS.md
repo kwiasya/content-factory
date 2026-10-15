@@ -108,7 +108,7 @@
 | Фаза | Вход → выход | Скилл |
 |---|---|---|
 | 0. Окружение | smoke-тесты S1–S10, по одному файлу с каждого устройства → `docs/research/smoke-results.md`, таблица детекта цвета как данные | — |
-| 1. Ingest | `~/Movies/content-factory/<walk>/raw/` → `clip_manifest.json` (устройство, fps, VFR, цветовой профиль с confidence, время), прокси 540p | `ingest-walk` |
+| 1. Ingest | `~/Movies/content-factory/<footage-id>/raw/` → `clip_manifest.json` (устройство, fps, VFR, цветовой профиль с confidence, время), прокси 540p | `ingest-footage` |
 | 2. Shot-log | прокси → `shotlog/<clip>.json` (только локальные метрики) | `analyze-clips` |
 | 3. Script | shot-logs + `style.json` + music brief → `reels/<reel>/script.json`, валидатор | `write-script` |
 | 4. Бит | трек от пользователя (файл) → `beats.json` → `cuts.json` по сетке энергии | `beat-grid` |
@@ -138,10 +138,10 @@ content-factory/
 ├── tools/vision-score/        # Swift CLI
 ├── overlays/                  # Remotion-проект
 ├── tests/smoke/               # S1–S10
-└── .claude/skills/            # ingest-walk, analyze-clips, write-script, beat-grid, build-reel, render-reel
+└── .claude/skills/            # ingest-footage, analyze-clips, write-script, beat-grid, build-reel, render-reel
 ```
 
-Данные (`raw/`, прокси, shot-logs, рендеры) живут вне репо в `~/Movies/content-factory/<walk>/`, в репо только `script.json` и лицензионный лог музыки.
+Данные (`raw/`, прокси, shot-logs, рендеры) живут вне репо в `~/Movies/content-factory/<footage-id>/`, в репо только `script.json` и лицензионный лог музыки.
 
 ## 7. Риски
 

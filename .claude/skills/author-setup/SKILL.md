@@ -35,7 +35,7 @@ Batch 1:
 4. What do you film with? (iPhone model, Osmo, anything else.)
 
 Batch 2:
-5. How often do you walk and how many Reels do you want per Walk?
+5. How often do you walk and how many Reels do you want per Footage?
 6. What is the one thing to get right this month? (The priority that resolves every "which first" question.)
 7. Anything about schedule, where you live and travel, or who else is involved that the Editor should know? (Optional.)
 
@@ -84,7 +84,7 @@ The `Never` section is written as positive rules where possible ("captions end o
 ## Phase 3: how-you-work
 
 Batch 1:
-1. When you hand the Editor a Walk, what should happen first: a plan to approve, a question or two, or straight to the first draft?
+1. When you hand the Editor Footage, what should happen first: a plan to approve, a question or two, or straight to the first draft?
 2. How do you want results shown: a shot list table, a sentence per decision, just the file path?
 3. What must the Editor never do without asking? (Delete a Resolve project, re-render over a reviewed file, pick a Track, change `style.json`, spend money on a cloud service.)
 

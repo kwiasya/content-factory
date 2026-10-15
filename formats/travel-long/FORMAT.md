@@ -4,8 +4,8 @@
 - Platform: YouTube long
 - Length: several minutes; the target comes from the niche's outliers once a Watchlist exists
 - Canvas: 3840×2160 16:9, SDR Rec.709; frame rate per Video from the dominant source (Vienna: 29.97)
-- Source: material first: one or several Walks of one trip (DJI 4K, phone video, phone stills; footage stays where it was shot, ADR 0008), then one recording session of the Author reading the voice-over on camera
-- Footage that exists: Vienna (the first Walk in the factory), Mallorca, Thailand, Dubai
+- Source: material first: one or several Footage folders of one trip (DJI 4K, phone video, phone stills; the files stay where they were shot, ADR 0008), then one recording session of the Author reading the voice-over on camera
+- Footage that exists: Vienna (the first Footage in the factory), Mallorca, Thailand, Dubai
 - Language: English voice-over; every German or other local name gets an English gloss card for 3–5 s
 - Script: markdown beats (`videos/<slug>/script.md`), per beat VO, SCREEN, ON-CAMERA, ANIM, STICKER, GLOSS and CHECK; schema and validator not designed yet; the spoken text alone in `voiceover.md`
 - Face and voice: voice throughout; the Author on camera for the hook, personal verdicts, transitions, punchlines and the ending; Face stickers are the second, comic voice
@@ -17,6 +17,6 @@
 - Hook library: `formats/travel-long/hook-library.md` (generated; empty)
 - Research rules that apply: 07 (retention), 08 (first 30 s), 09 (challenge/levels ordering, mini-payoff per chapter), 10 (emotion arcs), 12 (packaging)
 - Reference Watchlist: none yet
-- Pipeline: `ingest-walk` (footage in place) → `analyze-clips` → Script (markdown) → build → render; `analyze-clips` still rejects on-camera speech until the long's analysis pass is changed (phase 2), so the Author's talking Clips need a manual look; build and render of the long are not implemented yet
+- Pipeline: `ingest-footage` (files linked in place) → `analyze-clips` → Script (markdown) → build → render; `analyze-clips` still rejects on-camera speech until the long's analysis pass is changed (phase 2), so the Author's talking Clips need a manual look; build and render of the long are not implemented yet
 - First Video: `videos/vienna-long/`
 - Status: Format defined; Vienna at `script`

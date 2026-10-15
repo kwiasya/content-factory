@@ -1,6 +1,6 @@
 ---
 name: write-script
-description: Write the Script for one Reel from the Walk's Shot logs — clip order, hook, overlays, caption, hashtags — and validate it. Use when the author asks for a script, a plan, or a hook for a Reel.
+description: Write the Script for one Reel from the Footage's Shot logs — clip order, hook, overlays, caption, hashtags — and validate it. Use when the author asks for a script, a plan, or a hook for a Reel.
 ---
 
 # Write a Script

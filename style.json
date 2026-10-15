@@ -256,7 +256,7 @@
   "color": {
     "hdr_source": "apple-sdr",
     "rule": "original colour, as on the Mac (author, 2026-10-12): no grade, no levelling, no Look",
-    "note": "hdr_source 'apple-sdr': HDR clips (iPhone HLG / Dolby Vision) go into Resolve as their Apple SDR mezzanine (<walk>/mezz/<stem>.mov, cf.mezz / tools/apple-sdr: AVFoundation's own HDR -> SDR tone mapping, what QuickTime and Photos show), tagged Rec.709 Gamma 2.4, no HLG CDL. 'resolve' imports the HLG file and lets Resolve convert it (one stop brighter and flatter than the Mac shows it). cf.build --hdr-source overrides; --deliver hdr-hlg always uses 'resolve'. ADR 0011."
+    "note": "hdr_source 'apple-sdr': HDR clips (iPhone HLG / Dolby Vision) go into Resolve as their Apple SDR mezzanine (<footage>/mezz/<stem>.mov, cf.mezz / tools/apple-sdr: AVFoundation's own HDR -> SDR tone mapping, what QuickTime and Photos show), tagged Rec.709 Gamma 2.4, no HLG CDL. 'resolve' imports the HLG file and lets Resolve convert it (one stop brighter and flatter than the Mac shows it). cf.build --hdr-source overrides; --deliver hdr-hlg always uses 'resolve'. ADR 0011."
   },
   "look": {
     "drx": null,
@@ -349,7 +349,7 @@
     "mode": "2x",
     "sharpness": 0.5,
     "noise_reduction": 0.25,
-    "mode_note": "'2x' since 2026-10-11: on reel-01 (4 of 8 shots upscaled) '2x-enhanced' rendered in 314 s vs 47 s for plain 2x, 27 s without Super Scale and 10 s at 1080x1920, over the ~5x budget. sharpness / noise_reduction are only used by '2x-enhanced'. Comparison: reels/reel-01/out/superscale-compare.png in the potsdam-2026-10-04 Walk.",
+    "mode_note": "'2x' since 2026-10-11: on reel-01 (4 of 8 shots upscaled) '2x-enhanced' rendered in 314 s vs 47 s for plain 2x, 27 s without Super Scale and 10 s at 1080x1920, over the ~5x budget. sharpness / noise_reduction are only used by '2x-enhanced'. Comparison: reels/reel-01/out/superscale-compare.png in the potsdam-2026-10-04 Footage.",
     "note": "Resolve Studio Super Scale on every source clip whose display height is below canvas.height (the 1080x1920 iPhone clips on a 2160x3840 canvas); clips at or above it get 1 (off). mode '2x-enhanced' = SetClipProperty('Super Scale', 2, sharpness, noise_reduction) with floats 0..1; mode '2x' = SetClipProperty('Super Scale', 2). cf.build --no-superscale sets every clip to 1."
   },
   "reframe": {
