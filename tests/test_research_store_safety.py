@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import socket
 import sqlite3
 import tempfile
 import unittest
@@ -198,6 +199,25 @@ class BackupTest(Base):
                           labels.count("pre-shared")), (14, 10, 20, 20))
         newest = backup.newest_per_label(self.path)
         self.assertEqual(newest["daily"], "factory-20261020-0100-daily.db")
+
+    def test_the_part_file_is_per_process_and_stale_parts_are_pruned(self):
+        names = []
+        real = sqlite3.connect
+
+        def spy(target, *a, **kw):
+            names.append(Path(target).name)
+            return real(target, *a, **kw)
+        with mock.patch.object(backup.sqlite3, "connect", spy):
+            p = backup.backup(self.store.conn, self.path, "manual", datetime(2026, 10, 15, 9, 5))
+        self.assertEqual(names, [f".{p.name}.{socket.gethostname()}-{os.getpid()}.part"])
+        folder = p.parent
+        old = folder / ".factory-20261001-0000-daily.db.other-1.part"
+        fresh = folder / ".factory-20261015-0905-manual.db.other-2.part"
+        for f in (old, fresh):
+            f.write_bytes(b"x")
+        os.utime(old, (0, 0))
+        backup.prune(folder)
+        self.assertEqual((old.exists(), fresh.exists(), p.exists()), (False, True, True))
 
     def test_ensure_daily_once_per_day(self):
         self.assertIsNotNone(backup.ensure_daily(self.store, datetime(2026, 10, 15, 8, 0)))

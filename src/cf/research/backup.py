@@ -1,8 +1,9 @@
 """Backups of the research store, next to it in ``backups/``.
 
 ``backup`` copies an open connection with SQLite's online backup API (consistent under the
-rollback journal) into ``backups/.factory-<ts>-<label>.db.part`` and renames it to
-``factory-<YYYYMMDD-HHMM>-<label>.db``. Labels: ``daily`` (``ensure_daily``: the first CLI
+rollback journal) into ``backups/.factory-<ts>-<label>.db.<host>-<pid>.part`` (one per process, so two Macs
+backing up in the same minute never write one file) and renames it to ``factory-<YYYYMMDD-HHMM>-<label>.db``:
+the last complete copy wins. ``prune`` also deletes ``.part`` files older than a day (a crashed copy). Labels: ``daily`` (``ensure_daily``: the first CLI
 command of the day, after a passing ``quick_check``), ``pre-<command>`` before a bulk command,
 ``pre-v<N>`` before a migration, ``pre-renumber``, ``pre-merge``, ``manual`` and any label given
 to ``db backup --label``. ``prune`` keeps the newest 14 ``daily`` and the newest 10 bulk-command
@@ -11,8 +12,11 @@ backups (``BULK_LABELS``); every other label is kept until a person removes it.
 
 from __future__ import annotations
 
+import os
 import re
+import socket
 import sqlite3
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -38,13 +42,15 @@ def backup(conn: sqlite3.Connection, db_path: Path, label: str, now: datetime | 
     folder.mkdir(parents=True, exist_ok=True)
     stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M")
     final = folder / f"factory-{stamp}-{label}.db"
-    part = folder / f".{final.name}.part"
-    part.unlink(missing_ok=True)
+    part = folder / f".{final.name}.{socket.gethostname()}-{os.getpid()}.part"
     dest = sqlite3.connect(part)
     try:
         conn.backup(dest)
-    finally:
+    except BaseException:
         dest.close()
+        part.unlink(missing_ok=True)
+        raise
+    dest.close()
     part.replace(final)
     prune(folder)
     return final
@@ -74,12 +80,24 @@ def newest_per_label(db_path: Path) -> dict[str, str]:
     return {label: p.name for _, label, p in listing(backups_dir(db_path))}
 
 
-def prune(folder: Path) -> list[Path]:
-    """Delete ``daily`` beyond the newest ``KEEP_DAILY`` and bulk-command backups beyond the newest ``KEEP_BULK``."""
+PART_MAX_AGE_S = 86400
+
+
+def prune(folder: Path, now: float | None = None) -> list[Path]:
+    """Delete ``daily`` beyond the newest ``KEEP_DAILY``, bulk-command backups beyond the newest ``KEEP_BULK`` and
+    ``.factory-*.part`` leftovers older than a day."""
+    cutoff = (now if now is not None else time.time()) - PART_MAX_AGE_S
+    stale = []
+    for p in folder.glob(".factory-*.part"):
+        try:
+            if p.stat().st_mtime < cutoff:
+                stale.append(p)
+        except FileNotFoundError:
+            continue
     files = listing(folder)
     daily = [p for _, label, p in files if label == "daily"]
     bulk = [p for _, label, p in files if label in BULK_LABELS]
-    gone = daily[:-KEEP_DAILY] + bulk[:-KEEP_BULK]
+    gone = daily[:-KEEP_DAILY] + bulk[:-KEEP_BULK] + stale
     for p in gone:
         p.unlink(missing_ok=True)
     return gone
