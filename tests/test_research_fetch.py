@@ -230,6 +230,16 @@ class FetchTest(StoreCase):
     def run_fetch(self, ref=URL, **kw):
         return fetch.fetch(self.store, ref, adapters=self.fake, root=self.root, **kw)
 
+    def test_the_shot_log_names_its_media_relative_to_the_reference_folder(self):
+        def with_path(proxy, media, transcript):
+            out = fixture("shotlog_long.json")
+            out["clip"]["path"] = str(media)
+            return out
+        self.fake.shotlog = with_path
+        self.run_fetch()
+        saved = json.loads((self.root / "references" / "_adhoc" / "dQw4w9WgXcQ" / "shotlog.json").read_text())
+        self.assertEqual(saved["clip"]["path"], "dQw4w9WgXcQ.mp4")
+
     def test_a_first_fetch_lays_every_artifact_into_the_adhoc_reference_folder_and_saves_the_measured_card(self):
         got = self.run_fetch()
         ref = self.root / "references" / "_adhoc" / "dQw4w9WgXcQ"

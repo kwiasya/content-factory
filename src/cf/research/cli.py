@@ -1008,7 +1008,8 @@ def register_ig(sub, common) -> None:
     p = gs.add_parser("token-status", parents=[common], help="validity and days to expiry of INSTAGRAM_ACCESS_TOKEN")
     p.set_defaults(func=cmd_ig_token_status)
     p = gs.add_parser("token-refresh", parents=[common],
-                      help="exchange the token for a fresh long-lived one and rewrite only its line in .env")
+                      help="exchange the token for a fresh long-lived one and rewrite only its line in the file it came "
+                           "from (the shared secrets.env, or the personal .env when it is there)")
     p.set_defaults(func=cmd_ig_token_refresh)
 
 

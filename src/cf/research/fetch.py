@@ -448,6 +448,18 @@ def _transcript(a: Adapters, d: Path, media: Path, language: str, force: bool, s
     return transcript
 
 
+def _relative_clip_path(shotlog: dict, d: Path) -> None:
+    """A Reference's Shot log names its media relative to the Reference folder: the folder lives on the
+    share and its absolute path differs per Mac (ADR 0013)."""
+    clip = shotlog.get("clip") if isinstance(shotlog, dict) else None
+    if not isinstance(clip, dict) or not isinstance(clip.get("path"), str):
+        return
+    try:
+        clip["path"] = Path(clip["path"]).resolve().relative_to(d.resolve()).as_posix()
+    except ValueError:
+        clip["path"] = Path(clip["path"]).name
+
+
 def _shotlog_ocr(a: Adapters, d: Path, media: Path, transcript: dict, force: bool, redo: bool,
                  steps: dict) -> tuple[dict | None, list | None]:
     """Proxy, Shot log and OCR of the media in ``d``, each kept unless ``force`` (the Shot log also on ``redo``)."""
@@ -461,6 +473,7 @@ def _shotlog_ocr(a: Adapters, d: Path, media: Path, transcript: dict, force: boo
         steps["proxy"] = px["status"]
         if redo or px["status"] == "made" or not sl_path.exists():
             shotlog = a.shotlog(Path(px["proxy_path"]), media, transcript)
+            _relative_clip_path(shotlog, d)
             _write(sl_path, shotlog)
             steps["shotlog"] = "made"
         else:
