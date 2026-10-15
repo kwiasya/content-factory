@@ -94,7 +94,7 @@ for u in madvil2 nastaglusenko; do chmod -R +a "$u allow read,write,append,delet
 
 A6. Point the code at the share: delete the `CF_SHARED_ROOT` line from `.env`. **[author]** creates `/Users/Shared/content-factory/secrets.env` (mode 600) with `YOUTUBE_API_KEY` from his `.env`; Nastya adds the four `INSTAGRAM_*` lines (N3); the secrets leave both personal `.env` files. Pack: set `root` in `.claude/skills/index-pack/packs/davinci-templates.json` to `/Users/Shared/content-factory/packs/davinci templates`; `python -m cf.library pack add --config .claude/skills/index-pack/packs/davinci-templates.json` (same id, Author fields kept); `python -m cf.library index davinci-templates` (incremental; a full ~10-minute rebuild is acceptable).
 
-A7. Rewrite the old absolute prefix `/Users/madvil2/Movies/content-factory/references` to `/Users/Shared/content-factory/references` in the `shotlog.json` and `info.json` files under `references/`; print counts before and after. New fetches write the Shot log's clip path relative to the Reference folder.
+A7. Rewrite the absolute paths the old fetches left in the Reference JSON files (`shotlog.json`, `info.json`: `/Users/madvil2/Movies/content-factory/references/...`): `python -m cf.research references relativize --dry-run` shows the files and counts, then the same without `--dry-run`. A file's own media becomes relative to its Reference folder, a path into another Reference becomes `/Users/Shared/content-factory/references/...`; `foreign paths left` must be 0. New fetches already write the Shot log's clip path relative.
 
 A8. **[author]** File Sharing exports `Shared`; give `nastaglusenko` Read & Write; turn guest access off for `Shared` (System Settings, or `sudo sharing -e Shared -g 000`). The Mac's name for the URL: `scutil --get LocalHostName`.
 
@@ -110,7 +110,7 @@ N2. `ln -s /Volumes/Shared/content-factory /Users/Shared/content-factory`.
 
 N3. `git pull` (the checkout must have store V10), `uv pip install --python .venv/bin/python -e '.[desk,research]'`, `npm --prefix web install && npm --prefix web run build`; `.env` gets `CF_PERSON` only if she wants a name other than her macOS user; **[Nastya]** adds her four `INSTAGRAM_*` lines to `/Users/Shared/content-factory/secrets.env` and deletes them from her `.env`.
 
-N4. Copy her References to the share once (no name clash with the author's Watchlists): `rsync -a ~/Movies/content-factory/references/ /Users/Shared/content-factory/references/`. Her `library/` cache is not copied; `index` rebuilds it after N7.
+N4. Copy her References to the share once (no name clash with the author's Watchlists): `rsync -a ~/Movies/content-factory/references/ /Users/Shared/content-factory/references/`. Her `library/` cache is not copied; `index` rebuilds it after N7. Then `python -m cf.research references relativize` (as in A7) rewrites the `/Users/anastasiiahlushchenko/...` paths in her Reference JSON files.
 
 N5. `python -m cf.research db check`; `watchlist list` (3 rows); `feed me-walks` shows her picks; `card show <ig code>`; `notes list --all` shows her 20 Notes. ACLs both ways: she runs `touch /Users/Shared/content-factory/.nastya-test` and the author deletes it; she deletes a file the author made. One write: `notes add general "Nastya connected"`, the author resolves it. Then her local store is renamed `~/Movies/content-factory/factory.db.local-pre-shared` (kept, unused).
 

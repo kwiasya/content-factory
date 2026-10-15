@@ -7,7 +7,7 @@ remove-channel, add-query, add-reference), ``taxonomy`` (list, approve, reject),
 restore, note, brief, candidates), ``summary`` (hooks, formats, topics), ``hooks``
 (save, remove, list, export: the Hook library of a Format), ``notes`` (list, add,
 resolve, delete: Notes from the Author), ``own`` (sync, report, mark, unmark: the
-Author's Instagram reels with insights), ``ig`` (token-status, token-refresh), ``db`` (init, check,
+Author's Instagram reels with insights), ``ig`` (token-status, token-refresh), ``references`` (relativize), ``db`` (init, check,
 backup, migrate, renumber, merge: the store file itself). Every command takes
 ``--json`` (machine output on stdout) and ``--db`` (default ``CF_FACTORY_DB`` or
 ``<shared root>/factory.db``). Human output is a Markdown table in Russian.
@@ -29,10 +29,10 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from cf.research import (backup, brief, card, env, feed, fetch, hooks, ideas, instagram, merge, notes, own, picks, quota,
-                         renumber, scout, summary, taxonomy, watchlist, youtube)
+                         refpaths, renumber, scout, summary, taxonomy, watchlist, youtube)
 from cf.research.kinds import KINDS
 from cf.research.store import (OLD_NUMBERING_HINT, SCHEMA_VERSION, BUSY_MESSAGE, StoreError, connect, default_db_path,
-                               is_busy, journal_mode, missing_message, mount_hint, old_numbering, open_store,
+                               ensure_shared_root, is_busy, journal_mode, missing_message, mount_hint, old_numbering, open_store,
                                shared_root)
 
 # Errors a command reports as one line and exit 1.
@@ -1014,6 +1014,28 @@ def register_ig(sub, common) -> None:
     p.set_defaults(func=cmd_ig_token_refresh)
 
 
+# --- references ---------------------------------------------------------------
+
+def cmd_references_relativize(args) -> int:
+    root = Path(args.root).expanduser() if args.root else ensure_shared_root()
+    r = refpaths.relativize(root, dry_run=args.dry_run)
+    d = r.to_dict()
+    return emit(args, d, lambda: (f"{'Пробный прогон: ' if args.dry_run else ''}JSON-файлов в {root / 'references'}: "
+                                  f"{d['files']}, с абсолютными путями: {len(d['changed_files'])}; путей было "
+                                  f"{d['absolute_paths_before']}, чужих осталось {d['foreign_paths_after']}."))
+
+
+def register_references(sub, common) -> None:
+    g = sub.add_parser("references", help="the Reference folders on the shared root")
+    gs = g.add_subparsers(dest="cmd", required=True)
+    p = gs.add_parser("relativize", parents=[common],
+                      help="rewrite absolute paths in Reference JSON files: own files relative to the folder, "
+                           "other References under the shared root (ADR 0013)")
+    p.add_argument("--root", help="the shared root (default: CF_SHARED_ROOT, which must be mounted)")
+    p.add_argument("--dry-run", action="store_true", dest="dry_run", help="count, write nothing")
+    p.set_defaults(func=cmd_references_relativize, opens_store=False)
+
+
 # --- db -----------------------------------------------------------------------
 
 def _db_path(args) -> Path:
@@ -1172,7 +1194,7 @@ def register_db(sub, common) -> None:
 GROUPS: list[Callable] = [register_watchlist, register_taxonomy, register_quota,
                           register_scout, register_snapshot, register_feed, register_fetch, register_card,
                           register_ideas, register_summary, register_hooks, register_notes, register_own,
-                          register_ig, register_db]
+                          register_ig, register_references, register_db]
 
 
 def build_parser() -> argparse.ArgumentParser:
