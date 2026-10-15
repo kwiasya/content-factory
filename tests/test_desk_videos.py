@@ -652,7 +652,7 @@ class CreateTest(VideosTestCase):
 
     def brief_ideas(self) -> dict[int, list[str]]:
         r = self.ok(self.client.get("/api/contour/ideas", params={"status": "brief"}))
-        return {i["id"]: i["videos"] for i in r["ideas"]}
+        return {i["id"]: [v["slug"] for v in i["videos"]] for i in r["ideas"]}
 
     def test_creating_from_a_brief_links_the_idea_to_the_video(self):
         self.assertEqual(self.brief_ideas(), {self.briefed: []})
@@ -662,9 +662,9 @@ class CreateTest(VideosTestCase):
         self.assertEqual(self.brief_ideas(), {self.briefed: [first, second]})
         self.create(title="No brief")
         with st.open_store(self.db, seed=False) as s:
-            self.assertEqual(s.query("SELECT idea_id, video_slug FROM idea_video ORDER BY rowid"),
-                             [{"idea_id": self.briefed, "video_slug": first},
-                              {"idea_id": self.briefed, "video_slug": second}])
+            self.assertEqual(s.query("SELECT idea_id, owner, video_slug FROM idea_video ORDER BY rowid"),
+                             [{"idea_id": self.briefed, "owner": st.person(), "video_slug": first},
+                              {"idea_id": self.briefed, "owner": st.person(), "video_slug": second}])
 
     def test_a_failed_link_write_leaves_no_folder(self):
         before = self.listing()

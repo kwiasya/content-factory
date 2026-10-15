@@ -8,7 +8,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from cf.desk import videos_api
 from cf.desk.app import create_app
+from cf.desk.problems import Problem
 from cf.research import brief, card, ideas
 from cf.research import store as st
 from cf.research import watchlist as wl
@@ -74,6 +76,17 @@ class TwoRootsTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         copy = json.loads((self.ref / "card.json").read_text())
         self.assertEqual(copy["analysis"]["visual_layout"]["sub_category"], "golden_hour_descent")
+
+    def test_a_brief_of_another_person_is_not_opened_and_names_the_owner(self):
+        with st.open_store(self.db) as s:
+            s.conn.execute("UPDATE idea SET brief_owner = 'someone-else' WHERE id = ?", (self.idea,))
+            s.conn.commit()
+        r = self.client.get(f"/api/contour/ideas/{self.idea}/brief")
+        self.assertEqual((r.status_code, r.json()["code"]), (404, "brief_elsewhere"), r.text)
+        self.assertEqual(r.json()["params"]["owner"], "someone-else")
+        with self.assertRaises(Problem) as cm:
+            videos_api.linked_brief(self.local, self.db, self.idea)
+        self.assertEqual(cm.exception.code, "brief_elsewhere")
 
     def test_meta_reports_both_roots(self):
         meta = self.client.get("/api/meta").json()

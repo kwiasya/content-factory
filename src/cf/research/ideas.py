@@ -23,7 +23,7 @@ from datetime import datetime
 from typing import Any, Iterable
 
 from cf.research import card, feed
-from cf.research.store import Store, dumps, now_iso
+from cf.research.store import Store, dumps, now_iso, person
 from cf.research import watchlist as watchlists
 
 STATUSES = ("inbox", "shortlisted", "discarded", "brief")
@@ -61,7 +61,8 @@ class Idea:
     brief_path: str | None = None
     created_at: str = ""
     updated_at: str = ""
-    videos: list = field(default_factory=builtins.list)   # Video slugs made from it, oldest link first
+    videos: list = field(default_factory=builtins.list)   # [{slug, owner}] Videos made from it, oldest link first
+    brief_owner: str | None = None                         # who wrote the Brief (its file is on their Mac)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -136,20 +137,28 @@ def _idea(store: Store, row: dict) -> Idea:
                 fields=json.loads(row["fields"] or "{}"),
                 sources=_sources(store, json.loads(row["source_video_ids"] or "[]")),
                 notes=json.loads(row["notes"] or "[]"), brief_path=row["brief_path"],
-                created_at=row["created_at"], updated_at=row["updated_at"], videos=_videos(store, row["id"]))
+                created_at=row["created_at"], updated_at=row["updated_at"], videos=_videos(store, row["id"]),
+                brief_owner=row["brief_owner"])
 
 
-def _videos(store: Store, idea_id: int) -> builtins.list[str]:
-    return [r["video_slug"] for r in store.query(
-        "SELECT video_slug FROM idea_video WHERE idea_id = ? ORDER BY linked_at, rowid", (idea_id,))]
+def _videos(store: Store, idea_id: int) -> builtins.list[dict]:
+    return [{"slug": r["video_slug"], "owner": r["owner"]} for r in store.query(
+        "SELECT video_slug, owner FROM idea_video WHERE idea_id = ? ORDER BY linked_at, rowid", (idea_id,))]
 
 
-def link_video(store: Store, idea_id: int, slug: str) -> Idea:
-    """Record that the Video ``slug`` was made from Idea ``idea_id`` (idempotent)."""
+def mine(owner: str | None) -> bool:
+    """True when a row of ``owner`` belongs to the person on this Mac (``''``/None: the author's, from before
+    the store was shared, ADR 0013)."""
+    return owner in (None, "", person())
+
+
+def link_video(store: Store, idea_id: int, slug: str, *, owner: str | None = None) -> Idea:
+    """Record that the Video ``slug`` of ``owner`` (default: this Mac's person) was made from Idea ``idea_id``
+    (idempotent)."""
     get(store, idea_id)
     with store.transaction() as c:
-        c.execute("INSERT OR IGNORE INTO idea_video (idea_id, video_slug, linked_at) VALUES (?, ?, ?)",
-                  (int(idea_id), slug, now_iso()))
+        c.execute("INSERT OR IGNORE INTO idea_video (idea_id, owner, video_slug, linked_at) VALUES (?, ?, ?, ?)",
+                  (int(idea_id), person() if owner is None else owner, slug, now_iso()))
     return get(store, idea_id)
 
 
@@ -257,9 +266,11 @@ def restore(store: Store, idea_id: int) -> Idea:
     return _move(store, idea_id, "restore")
 
 
-def mark_brief(store: Store, idea_id: int, brief_path: str) -> Idea:
-    """shortlisted → brief with the Brief's path. Called by ``brief.create`` once the file is written."""
-    return _move(store, idea_id, "brief", brief_path=str(brief_path))
+def mark_brief(store: Store, idea_id: int, brief_path: str, *, owner: str | None = None) -> Idea:
+    """shortlisted → brief with the Brief's path and its owner (default: this Mac's person). Called by
+    ``brief.create`` once the file is written."""
+    return _move(store, idea_id, "brief", brief_path=str(brief_path),
+                 brief_owner=person() if owner is None else owner)
 
 
 def note(store: Store, idea_id: int, text: str) -> Idea:

@@ -3,6 +3,7 @@
 import unittest
 
 from cf.research import ideas
+from cf.research import store as st
 from cf.research import watchlist as wl
 from research_synth import NOW, V1, V2, V3, IdeasCase, add_card, analysis, fields
 
@@ -120,8 +121,12 @@ class VideoLinkTest(IdeasCase):
         ideas.link_video(self.store, idea.id, "boat-day")
         ideas.link_video(self.store, idea.id, "alfama")
         got = ideas.link_video(self.store, idea.id, "boat-day")
-        self.assertEqual(got.videos, ["boat-day", "alfama"])
-        self.assertEqual(ideas.get(self.store, idea.id).to_dict()["videos"], ["boat-day", "alfama"])
+        me = st.person()
+        want = [{"slug": "boat-day", "owner": me}, {"slug": "alfama", "owner": me}]
+        self.assertEqual(got.videos, want)
+        self.assertEqual(ideas.get(self.store, idea.id).to_dict()["videos"], want)
+        got = ideas.link_video(self.store, idea.id, "boat-day", owner="someone-else")
+        self.assertEqual(got.videos[-1], {"slug": "boat-day", "owner": "someone-else"})
         self.assertEqual(self.add(sources=(V2,)).videos, [])
         with self.assertRaises(ideas.IdeaError):
             ideas.link_video(self.store, 9999, "x")

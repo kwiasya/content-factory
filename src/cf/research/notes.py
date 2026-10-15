@@ -4,14 +4,17 @@ A Note has a ``kind`` (``KINDS``) and a ``key``: a repo-relative path for a
 ``document``, the skill name for a ``skill``, the id of a ``video``, ``card`` or
 ``idea``, ``<platform>:@handle`` for a ``channel`` (a Reference channel, e.g.
 ``instagram:@lyuba_bich``). A ``general`` Note has an empty key and applies to every skill. A Note
-is open until it is resolved; ``list`` shows open Notes unless asked for all.
+is open until it is resolved; ``list`` shows open Notes unless asked for all. A ``video`` Note names a
+Video under one person's local root, so it carries that ``owner`` (``CF_PERSON``; ``''`` from before the
+store was shared) and ``list`` shows only this Mac's person's ones unless ``all_owners`` (ADR 0013); every
+other kind is shared and has no owner.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from cf.research.store import Store, now_iso
+from cf.research.store import Store, now_iso, person
 
 KINDS = ("document", "skill", "video", "card", "idea", "channel", "general")
 
@@ -32,6 +35,7 @@ class Note:
     text: str
     created_at: str
     resolved_at: str | None
+    owner: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -49,8 +53,11 @@ def get(store: Store, note_id: int) -> Note:
 
 
 def list(store: Store, *, kind: str | None = None, key: str | None = None,
-         include_resolved: bool = False) -> list[Note]:
+         include_resolved: bool = False, all_owners: bool = False) -> list[Note]:
     where, params = [], []
+    if not all_owners:
+        where.append("(kind != 'video' OR owner IN ('', ?))")
+        params.append(person())
     if kind is not None:
         where.append("kind = ?")
         params.append(kind)
@@ -63,7 +70,7 @@ def list(store: Store, *, kind: str | None = None, key: str | None = None,
     return [_note(r) for r in store.query(sql, tuple(params))]
 
 
-def add(store: Store, kind: str, key: str, text: str, *, now: str | None = None) -> Note:
+def add(store: Store, kind: str, key: str, text: str, *, now: str | None = None, owner: str | None = None) -> Note:
     if kind not in KINDS:
         raise NoteError(f"unknown Note kind {kind!r}; one of: {', '.join(KINDS)}")
     key, text = key.strip(), text.strip()
@@ -74,8 +81,9 @@ def add(store: Store, kind: str, key: str, text: str, *, now: str | None = None)
     if not text:
         raise NoteError("a Note needs text")
     with store.transaction():
-        cur = store.conn.execute("INSERT INTO note (kind, key, text, created_at) VALUES (?, ?, ?, ?)",
-                                 (kind, key, text, now or now_iso()))
+        who = (person() if owner is None else owner) if kind == "video" else ""
+        cur = store.conn.execute("INSERT INTO note (kind, key, text, created_at, owner) VALUES (?, ?, ?, ?, ?)",
+                                 (kind, key, text, now or now_iso(), who))
     return get(store, cur.lastrowid)
 
 

@@ -6,6 +6,7 @@ import { useDeskData, useReloadOnMount } from "../shell/DeskData";
 import { NEW_VIDEO_HASH } from "../shell/routes";
 import { VIDEOS_PREFIX, videoHref } from "./routes";
 import { videosApi } from "./videosApi";
+import { isMine, usePerson } from "../person";
 
 const NEW_CHANNEL = "\u0000new";
 
@@ -40,9 +41,10 @@ function NewVideoPage() {
     contourApi.watchlists().then(setWatchlists, () => setWatchlists([]));
   }, []);
 
+  const person = usePerson();
   const videoTitle = (slug: string) => data.videos?.find((v) => v.slug === slug)?.title || slug;
   const picked = ideas.find((i) => String(i.id) === ideaId);
-  const pickedVideos = picked?.videos ?? [];
+  const pickedVideos = (picked?.videos ?? []).filter((v) => isMine(v.owner, person)).map((v) => v.slug);
 
   const newChannel = channel === NEW_CHANNEL;
   const channelValue = newChannel ? channelName.trim() : channel;
@@ -152,9 +154,16 @@ function NewVideoPage() {
           >
             <option value="">{t("newVideo.noBrief")}</option>
             {ideas.map((i) => (
-              <option key={i.id} value={String(i.id)}>
+              <option key={i.id} value={String(i.id)} disabled={!isMine(i.brief_owner, person)}>
                 #{i.id} {i.title} ({i.watchlist})
-                {i.videos?.length ? ` — ${t("newVideo.briefHasVideo", { videos: i.videos.map(videoTitle).join(", ") })}` : ""}
+                {isMine(i.brief_owner, person) ? "" : ` — ${t("newVideo.briefElsewhere", { owner: i.brief_owner ?? "" })}`}
+                {i.videos?.length
+                  ? ` — ${t("newVideo.briefHasVideo", {
+                      videos: i.videos
+                        .map((v) => (isMine(v.owner, person) ? videoTitle(v.slug) : `${v.slug} (${v.owner})`))
+                        .join(", "),
+                    })}`
+                  : ""}
               </option>
             ))}
           </select>

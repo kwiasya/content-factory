@@ -365,9 +365,27 @@ UPDATE note SET key = '.claude/skills/ingest-footage/' || substr(key, 28)
  WHERE kind = 'document' AND substr(key, 1, 27) = '.claude/skills/ingest-walk/';
 """
 
+# Version 10 (ADR 0013): two people share the store; rows naming something under a person's local root carry
+# its owner (CF_PERSON): the Idea's Brief, a Video Note, the Idea <-> Video link. '' = the author's, from before.
+V10 = """
+ALTER TABLE idea ADD COLUMN brief_owner TEXT;
+ALTER TABLE note ADD COLUMN owner TEXT NOT NULL DEFAULT '';
+CREATE TABLE idea_video_new (
+    idea_id     INTEGER NOT NULL REFERENCES idea (id) ON DELETE CASCADE,
+    owner       TEXT NOT NULL DEFAULT '',
+    video_slug  TEXT NOT NULL,
+    linked_at   TEXT NOT NULL,
+    PRIMARY KEY (idea_id, owner, video_slug)
+);
+INSERT INTO idea_video_new (idea_id, owner, video_slug, linked_at) SELECT idea_id, '', video_slug, linked_at FROM idea_video;
+DROP TABLE idea_video;
+ALTER TABLE idea_video_new RENAME TO idea_video;
+CREATE INDEX idea_video_slug ON idea_video (video_slug);
+"""
+
 PLATFORMS = ("youtube", "instagram")
 
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9]  # MIGRATIONS[i] takes the store from version i to i + 1
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10]  # MIGRATIONS[i] takes the store from version i to i + 1
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

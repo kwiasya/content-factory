@@ -170,10 +170,12 @@ export interface Idea {
   sources: { id: number; external_id: string; title: string | null; url: string | null }[];
   notes: { at: string; text: string }[];
   brief_path: string | null;
+  /** Who wrote the Brief: its file is on that person's Mac; empty or null for the author's older ones. */
+  brief_owner: string | null;
   created_at: string;
   updated_at: string;
-  /** Slugs of the Videos made from this Idea, oldest link first. */
-  videos: string[];
+  /** The Videos made from this Idea, oldest link first, each on its owner's Mac. */
+  videos: { slug: string; owner: string }[];
 }
 
 export interface Brief {

@@ -856,12 +856,12 @@ def register_hooks(sub, common) -> None:
 def _notes_table(ns: list[notes.Note]) -> str:
     if not ns:
         return "Note нет."
-    return md_table(["ID", "Kind", "Key", "Текст", "Создана", "Закрыта"],
-                    [(str(n.id), n.kind, n.key, n.text, n.created_at, n.resolved_at) for n in ns])
+    return md_table(["ID", "Kind", "Key", "Текст", "Создана", "Закрыта", "Чья"],
+                    [(str(n.id), n.kind, n.key, n.text, n.created_at, n.resolved_at, n.owner) for n in ns])
 
 
 def cmd_notes_list(args, store) -> int:
-    ns = notes.list(store, kind=args.kind, key=args.key, include_resolved=args.all)
+    ns = notes.list(store, kind=args.kind, key=args.key, include_resolved=args.all, all_owners=args.all)
     return emit(args, [n.to_dict() for n in ns], lambda: _notes_table(ns))
 
 
@@ -886,7 +886,8 @@ def register_notes(sub, common) -> None:
     p = gs.add_parser("list", parents=[common], help="open Notes, optionally of one kind and key")
     p.add_argument("--kind", choices=notes.KINDS)
     p.add_argument("--key", help="repo-relative path, skill name or id")
-    p.add_argument("--all", action="store_true", help="include resolved Notes")
+    p.add_argument("--all", action="store_true",
+                   help="include resolved Notes and the video Notes of the other person (ADR 0013)")
     p.set_defaults(func=cmd_notes_list)
     p = gs.add_parser("add", parents=[common], help="leave a Note on one entity")
     p.add_argument("kind", choices=notes.KINDS)

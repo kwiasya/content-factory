@@ -10,6 +10,7 @@ import { ErrorLine } from "../ErrorLine";
 import { formatTime } from "../format";
 import { useDeskData } from "../shell/DeskData";
 import { videoHref } from "../videos/routes";
+import { isMine, usePerson } from "../person";
 
 const ACTIONS: Record<string, IdeaAction[]> = {
   inbox: ["shortlist", "discard"],
@@ -124,6 +125,7 @@ function text(value: unknown): string {
 
 function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
   const { videos } = useDeskData();
+  const person = usePerson();
   const t = useT();
   const [note, setNote] = useState("");
   const [error, setError] = useState<Problem | null>(null);
@@ -211,9 +213,13 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
             {(idea.videos ?? []).length === 0 ? (
               <span className="muted">{t("ideas.noVideos")}</span>
             ) : (
-              (idea.videos ?? []).map((slug) => (
-                <div key={slug}>
-                  <a href={videoHref(slug)}>{videos?.find((v) => v.slug === slug)?.title || slug}</a>
+              (idea.videos ?? []).map(({ slug, owner }) => (
+                <div key={`${owner}/${slug}`}>
+                  {isMine(owner, person) ? (
+                    <a href={videoHref(slug)}>{videos?.find((v) => v.slug === slug)?.title || slug}</a>
+                  ) : (
+                    <span>{t("ideas.videoElsewhere", { slug, owner })}</span>
+                  )}
                 </div>
               ))
             )}

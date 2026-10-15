@@ -94,6 +94,9 @@ def brief_file(root: Path, idea: ideas.Idea) -> Path:
         command = f"python -m cf.research ideas brief {idea.id}"
         raise Problem(404, "brief_missing", f"Idea {idea.id} has no Brief yet; shortlist it, then run "
                                             f"{command} (skill /suggest-ideas)", id=idea.id, command=command)
+    if not ideas.mine(idea.brief_owner):
+        raise Problem(404, "brief_elsewhere", f"the Brief of Idea {idea.id} is on {idea.brief_owner}'s Mac "
+                                              f"({idea.brief_path})", id=idea.id, owner=idea.brief_owner)
     rel = paths.relative_under(root, Path(idea.brief_path))
     path = paths.contained(root, rel) if rel is not None else None
     if path is None or path.suffix != ".md":

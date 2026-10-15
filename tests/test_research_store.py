@@ -126,14 +126,14 @@ class V8Test(unittest.TestCase):
                 self.assertIn("idea_video", s.tables())
                 self.assertEqual(s.one("SELECT id, root FROM pack"), {"id": "p", "root": "/x"})
                 cols = [r["name"] for r in s.query("PRAGMA table_info(idea_video)")]
-                self.assertEqual(cols, ["idea_id", "video_slug", "linked_at"])
+                self.assertEqual(cols, ["idea_id", "owner", "video_slug", "linked_at"])
                 author_cols = [r["name"] for r in s.query("PRAGMA table_info(asset_author)")]
                 self.assertEqual(author_cols[-1], "hidden_agent_tags")
 
 
 class V9Test(unittest.TestCase):
-    def test_schema_version_is_9(self):
-        self.assertEqual(st.SCHEMA_VERSION, 9)
+    def test_schema_version_is_10(self):
+        self.assertEqual(st.SCHEMA_VERSION, 10)
 
     def test_v9_moves_the_notes_of_ingest_walk_to_ingest_footage_once(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -152,9 +152,34 @@ class V9Test(unittest.TestCase):
                     ("general", "ingest-walk")]
             for _ in range(2):
                 with st.open_store(path, seed=False) as s:
-                    self.assertEqual(s.schema_version(), 9)
+                    self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
                     self.assertEqual([(r["kind"], r["key"]) for r in s.query("SELECT kind, key FROM note ORDER BY id")],
                                      want)
+
+
+class V10Test(unittest.TestCase):
+    def test_v10_adds_owners_and_keeps_the_links_as_the_authors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "v9.db"
+            conn = sqlite3.connect(path)
+            for v, script in enumerate(st.MIGRATIONS[:9]):
+                conn.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {v + 1};\nCOMMIT;")
+            conn.executescript("""
+                INSERT INTO watchlist (name, format_id, created_at) VALUES ('w', 'walk-reel', 'x');
+                INSERT INTO idea (watchlist_id, title, brief_path, created_at, updated_at)
+                    VALUES (1, 't', '/x/brief.md', 'x', 'x');
+                INSERT INTO idea_video (idea_id, video_slug, linked_at) VALUES (1, 'a-walk', 'x');
+                INSERT INTO note (kind, key, text, created_at) VALUES ('video', 'a-walk', 'n', 'x');
+            """)
+            conn.close()
+            with st.open_store(path, seed=False) as s:
+                self.assertEqual(s.schema_version(), 10)
+                self.assertEqual(s.one("SELECT idea_id, owner, video_slug FROM idea_video"),
+                                 {"idea_id": 1, "owner": "", "video_slug": "a-walk"})
+                self.assertEqual(s.one("SELECT brief_owner FROM idea"), {"brief_owner": None})
+                self.assertEqual(s.one("SELECT owner FROM note"), {"owner": ""})
+                self.assertIn("idea_video_slug", [r["name"] for r in s.query("PRAGMA index_list(idea_video)")])
+                self.assertEqual(s.query("PRAGMA foreign_key_check"), [])
 
 
 class ConcurrentOpenTest(unittest.TestCase):
