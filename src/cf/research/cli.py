@@ -8,7 +8,7 @@ restore, note, brief, candidates), ``summary`` (hooks, formats, topics), ``hooks
 (save, remove, list, export: the Hook library of a Format), ``notes`` (list, add,
 resolve, delete: Notes from the Author), ``own`` (sync, report, mark, unmark: the
 Author's Instagram reels with insights), ``ig`` (token-status, token-refresh), ``db`` (init, check,
-backup, migrate, renumber: the store file itself). Every command takes
+backup, migrate, renumber, merge: the store file itself). Every command takes
 ``--json`` (machine output on stdout) and ``--db`` (default ``CF_FACTORY_DB`` or
 ``<shared root>/factory.db``). Human output is a Markdown table in Russian.
 Errors: one line on stderr, exit 1.
@@ -28,8 +28,8 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cf.research import (backup, brief, card, env, feed, fetch, hooks, ideas, instagram, notes, own, picks, quota, renumber,
-                         scout, summary, taxonomy, watchlist, youtube)
+from cf.research import (backup, brief, card, env, feed, fetch, hooks, ideas, instagram, merge, notes, own, picks, quota,
+                         renumber, scout, summary, taxonomy, watchlist, youtube)
 from cf.research.kinds import KINDS
 from cf.research.store import (OLD_NUMBERING_HINT, SCHEMA_VERSION, BUSY_MESSAGE, StoreError, connect, default_db_path,
                                is_busy, journal_mode, missing_message, mount_hint, old_numbering, open_store,
@@ -1105,8 +1105,36 @@ def cmd_db_migrate(args, store) -> int:
                 lambda: f"{store.path}: версия схемы {store.schema_version()}.")
 
 
+def _merge_human(r: dict) -> str:
+    lines = [f"Слияние {r['base']} + {r['other']} → {r['out']}" + (" (пробный прогон)" if r["dry_run"] else "")]
+    lines.append(md_table(["Таблица", "base", "other", "совпало", "пропущено", "итог", "ожидалось", ""],
+                          [(t["table"], t["base"], t["other"], t["matched"], t["skipped"], t["merged"], t["expected"],
+                            "PASS" if t["ok"] else "FAIL") for t in r["tables"]]))
+    lines.append(md_table(["Проверка", ""], [(c["check"], "PASS" if c["ok"] else f"FAIL {c['detail']}")
+                                            for c in r["checks"]]))
+    for e in r["events"]:
+        if e["event"] == "pack_skipped":
+            lines.append(f"- Pack {e['id']} пропущен ({e['reason']}; Author-строк {e['author_rows']}, алиасов "
+                         f"{e['aliases']}): {e['root']}. Вернуть: {e['command']}")
+        elif e["event"] == "taxonomy_differs":
+            lines.append(f"- taxonomy {e['kind']}/{e['value']}: {e['diff']}, оставлено: {e['kept']}")
+        else:
+            lines.append(f"- {json.dumps(e, ensure_ascii=False)}")
+    verdict = "PASS" if r["ok"] else "FAIL"
+    tail = (f"{verdict}: {r['out']} оставлен, отчёт {r.get('report_file')}" if r["out_kept"]
+            else f"{verdict}: {r['out']} удалён" + (f", отчёт {r['report_file']}" if r.get("report_file") else ""))
+    return "\n\n".join([*lines, tail])
+
+
+def cmd_db_merge(args) -> int:
+    r = merge.merge(args.base, args.other, args.out, other_person=args.other_person, packs=args.packs,
+                    dry_run=args.dry_run)
+    emit(args, r, lambda: _merge_human(r))
+    return 0 if r["ok"] else 1
+
+
 def register_db(sub, common) -> None:
-    g = sub.add_parser("db", help="the store file itself: init, check, backup, migrate, renumber")
+    g = sub.add_parser("db", help="the store file itself: init, check, backup, migrate, renumber, merge")
     gs = g.add_subparsers(dest="cmd", required=True)
     p = gs.add_parser("init", parents=[common], help="create the store (the only command that creates one)")
     p.set_defaults(func=cmd_db_init, opens_store=False)
@@ -1119,6 +1147,20 @@ def register_db(sub, common) -> None:
     p.set_defaults(func=cmd_db_backup)
     p = gs.add_parser("migrate", parents=[common], help="migrate the store to this code's schema version")
     p.set_defaults(func=cmd_db_migrate)
+    p = gs.add_parser("merge", parents=[common],
+                      help="merge two stores into a NEW file (inputs are only read); verify; delete it on failure "
+                           "and on --dry-run (ADR 0013)")
+    p.add_argument("--base", required=True, help="the store whose rows win on a conflict (the author's)")
+    p.add_argument("--other", required=True, help="the store imported into it")
+    p.add_argument("--out", required=True, help="the merged store to write; must not exist")
+    p.add_argument("--other-person", required=True, dest="other_person",
+                   help="CF_PERSON of the other store's owner: owner of its Briefs, Video links and video Notes")
+    p.add_argument("--packs", choices=merge.PACK_MODES, default="skip",
+                   help="skip (default): import only the other's Packs whose root is a folder here; "
+                        "import: copy every Pack row as it is")
+    p.add_argument("--dry-run", action="store_true", dest="dry_run",
+                   help="do everything, print the report, delete the result")
+    p.set_defaults(func=cmd_db_merge, opens_store=False)
     p = gs.add_parser("renumber", parents=[common],
                       help="repair a store migrated by the pre-merge code (Library as V6, idea_video as V7), "
                            "back it up first and migrate it to the current version")

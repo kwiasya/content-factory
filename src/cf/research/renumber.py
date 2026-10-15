@@ -60,6 +60,26 @@ def _target_version(conn: sqlite3.Connection, version: int) -> int:
     return 7
 
 
+def apply(conn: sqlite3.Connection) -> tuple[int, int] | None:
+    """Renumber the old-numbering store behind ``conn`` in one ``BEGIN IMMEDIATE``; ``(from, to)`` versions, or
+    None when it is not (or no longer) in the old numbering. No backup: the caller takes one."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if not st.old_numbering(conn):
+            conn.rollback()
+            return None
+        version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        target = _target_version(conn, version)
+        for stmt in _v6_missing(conn):
+            conn.execute(stmt)
+        conn.execute(f"PRAGMA user_version = {target}")
+    except BaseException:
+        conn.rollback()
+        raise
+    conn.commit()
+    return version, target
+
+
 def renumber(path: str | Path) -> dict:
     """Renumber the store at ``path`` and migrate it to ``SCHEMA_VERSION``; see the module docstring."""
     p = Path(path).expanduser()
@@ -77,21 +97,11 @@ def renumber(path: str | Path) -> dict:
             raise st.StoreError(f"{p} (schema version {version}) is not in the old numbering "
                                 "(version 6 or 7 with pack and without insight); nothing to renumber")
         saved = backup.backup(conn, p, "pre-renumber")
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            if not st.old_numbering(conn):
-                conn.rollback()
-                return {"path": str(p), "renumbered": False, "from_version": version, "backup": str(saved),
-                        "counts_before": before}
-            version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-            target = _target_version(conn, version)
-            for stmt in _v6_missing(conn):
-                conn.execute(stmt)
-            conn.execute(f"PRAGMA user_version = {target}")
-        except BaseException:
-            conn.rollback()
-            raise
-        conn.commit()
+        done = apply(conn)
+        if done is None:
+            return {"path": str(p), "renumbered": False, "from_version": version, "backup": str(saved),
+                    "counts_before": before}
+        version, target = done
     finally:
         conn.close()
     with st.open_store(p, seed=False) as s:
