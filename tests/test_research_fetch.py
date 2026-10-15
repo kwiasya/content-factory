@@ -164,24 +164,31 @@ class RecordInfoTest(StoreCase):
 OCR = [{"t": 0.0, "text": []}, {"t": 0.5, "text": [{"s": "ALFAMA", "conf": 0.95, "h": 0.07}]}]
 
 
+def win(*windows):
+    return {"windows": [{"start_s": 10.0 * i, "language": lang, "probability": p, "no_speech_prob": ns}
+                        for i, (lang, p, ns) in enumerate(windows)]}
+
+
 class FakeAdapters(fetch.Adapters):
     """yt-dlp, stable-ts, proxy, Shot log and OCR that write fixture files and count their calls."""
 
-    def __init__(self, transport):
+    def __init__(self, transport, info=None, transcript=None):
         self.calls = []
+        self.info = info or fixture("info_long.json")
+        self.transcript = transcript or fixture("transcript_long.json")
         super().__init__(extract=self._extract, download=self._download, transcribe=self._transcribe,
                          proxy=self._proxy, shotlog=self._shotlog, ocr=self._ocr, transport=transport,
                          captions=self._captions)
 
     def _extract(self, url):
         self.calls.append(("extract", url))
-        return fixture("info_long.json")
+        return dict(self.info)
 
     def _download(self, url, ref_dir, video_id):
         self.calls.append(("download", url))
         ref_dir.mkdir(parents=True, exist_ok=True)
         (ref_dir / f"{video_id}.mp4").write_bytes(b"media")
-        return fixture("info_long.json")
+        return dict(self.info)
 
     def _captions(self, info, ref_dir, video_id, language):
         self.calls.append(("captions", language))
@@ -192,7 +199,7 @@ class FakeAdapters(fetch.Adapters):
 
     def _transcribe(self, media, language):
         self.calls.append(("transcribe", language))
-        return fixture("transcript_long.json")
+        return dict(self.transcript)
 
     def _proxy(self, media, dest, force):
         made = force or not dest.exists()
@@ -230,7 +237,7 @@ class FetchTest(StoreCase):
         self.assertEqual(sorted(p.name for p in ref.iterdir()),
                          ["card.json", "dQw4w9WgXcQ.auto.en.vtt", "dQw4w9WgXcQ.mp4", "dQw4w9WgXcQ.subs.en.vtt",
                           "info.json", "ocr.json", "proxy.mp4", "shotlog.json", "transcript.json"])
-        self.assertEqual(self.fake.names(), ["download", "captions", "transcribe", "proxy", "shotlog", "ocr"])
+        self.assertEqual(self.fake.names(), ["download", "transcribe", "captions", "proxy", "shotlog", "ocr"])
         self.assertEqual(got["captions"], ["dQw4w9WgXcQ.auto.en.vtt", "dQw4w9WgXcQ.subs.en.vtt"])
         self.assertEqual(got["steps"]["captions"], "made")
         self.assertIn(("transcribe", "en"), self.fake.calls)
@@ -256,15 +263,254 @@ class FetchTest(StoreCase):
         self.run_fetch()
         self.fake.calls.clear()
         self.run_fetch(force=True)
-        self.assertEqual(self.fake.names(), ["download", "captions", "transcribe", "proxy", "shotlog", "ocr"])
+        self.assertEqual(self.fake.names(), ["download", "transcribe", "captions", "proxy", "shotlog", "ocr"])
 
-    def test_a_watchlist_names_the_folder_and_the_transcript_language_but_adds_no_membership(self):
+    def test_a_watchlist_names_the_folder_but_adds_no_membership(self):
         wl.create(self.store, "lisbon-walks", format_id="walk_reel", language="pt")
         got = self.run_fetch(watchlist="lisbon-walks")
         self.assertEqual(Path(got["dir"]), self.root / "references" / "lisbon-walks" / "dQw4w9WgXcQ")
+        self.assertEqual(self.store.query("SELECT * FROM watchlist_channel"), [])
+
+    def test_the_video_language_from_the_info_wins_over_the_watchlist_language(self):
+        wl.create(self.store, "city-deep-dive", format_id="walk_reel", language="en")
+        self.fake.info = fixture("info_long.json") | {"language": "ru"}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": "ru"}
+        got = self.run_fetch(watchlist="city-deep-dive")
+        self.assertIn(("transcribe", "ru"), self.fake.calls)
+        self.assertIn(("captions", "ru"), self.fake.calls)
+        self.assertNotIn(("transcribe", "en"), self.fake.calls)
+        self.assertEqual((got["language"], got["language_source"]), ("ru", "info"))
+        self.assertEqual(got["card"]["measured"]["language_source"], "info")
+        saved = json.loads((Path(got["dir"]) / "transcript.json").read_text())
+        self.assertEqual((saved["language"], saved["_language_source"]), ("ru", "info"))
+
+    def test_a_regional_info_language_is_reduced_to_its_base_code(self):
+        self.fake.info = fixture("info_long.json") | {"language": "pt-BR"}
+        self.run_fetch()
         self.assertIn(("transcribe", "pt"), self.fake.calls)
         self.assertIn(("captions", "pt"), self.fake.calls)
-        self.assertEqual(self.store.query("SELECT * FROM watchlist_channel"), [])
+
+    def test_without_an_info_language_whisper_detects_it_and_the_captions_follow_the_detection(self):
+        wl.create(self.store, "city-deep-dive", format_id="walk_reel", language="en")
+        for missing in (None, "", "not a language"):
+            with self.subTest(missing=missing):
+                self.fake.calls.clear()
+                self.fake.info = fixture("info_long.json") | {"language": missing}
+                self.fake.transcript = fixture("transcript_long.json") | {"language": "ru"}
+                got = self.run_fetch(watchlist="city-deep-dive", force=True)
+                self.assertIn(("transcribe", None), self.fake.calls)
+                self.assertIn(("captions", "ru"), self.fake.calls)
+                self.assertEqual((got["language"], got["language_source"]), ("ru", "whisper"))
+
+    def test_the_watchlist_language_is_only_the_caption_fallback_when_nothing_names_the_language(self):
+        wl.create(self.store, "lisbon-walks", format_id="walk_reel", language="pt")
+        self.fake.info = fixture("info_long.json") | {"language": None}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": None}
+        got = self.run_fetch(watchlist="lisbon-walks")
+        self.assertIn(("transcribe", None), self.fake.calls)
+        self.assertIn(("captions", "pt"), self.fake.calls)
+        self.assertEqual((got["language"], got["language_source"]), ("pt", "watchlist"))
+
+    def test_codes_whisper_does_not_know_leave_the_language_to_detection_and_legacy_aliases_are_mapped(self):
+        supported = frozenset({"en", "ru", "he", "id", "jw", "tl", "ro"})
+        for code, want in (("und", None), ("zxx", None), ("mul", None), ("xx", None), ("iw", "he"),
+                           ("in", "id"), ("jv", "jw"), ("fil", "tl"), ("mo", "ro"), ("ru-RU", "ru")):
+            with self.subTest(code=code):
+                self.assertEqual(fetch.info_language({"language": code}, supported), want)
+        self.assertEqual(fetch.info_language({"language": "und"}), None)
+        self.assertEqual(fetch.transcript_language({"language": "xx"}, supported), (None, "whisper"))
+
+    def test_an_unsupported_info_language_is_not_passed_to_the_transcriber(self):
+        self.fake.languages = lambda: frozenset({"en", "ru"})
+        self.fake.info = fixture("info_long.json") | {"language": "fil"}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": "ru"}
+        got = self.run_fetch()
+        self.assertIn(("transcribe", None), self.fake.calls)
+        self.assertEqual((got["language"], got["language_source"]), ("ru", "whisper"))
+
+    def test_measured_language_agrees_with_the_returned_language_and_its_source(self):
+        wl.create(self.store, "lisbon-walks", format_id="walk_reel", language="pt")
+        self.fake.info = fixture("info_long.json") | {"language": None}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": None}
+        got = self.run_fetch(watchlist="lisbon-walks")
+        m = got["card"]["measured"]
+        self.assertEqual((m["language"], m["language_source"]), (got["language"], got["language_source"]))
+        self.assertEqual((m["language"], m["language_source"]), ("pt", "watchlist"))
+
+    def test_a_kept_transcript_without_a_language_is_labelled_with_the_fallback_not_the_transcript(self):
+        self.fake.transcript = fixture("transcript_long.json") | {"language": None}
+        self.run_fetch()
+        tr = self.root / "references" / "_adhoc" / "dQw4w9WgXcQ" / "transcript.json"
+        data = json.loads(tr.read_text())
+        data.pop("_language_source")
+        data.pop("_language")
+        tr.write_text(json.dumps(data))
+        got = self.run_fetch()
+        self.assertEqual(got["steps"]["transcript"], "kept")
+        self.assertEqual((got["language"], got["language_source"]), ("en", "default"))
+        self.assertEqual(got["card"]["measured"]["language_source"], "default")
+
+    def test_captions_of_another_language_than_the_transcript_are_removed(self):
+        first = self.run_fetch()
+        ref = Path(first["dir"])
+        (ref / "dQw4w9WgXcQ.auto.ru-orig.vtt").write_text("WEBVTT\n")
+        self.fake.info = fixture("info_long.json") | {"language": "ru"}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": "ru"}
+        got = self.run_fetch(retranscribe=True)
+        self.assertEqual(got["captions"], ["dQw4w9WgXcQ.auto.ru-orig.vtt", "dQw4w9WgXcQ.auto.ru.vtt",
+                                           "dQw4w9WgXcQ.subs.ru.vtt"])
+        self.assertEqual(sorted(p.name for p in ref.glob("*.vtt")), got["captions"])
+
+    def test_whisper_hearing_another_language_than_the_info_overrides_it_and_the_info_is_recorded(self):
+        wl.create(self.store, "city-deep-dive", format_id="walk_reel", language="en")
+        self.fake.info = fixture("info_long.json") | {"language": "ru"}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": "en"}
+        self.fake.detect = lambda media: self.fake.calls.append(("detect", media.name)) or win(("en", 0.93, 0.1), ("en", 0.97, 0.3))
+        got = self.run_fetch(watchlist="city-deep-dive")
+        self.assertEqual(self.fake.names()[:3], ["download", "detect", "transcribe"])
+        self.assertIn(("transcribe", "en"), self.fake.calls)
+        self.assertEqual((got["language"], got["language_source"]), ("en", "whisper"))
+        saved = json.loads((Path(got["dir"]) / "transcript.json").read_text())
+        self.assertEqual(saved["_info_language"], "ru")
+        self.assertEqual(saved["_language_detection"]["verdict"], "overrides the info (ru -> en)")
+        self.fake.calls.clear()
+        again = self.run_fetch(watchlist="city-deep-dive")
+        self.assertEqual(again["steps"]["transcript"], "kept")
+
+    def test_an_unsure_or_agreeing_detection_keeps_the_info_language(self):
+        wl.create(self.store, "city-deep-dive", format_id="walk_reel", language="en")
+        self.fake.info = fixture("info_long.json") | {"language": "ru"}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": "ru"}
+        for det, why in ((win(("en", 0.6, 0.1)), "ignored: not sure enough (en at 0.60)"),
+                         (win(("ru", 0.99, 0.1)), "agrees with the info"),
+                         (win(("en", 0.99, 0.9), ("en", 0.98, 0.65)), "ignored: no speech in the detection windows"),
+                         (win(("en", 0.99, 0.1), ("de", 0.95, 0.2)), "ignored: the windows disagree (de, en)"),
+                         (win(("en", 0.99, 0.1), ("ru", 0.95, 0.2)), "ignored: the windows disagree (en, ru)"),
+                         (None, "no detection (no audio)")):
+            with self.subTest(why=why):
+                self.fake.calls.clear()
+                self.fake.detect = lambda media, det=det: det
+                got = self.run_fetch(watchlist="city-deep-dive", force=True)
+                self.assertIn(("transcribe", "ru"), self.fake.calls)
+                self.assertEqual(got["language_source"], "info")
+                saved = json.loads((Path(got["dir"]) / "transcript.json").read_text())
+                self.assertEqual(saved["_language_detection"]["verdict"], why)
+
+    def test_a_window_without_speech_does_not_count_against_one_with_speech(self):
+        self.assertEqual(fetch.detection_verdict(win(("en", 0.99, 0.1), ("ru", 0.99, 0.8)), "ru"),
+                         ("en", "overrides the info (ru -> en)"))
+
+    def test_a_failing_detection_keeps_the_info_language_and_the_fetch_goes_on(self):
+        wl.create(self.store, "city-deep-dive", format_id="walk_reel", language="en")
+        self.fake.info = fixture("info_long.json") | {"language": "ru"}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": "ru"}
+
+        def broken(media):
+            raise RuntimeError("model download failed")
+        self.fake.detect = broken
+        got = self.run_fetch(watchlist="city-deep-dive")
+        self.assertIn(("transcribe", "ru"), self.fake.calls)
+        self.assertEqual((got["language"], got["language_source"], got["steps"]["transcript"]),
+                         ("ru", "info", "made (ru from info; detection failed: model download failed)"))
+        saved = json.loads((Path(got["dir"]) / "transcript.json").read_text())
+        self.assertEqual(saved["_language_detection"], {"error": "model download failed"})
+
+    def test_the_info_is_checked_even_when_it_matches_the_watchlist_and_the_verdict_is_in_the_step(self):
+        wl.create(self.store, "city-deep-dive", format_id="walk_reel", language="EN-us")
+        self.fake.detect = lambda media: self.fake.calls.append(("detect", media.name)) or win(("ru", 0.97, 0.2), ("ru", 0.95, 0.4))
+        self.fake.transcript = fixture("transcript_long.json") | {"language": "ru"}
+        got = self.run_fetch(watchlist="city-deep-dive")
+        self.assertIn("detect", self.fake.names())
+        self.assertEqual((got["language"], got["language_source"]), ("ru", "whisper"))
+        self.assertEqual(got["steps"]["transcript"], "made (ru from whisper; detection overrides the info (en -> ru))")
+
+    def test_the_transcript_step_names_the_language_and_the_detection_verdict(self):
+        self.fake.info = fixture("info_long.json") | {"language": "ru"}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": "ru"}
+        self.assertEqual(self.run_fetch()["steps"]["transcript"], "made (ru from info)")
+        self.fake.detect = lambda media: win(("en", 0.99, 0.9), ("en", 0.98, 0.7))
+        self.assertEqual(self.run_fetch(force=True)["steps"]["transcript"],
+                         "made (ru from info; detection ignored: no speech in the detection windows)")
+
+        def broken(media):
+            raise RuntimeError("boom")
+        self.fake.detect = broken
+        self.assertEqual(self.run_fetch(force=True)["steps"]["transcript"], "made (ru from info; detection failed: boom)")
+
+    def test_a_window_counts_as_speech_below_a_no_speech_probability_of_0_6(self):
+        self.assertEqual(fetch.detection_verdict(win(("en", 0.99, 0.55)), "ru")[0], "en")
+        self.assertEqual(fetch.detection_verdict(win(("en", 0.99, 0.6)), "ru"),
+                         (None, "ignored: no speech in the detection windows"))
+
+    def test_the_watchlist_hint_is_normalized_and_an_unsupported_one_falls_back_to_english(self):
+        self.fake.info = fixture("info_long.json") | {"language": None}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": None}
+        for wl_lang, want in (("pt-BR", "pt"), ("iw", "he"), ("xx", "en")):
+            with self.subTest(wl_lang=wl_lang):
+                name = f"w-{wl_lang.lower()}"
+                wl.create(self.store, name, format_id="walk_reel", language=wl_lang)
+                self.fake.languages = lambda: frozenset({"en", "pt", "he"})
+                got = fetch.fetch(self.store, self.URL, adapters=self.fake, root=Path(self.tmp.name) / name,
+                                  watchlist=name)
+                self.assertEqual((got["language"], got["language_source"]), (want, "watchlist"))
+
+    def test_the_fallback_language_is_kept_in_the_transcript_so_another_watchlist_does_not_flip_it(self):
+        wl.create(self.store, "lisbon-walks", format_id="walk_reel", language="pt")
+        wl.create(self.store, "city-deep-dive", format_id="walk_reel", language="ru")
+        self.fake.info = fixture("info_long.json") | {"language": None}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": None}
+        self.run_fetch(watchlist="lisbon-walks")
+        got = self.run_fetch(watchlist="city-deep-dive")
+        self.assertEqual(got["steps"]["transcript"], "kept")
+        self.assertEqual((got["language"], got["language_source"]), ("pt", "watchlist"))
+
+    def test_the_supported_languages_are_not_asked_for_when_the_transcript_is_kept(self):
+        self.run_fetch()
+        self.fake.languages = lambda: self.fail("languages must not be loaded")
+        got = self.run_fetch()
+        self.assertEqual(got["steps"]["transcript"], "kept")
+
+    def test_a_retranscribe_flags_an_analysis_whose_spoken_hook_left_the_transcript(self):
+        self.run_fetch()
+        with self.store.transaction() as c:
+            c.execute("UPDATE card SET analysis = ?", (json.dumps({"hook": {"spoken_hook": "So this is Alfama"}}),))
+        got = self.run_fetch(retranscribe=True)
+        self.assertEqual(got["steps"]["analysis"], "kept; hook.spoken_hook found in the new transcript")
+        with self.store.transaction() as c:
+            c.execute("UPDATE card SET analysis = ?", (json.dumps({"hook": {"spoken_hook": "Not said at all"}}),))
+        got = self.run_fetch(retranscribe=True)
+        self.assertTrue(got["steps"]["analysis"].startswith("kept; stale: hook.spoken_hook not found in the transcript"),
+                        got["steps"]["analysis"])
+        self.assertTrue(got["steps"]["analysis"].endswith("re-run analyze-reference"))
+        self.assertEqual(got["card"]["analysis"], {"hook": {"spoken_hook": "Not said at all"}})
+        self.assertEqual(self.run_fetch()["steps"]["analysis"], "kept")
+
+    def test_a_kept_transcript_in_another_language_than_the_video_says_to_retranscribe(self):
+        self.run_fetch()
+        self.fake.info = fixture("info_long.json") | {"language": "ru"}
+        self.fake.calls.clear()
+        got = self.run_fetch()
+        self.assertNotIn("transcribe", self.fake.names())
+        self.assertEqual(got["steps"]["transcript"], "kept (in en, the video is in ru: fetch --retranscribe)")
+
+    def test_retranscribe_keeps_the_media_and_the_analysis_and_redoes_transcript_captions_and_shot_log(self):
+        first = self.run_fetch()
+        ref = Path(first["dir"])
+        with self.store.transaction() as c:
+            c.execute("UPDATE card SET analysis = ?", (json.dumps({"summary": "kept"}),))
+        (ref / "analysis.json").write_text('{"summary": "kept"}')
+        self.fake.info = fixture("info_long.json") | {"language": "ru"}
+        self.fake.transcript = fixture("transcript_long.json") | {"language": "ru"}
+        self.fake.calls.clear()
+        got = self.run_fetch(retranscribe=True)
+        self.assertEqual(self.fake.names(), ["extract", "transcribe", "captions", "proxy", "shotlog"])
+        self.assertIn(("transcribe", "ru"), self.fake.calls)
+        self.assertEqual(got["steps"]["media"], "kept")
+        self.assertEqual((got["steps"]["transcript"], got["steps"]["ocr"]), ("made (ru from info)", "kept"))
+        self.assertEqual(got["card"]["analysis"], {"summary": "kept"})
+        self.assertEqual(got["card"]["measured"]["language"], "ru")
+        self.assertEqual((ref / "analysis.json").read_text(), '{"summary": "kept"}')
+        self.assertEqual(json.loads((ref / "card.json").read_text())["analysis"], {"summary": "kept"})
 
     def test_a_refetch_under_another_watchlist_reuses_the_existing_folder_without_moving_it(self):
         wl.create(self.store, "lisbon-walks", format_id="walk-reel", language="pt")
@@ -302,6 +548,33 @@ class FetchTest(StoreCase):
         self.assertEqual(got["card"]["measured"]["speech_onset_s"], 0.62)
 
 
+class CaptionLangsTest(unittest.TestCase):
+    ASR = "https://www.youtube.com/api/timedtext?v=x&kind=asr&lang=ru&fmt=vtt"
+
+    def info(self, *keys):
+        auto = {}
+        for k in keys:
+            url = self.ASR if k in ("ru", "ru-orig", "iw-orig") else self.ASR + f"&tlang={k}"
+            auto[k] = [{"ext": "vtt", "url": url}]
+        return {"automatic_captions": auto}
+
+    def test_auto_captions_prefer_the_original_track_and_never_take_a_translation(self):
+        from cf.research import ytdlp
+        info = self.info("ru-orig", "ru", "en", "de")
+        self.assertEqual(ytdlp.caption_langs(info, "ru")["auto"], [r"ru\-orig"])
+        self.assertEqual(ytdlp.caption_langs(self.info("ru", "en"), "ru")["auto"], ["ru"])
+        self.assertEqual(ytdlp.caption_langs(info, "en")["auto"], [])
+        self.assertEqual(ytdlp.caption_langs({}, "en")["auto"], [])
+
+    def test_subtitles_and_auto_captions_are_asked_for_under_the_youtube_alias_too(self):
+        from cf.research import ytdlp
+        self.assertEqual(ytdlp.caption_codes("he"), ["he", "iw"])
+        self.assertEqual(ytdlp.caption_codes("jw"), ["jw", "jv"])
+        langs = ytdlp.caption_langs(self.info("iw-orig", "en"), "he")
+        self.assertEqual(langs["subs"], [r"he(-[\w-]+)?", r"iw(-[\w-]+)?"])
+        self.assertEqual(langs["auto"], [r"iw\-orig"])
+
+
 class FetchCliTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -333,6 +606,24 @@ class FetchCliTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("Склеек", out)
         self.assertIn("So this is Alfama", out)
+
+    def test_a_stale_analysis_is_called_out_in_the_summary(self):
+        import sqlite3
+        self.run_cli("fetch", "dQw4w9WgXcQ")
+        with sqlite3.connect(Path(self.tmp.name) / "f.db") as c:
+            c.execute("UPDATE card SET analysis = ?", (json.dumps({"hook": {"spoken_hook": "Not said"}}),))
+        code, out, err = self.run_cli("fetch", "dQw4w9WgXcQ", "--retranscribe")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Анализ устарел: kept; stale: hook.spoken_hook", out)
+
+    def test_retranscribe_is_accepted_and_does_not_download(self):
+        self.run_cli("fetch", "dQw4w9WgXcQ")
+        self.fake.calls.clear()
+        code, out, err = self.run_cli("fetch", "dQw4w9WgXcQ", "--retranscribe", "--json")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("download", self.fake.names())
+        self.assertIn("transcribe", self.fake.names())
+        self.assertEqual(json.loads(out)["language_source"], "info")
 
     def test_a_bad_reference_is_one_error_line_and_exit_1(self):
         code, out, err = self.run_cli("fetch", "https://www.youtube.com/@slowwalks")

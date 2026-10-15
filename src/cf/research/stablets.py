@@ -2,16 +2,19 @@
 
 No unit tests (manual smoke). Loading follows ``cf.metrics.speech.Transcriber``
 (Whisper ``small`` on the CPU, Silero VAD, seed 0; ``CF_WHISPER_MODEL`` overrides
-the model); the language is the Watchlist's (English by default). The Shot log's
+the model); the language is the video's own, None leaves it to Whisper's detection. The Shot log's
 own speech pass is fed the same transcript instead of running Whisper twice.
 """
 
 from __future__ import annotations
 
+import json
+import subprocess
 import tempfile
 from pathlib import Path
 
 from cf.metrics import speech
+from cf.metrics.common import ffmpeg_bin, ffprobe_bin
 
 
 def _plain(result) -> dict:
@@ -25,6 +28,82 @@ def _plain(result) -> dict:
     return d
 
 
+def languages() -> frozenset[str]:
+    """The language codes Whisper accepts."""
+    from whisper.tokenizer import LANGUAGES
+
+    return frozenset(LANGUAGES)
+
+
+DETECT_WINDOW_S = 30.0
+_loaded: speech.Transcriber | None = None
+
+
+def _transcriber(language: str | None) -> speech.Transcriber:
+    """The Transcriber of this process: the one ``detect`` loaded, else a new one."""
+    global _loaded
+    if _loaded is None:
+        _loaded = speech.Transcriber(device="cpu", lang=language)
+    _loaded.language = language
+    return _loaded
+
+
+def _release() -> None:
+    global _loaded
+    if _loaded is not None:
+        _loaded.close()
+    _loaded = None
+
+
+def _duration(media: Path) -> float:
+    out = subprocess.run([ffprobe_bin(), "-v", "error", "-show_entries", "format=duration", "-of", "json", str(media)],
+                         check=True, capture_output=True, text=True).stdout
+    return float(json.loads(out).get("format", {}).get("duration") or 0.0)
+
+
+def _windows(dur: float) -> list[float]:
+    if dur <= 2 * DETECT_WINDOW_S:
+        return [0.0]
+    return [max(0.0, dur * k / 3 - DETECT_WINDOW_S / 2) for k in (1, 2)]
+
+
+def detect(media: Path) -> dict | None:
+    """Whisper's language detection on 30 s windows a third and two thirds into the audio.
+
+    Each window gets Whisper's language probabilities and, from a short ``whisper.decode``,
+    its no-speech probability. Returns ``{"windows": [{"start_s", "language", "probability",
+    "no_speech_prob"}]}``, None without an audio stream. The loaded model stays for the
+    ``transcribe`` that follows.
+    """
+    if not speech.has_audio(media):
+        return None
+    tr = _transcriber(None)
+    model = tr._load()
+    import numpy as np
+    import torch
+    import whisper
+
+    options = whisper.DecodingOptions(without_timestamps=True, fp16=False, sample_len=8)
+    out = []
+    for start in _windows(_duration(media)):
+        with tempfile.TemporaryDirectory(prefix="cf-ref-") as tmp:
+            wav = Path(tmp) / "window.wav"
+            subprocess.run([ffmpeg_bin(), "-v", "error", "-nostdin", "-y", "-ss", f"{start:.2f}",
+                            "-t", str(DETECT_WINDOW_S), "-i", str(media), "-map", "0:a:0", "-vn", "-ac", "1",
+                            "-ar", str(speech.SAMPLE_RATE), "-c:a", "pcm_s16le", str(wav)],
+                           check=True, capture_output=True)
+            samples = speech.read_wav(wav).astype(np.float32)
+        audio = whisper.pad_or_trim(torch.from_numpy(samples))
+        mel = whisper.log_mel_spectrogram(audio, model.dims.n_mels).to(model.device)
+        with torch.no_grad():
+            _, probs = model.detect_language(mel)
+            res = whisper.decode(model, mel, options)
+        lang = max(probs, key=probs.get)
+        out.append({"start_s": round(start, 2), "language": lang, "probability": round(float(probs[lang]), 3),
+                    "no_speech_prob": round(float(res.no_speech_prob), 3)})
+    return {"windows": out}
+
+
 def transcribe(media: Path, language: str | None) -> dict:
     """stable-ts result of the media's first audio stream as a plain dict, plus ``_provenance``.
 
@@ -32,7 +111,7 @@ def transcribe(media: Path, language: str | None) -> dict:
     """
     if not speech.has_audio(media):
         return {"text": "", "segments": [], "language": language, "_error": "no audio stream"}
-    tr = speech.Transcriber(device="cpu", lang=language)
+    tr = _transcriber(language)
     try:
         with tempfile.TemporaryDirectory(prefix="cf-ref-") as tmp:
             wav = Path(tmp) / "audio.wav"
@@ -41,7 +120,7 @@ def transcribe(media: Path, language: str | None) -> dict:
         out["_provenance"] = tr.versions() | {"device": tr.device, "language_hint": language,
                                               "load_s": round(tr.load_s, 2)}
     finally:
-        tr.close()
+        _release()
     return out
 
 

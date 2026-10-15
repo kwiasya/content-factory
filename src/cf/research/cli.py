@@ -240,7 +240,7 @@ def _fetch_human(r: dict) -> str:
                ("Первый шот, с", m["first_shot_s"]), ("Первый текст на экране, с", text),
                ("Первый человек, с", m["first_person_s"]), ("Первое лицо, с", m["first_face_s"]),
                ("Начало речи, с", m["speech_onset_s"]), ("Spoken hook (первые 3 с)", m["spoken_hook"]),
-               ("Язык", m["language"]), ("Секций транскрипта", None if m["sections"] is None else len(m["sections"])),
+               ("Язык", m["language"]), ("Источник языка", m.get("language_source")), ("Секций транскрипта", None if m["sections"] is None else len(m["sections"])),
                ("Глав", len(m["chapters"]))])]
     if m["heatmap_peaks"]:
         out += ["", "Пики most replayed:", "",
@@ -249,6 +249,8 @@ def _fetch_human(r: dict) -> str:
                           for p in m["heatmap_peaks"]])]
     if m["notes"]:
         out += [""] + [f"- {k}: {v}" for k, v in m["notes"].items()]
+    if r["steps"].get("analysis", "").startswith("kept; stale"):
+        out += ["", f"Анализ устарел: {r['steps']['analysis']}"]
     return "\n".join(out)
 
 
@@ -269,7 +271,7 @@ def _stdout_to_stderr():
 
 def cmd_fetch(args, store) -> int:
     with _stdout_to_stderr():
-        r = fetch.fetch(store, args.ref, watchlist=args.watchlist, force=args.force)
+        r = fetch.fetch(store, args.ref, watchlist=args.watchlist, force=args.force, retranscribe=args.retranscribe)
     return emit(args, r, lambda: _fetch_human(r))
 
 
@@ -277,9 +279,12 @@ def register_fetch(sub, common) -> None:
     p = sub.add_parser("fetch", parents=[common],
                        help="deep fetch of one Reference: media, transcript, proxy, Shot log, measured card")
     p.add_argument("ref", help="YouTube video URL or 11-character id")
-    p.add_argument("--watchlist", help="Watchlist for the transcript language and the folder of a first fetch "
+    p.add_argument("--watchlist", help="Watchlist for the folder of a first fetch and the fallback caption language "
                         "(a fetched Reference keeps its folder; no membership)")
     p.add_argument("--force", action="store_true", help="download, transcribe and analyse again")
+    p.add_argument("--retranscribe", action="store_true",
+                   help="transcribe again in the video's own language, fetch its captions and remake the Shot log "
+                        "from the media already in the folder (no download; the analysis is kept)")
     p.set_defaults(func=cmd_fetch)
 
 

@@ -155,6 +155,14 @@ def quotes(hook: str, text: str | None) -> bool:
     return bool(needle) and f" {needle} " in f" {normalize(text or '')} "
 
 
+def spoken_hook_problem(card: dict, transcript: str | dict | None) -> str | None:
+    """Why the analysis' ``hook.spoken_hook`` does not hold against ``transcript`` (None: it holds or there is none)."""
+    hook = ((card.get("analysis") or {}).get("hook") or {})
+    if "spoken_hook" not in hook:
+        return None
+    return _spoken_hook_problem(hook["spoken_hook"], card.get("measured") or {}, transcript)
+
+
 def _spoken_hook_problem(hook: str | None, measured: dict, transcript: str | dict | None) -> str | None:
     full = transcript_text(transcript)
     opening = measured.get("spoken_hook")
