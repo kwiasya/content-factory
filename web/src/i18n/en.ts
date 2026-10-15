@@ -560,7 +560,7 @@ export const en = {
   "err.brief_changed": "The Brief changed on disk since it was read.",
   "err.file_deleted": "The file was deleted since it was read.",
   "err.db_missing": "No research store at {path}. Desk never creates it; {command} does.",
-  "err.shared_unavailable": "The shared root {root} is not available, so there is no research store at {path}. On Nastya's Mac connect to the author's Mac (smb://<author-mac>.local/Shared, mounts at /Volumes/Shared); on the author's Mac check the symlink {root} (docs/shared-setup.md).",
+  "err.shared_unavailable": "The shared root {root} is not available: the research store, References and the Library live there. On Nastya's Mac connect to the author's Mac (smb://<author-mac>.local/Shared, mounts at /Volumes/Shared); on the author's Mac check the symlink {root} (docs/shared-setup.md).",
   "err.db_busy": "The research store is busy: another process or Mac is writing or migrating it. Retry in a moment.",
   "err.db_schema": "The research store {path} is schema version {version}, this code reads {expected}. Desk never migrates it; run {command}.",
   "err.db_schema_newer": "The research store {path} is schema version {version}, newer than the {expected} this Desk process reads: the code was updated while Desk was running. Restart Desk (python -m cf.desk).",

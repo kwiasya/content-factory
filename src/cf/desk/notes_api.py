@@ -51,6 +51,9 @@ def router(db_path: Path) -> APIRouter:
     @r.get("")
     def list_notes(kind: str | None = None, key: str | None = None, all: int = 0) -> dict:
         if not storeuse.exists(db_path):
+            problem = storeuse.missing(db_path)
+            if problem.code == "shared_unavailable":
+                raise problem
             return {"notes": []}
         with store(write=False) as s:
             return {"notes": [n.to_dict() for n in notes.list(s, kind=kind or None, key=key,

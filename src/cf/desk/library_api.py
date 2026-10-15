@@ -58,11 +58,14 @@ def pack_files(db_path: Path, root: Path) -> dict[str, tuple[Path, frozenset[str
 
 
 def load(db_path: Path, root: Path) -> library.Library:
+    """The Library over the shared root; 404 ``shared_unavailable`` when that root is not mounted."""
+    if not Path(root).is_dir():
+        raise storeuse.unavailable(Path(root))
     try:
         with storeuse.reading(db_path) as s:
             return library.load(root, s)
     except Problem as exc:
-        if exc.code in storeuse.ABSENT:
+        if exc.code in storeuse.ABSENT and exc.code != "shared_unavailable":
             return library.load(root, None)
         raise
 

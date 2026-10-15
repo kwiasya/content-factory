@@ -281,8 +281,10 @@ class MetaTest(DeskTestCase):
         self.assertEqual((meta["local_root"], meta["shared_root"], meta["shared_available"]),
                          (str(self.footage), str(shared), False))
         self.assertEqual(client.get("/api/catalog").status_code, 200)
-        r = client.get("/api/contour/watchlists")
-        self.assertEqual((r.status_code, r.json()["code"]), (404, "shared_unavailable"))
+        for url in ("/api/contour/watchlists", "/api/library", "/api/library/assets", "/api/notes"):
+            r = client.get(url)
+            self.assertEqual((r.status_code, r.json()["code"]), (404, "shared_unavailable"), url)
+            self.assertEqual(r.json()["params"]["root"], str(shared), url)
         self.assertFalse(shared.exists())
 
     def test_person_comes_from_cf_person(self):

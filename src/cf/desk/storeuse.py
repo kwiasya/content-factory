@@ -27,10 +27,20 @@ def exists(db_path: Path) -> bool:
     return Path(db_path).is_file()
 
 
+def unavailable(root: Path, p: Path | None = None) -> Problem:
+    """404 ``shared_unavailable``: the shared root (or the folder of the store) is not mounted."""
+    what = f"no research store at {p}" if p is not None else "the Library and the research store are unavailable"
+    return Problem(404, "shared_unavailable", f"{what}: {mount_hint(root)}", path=str(p or root), root=str(root))
+
+
+def missing(p: Path) -> Problem:
+    """The Problem for a missing store file: ``shared_unavailable`` when its folder is gone, else ``db_missing``."""
+    return _missing(Path(p))
+
+
 def _missing(p: Path) -> Problem:
     if not p.parent.is_dir():
-        return Problem(404, "shared_unavailable", f"no research store at {p}: {mount_hint(p.parent)}",
-                       path=str(p), root=str(p.parent))
+        return unavailable(p.parent, p)
     return Problem(404, "db_missing", f"no research store at {p} (factory.db); `{CREATE_COMMAND}` creates it",
                    path=str(p), command=CREATE_COMMAND)
 
