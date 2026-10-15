@@ -10,6 +10,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from cf.desk.app import create_app
+from cf.research import store as st
 
 TREE = {
     ".claude/skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha does one thing. Use when asked.\n---\n# Alpha\n",
@@ -268,17 +269,25 @@ class MetaTest(DeskTestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json(), {"repo": str(self.repo.resolve()), "branch": "main",
                                     "local_root": str(self.footage), "shared_root": str(self.footage),
-                                    "db_path": str(self.db)})
+                                    "shared_available": self.footage.is_dir(), "db_path": str(self.db),
+                                    "person": st.person()})
 
-    def test_two_different_roots_are_refused(self):
-        with self.assertRaises(ValueError):
-            create_app(self.repo, local_root=self.footage, shared_root=self.footage.parent / "shared",
-                       db_path=self.db, web_dist=self.footage / "dist")
+    def test_two_different_roots_work_and_a_missing_shared_root_is_reported(self):
+        shared = self.footage.parent / "shared"
+        app = create_app(self.repo, local_root=self.footage, shared_root=shared, db_path=shared / "factory.db",
+                         web_dist=self.footage / "dist")
+        client = TestClient(app)
+        meta = client.get("/api/meta").json()
+        self.assertEqual((meta["local_root"], meta["shared_root"], meta["shared_available"]),
+                         (str(self.footage), str(shared), False))
+        self.assertEqual(client.get("/api/catalog").status_code, 200)
+        r = client.get("/api/contour/watchlists")
+        self.assertEqual((r.status_code, r.json()["code"]), (404, "shared_unavailable"))
+        self.assertFalse(shared.exists())
 
-    def test_the_same_root_spelled_differently_is_one_root(self):
-        app = create_app(self.repo, local_root=self.footage, shared_root=Path(f"{self.footage}/"),
-                         db_path=self.db, web_dist=self.footage / "dist")
-        self.assertEqual(TestClient(app).get("/api/meta").status_code, 200)
+    def test_person_comes_from_cf_person(self):
+        with mock.patch.dict(os.environ, {"CF_PERSON": "someone"}):
+            self.assertEqual(self.client.get("/api/meta").json()["person"], "someone")
 
     def test_desk_does_not_create_the_db(self):
         self.client.get("/api/meta")

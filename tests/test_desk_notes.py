@@ -1,5 +1,6 @@
 """Desk Notes API through the FastAPI TestClient on a temporary db, and the skill hook script."""
 
+import importlib.util
 import json
 import os
 import sqlite3
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -132,10 +134,26 @@ class SkillHookTest(unittest.TestCase):
 
     def test_finds_the_db_under_the_shared_root(self):
         self.seed()
-        for var in ("CF_SHARED_ROOT", "CF_FOOTAGE_ROOT"):
-            with self.subTest(var):
-                self.hook_env = {var: self.tmp.name}
-                self.assertIn("Shorter hook", self.context_of(json.loads(self.skill_call("reel"))))
+        self.hook_env = {"CF_SHARED_ROOT": self.tmp.name}
+        self.assertIn("Shorter hook", self.context_of(json.loads(self.skill_call("reel"))))
+
+    def test_reads_the_shared_root_from_the_personal_env_file(self):
+        self.seed()
+        envfile = Path(self.tmp.name) / ".env"
+        envfile.write_text(f'# personal\nexport CF_SHARED_ROOT="{self.tmp.name}"\n')
+        self.hook_env = {"CF_ENV_FILE": str(envfile)}
+        self.assertIn("Shorter hook", self.context_of(json.loads(self.skill_call("reel"))))
+
+    def test_defaults_to_the_store_under_users_shared(self):
+        spec = importlib.util.spec_from_file_location("skill_notes_hook", HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        dropped = ("CF_FACTORY_DB", "CF_FOOTAGE_ROOT", "CF_SHARED_ROOT")
+        env = {k: v for k, v in os.environ.items() if k not in dropped}
+        env["CF_ENV_FILE"] = "/nonexistent/content-factory.env"
+        env["CF_FOOTAGE_ROOT"] = self.tmp.name
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(hook.db_path(), Path("/Users/Shared/content-factory/factory.db"))
 
     def test_typed_slash_command_gets_the_same_notes(self):
         self.seed()

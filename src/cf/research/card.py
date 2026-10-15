@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from cf.research import measure, taxonomy
-from cf.research.store import Store, dumps, now_iso, shared_root
+from cf.research.store import Store, dumps, ensure_shared_root, now_iso, shared_root
 
 SCHEMA = "cf-reference-card/1"
 
@@ -291,6 +291,7 @@ def field(analysis: dict, path: str) -> Any:
 
 
 def _write(store: Store, video_id: int, external_id: str, analysis: dict, root: Path | None) -> dict:
+    root = Path(root) if root is not None else ensure_shared_root()
     with store.transaction() as c:
         c.execute("UPDATE card SET analysis = ?, written_at = ? WHERE video_id = ?",
                   (dumps(analysis), now_iso(), video_id))

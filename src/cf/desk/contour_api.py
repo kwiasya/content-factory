@@ -57,10 +57,10 @@ def _pending(store: Store, analysis: dict | None) -> list[dict]:
     return out
 
 
-def _proxy(root: Path, external_id: str) -> str | None:
-    for d in card.reference_dirs(external_id, root):
-        rel = (d / "proxy.mp4").relative_to(root).as_posix()
-        if media.resolve(root, rel):
+def _proxy(shared: Path, external_id: str) -> str | None:
+    for d in card.reference_dirs(external_id, shared):
+        rel = (d / "proxy.mp4").relative_to(shared).as_posix()
+        if media.resolve(shared, shared, rel):
             return rel
     return None
 
@@ -105,8 +105,8 @@ def brief_file(root: Path, idea: ideas.Idea) -> Path:
     return path
 
 
-def router(db_path: Path, root: Path) -> APIRouter:
-    root = Path(root)
+def router(db_path: Path, shared: Path, local: Path) -> APIRouter:
+    shared, local = Path(shared), Path(local)
     api = APIRouter(prefix="/api/contour")
 
     @contextmanager
@@ -165,7 +165,7 @@ def router(db_path: Path, root: Path) -> APIRouter:
                 row["outlier"] = round(row["outlier"], 2)
             return {"external_id": v["external_id"], "reference": row, "card": c,
                     "sections": c["measured"].get("sections") or [], "proposed": _pending(s, c["analysis"]),
-                    "media": _proxy(root, v["external_id"])}
+                    "media": _proxy(shared, v["external_id"])}
 
     @api.get("/watchlists/{name}/summary/{what}")
     def get_summary(name: str, what: str, days: float = summary.DEFAULT_DAYS) -> dict:
@@ -208,14 +208,14 @@ def router(db_path: Path, root: Path) -> APIRouter:
     @api.get("/ideas/{idea_id}/brief")
     def get_brief(idea_id: int) -> dict:
         with store() as s:
-            path = brief_file(root, idea_of(s, idea_id))
+            path = brief_file(local, idea_of(s, idea_id))
         data = path.read_bytes()
         return {"idea": idea_id, "path": str(path), "text": data.decode("utf-8"), "hash": digest(data)}
 
     @api.put("/ideas/{idea_id}/brief", response_model=None)
     def put_brief(idea_id: int, body: BriefWrite) -> dict | JSONResponse:
         with store() as s:
-            path = brief_file(root, idea_of(s, idea_id))
+            path = brief_file(local, idea_of(s, idea_id))
         conflict = stale(path.read_bytes(), body.hash, "the Brief changed on disk since it was read", "brief_changed")
         if conflict:
             return conflict
@@ -239,7 +239,7 @@ def router(db_path: Path, root: Path) -> APIRouter:
         _taxonomy_value(kind, value)
         with store(write=True) as s:
             if action == "approve":
-                return taxonomy.approve(s, kind, value, root=root).to_dict()
+                return taxonomy.approve(s, kind, value, root=shared).to_dict()
             return taxonomy.reject(s, kind, value).to_dict()
 
     @api.get("/own")

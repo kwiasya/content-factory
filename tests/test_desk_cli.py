@@ -48,21 +48,25 @@ class DeskCliTest(unittest.TestCase):
         self.assertNotIn("footage_root", meta)
         self.assertEqual(meta["db_path"], str(self.footage / "factory.db"))
 
-    def test_two_different_roots_exit_2_with_the_roots_message(self):
-        with mock.patch.dict(os.environ, {"CF_SHARED_ROOT": str(self.footage.parent / "shared")}):
-            code, err = self.main()
-        self.assertEqual(code, 2)
-        self.assertIn("separate roots are not supported yet", err)
-        self.run.assert_not_called()
+    def test_two_different_roots_start_desk_even_without_the_shared_root(self):
+        shared = self.footage.parent / "shared"
+        with mock.patch.dict(os.environ, {"CF_SHARED_ROOT": str(shared)}):
+            code, _ = self.main()
+        self.assertEqual(code, 0)
+        meta = TestClient(self.run.call_args.args[0]).get("/api/meta").json()
+        self.assertEqual((meta["local_root"], meta["shared_root"], meta["shared_available"], meta["db_path"]),
+                         (str(self.footage), str(shared), False, str(shared / "factory.db")))
+        self.assertFalse(shared.exists())
 
-    def test_the_old_root_variable_still_sets_both_roots(self):
+    def test_the_old_root_variable_sets_only_the_local_root(self):
         with mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(self.footage)}):
             os.environ.pop("CF_LOCAL_ROOT")
             os.environ.pop("CF_SHARED_ROOT")
             code, _ = self.main()
         self.assertEqual(code, 0)
         meta = TestClient(self.run.call_args.args[0]).get("/api/meta").json()
-        self.assertEqual((meta["local_root"], meta["shared_root"]), (str(self.footage), str(self.footage)))
+        self.assertEqual((meta["local_root"], meta["shared_root"]),
+                         (str(self.footage), "/Users/Shared/content-factory"))
 
     def test_non_localhost_host_without_token_is_refused(self):
         code, err = self.main("--host", "0.0.0.0")

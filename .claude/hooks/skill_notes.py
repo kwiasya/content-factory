@@ -4,7 +4,9 @@ PreToolUse on the Skill tool reads ``tool_input.skill``; UserPromptExpansion (a 
 ``/skill``) reads ``command_name``. Prints, as ``additionalContext``, the open Notes of kind
 ``skill`` for that name, of kind ``document`` under ``.claude/skills/<name>/`` and the
 ``general`` ones. Reads factory.db read-only with the stdlib, never migrates it; prints nothing
-and exits 0 when the db, the table or matching Notes are missing, or on any error.
+and exits 0 when the db, the table or matching Notes are missing, or on any error. The store is
+``CF_FACTORY_DB``, else ``<CF_SHARED_ROOT>/factory.db``, else ``/Users/Shared/content-factory/factory.db``;
+the variables come from the environment, else from the personal ``<repo>/.env`` (``CF_ENV_FILE``).
 """
 
 from __future__ import annotations
@@ -16,11 +18,39 @@ import sys
 from pathlib import Path
 
 
+REPO = Path(__file__).resolve().parents[2]
+DEFAULT_SHARED_ROOT = Path("/Users/Shared/content-factory")
+
+
+def dotenv() -> dict[str, str]:
+    path = Path(os.environ.get("CF_ENV_FILE") or REPO / ".env")
+    out: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return out
+    for raw in lines:
+        line = raw.strip()
+        if line.startswith("export "):
+            line = line[len("export "):]
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = (x.strip() for x in line.split("=", 1))
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        out[key] = value
+    return out
+
+
 def db_path() -> Path:
-    if os.environ.get("CF_FACTORY_DB"):
-        return Path(os.environ["CF_FACTORY_DB"]).expanduser()
-    root = os.environ.get("CF_SHARED_ROOT") or os.environ.get("CF_FOOTAGE_ROOT")
-    return (Path(root).expanduser() if root else Path.home() / "Movies" / "content-factory") / "factory.db"
+    file = dotenv()
+
+    def var(name: str) -> str | None:
+        return os.environ.get(name) or file.get(name) or None
+    if var("CF_FACTORY_DB"):
+        return Path(var("CF_FACTORY_DB")).expanduser()
+    root = var("CF_SHARED_ROOT")
+    return (Path(root).expanduser() if root else DEFAULT_SHARED_ROOT) / "factory.db"
 
 
 def skill_of(event: dict) -> str:

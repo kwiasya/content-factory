@@ -98,6 +98,15 @@ function AgentOverview({ meta, error }: { meta: Meta | null; error: Problem | nu
             <dt>{t("agent.sharedRoot")}</dt>
             <dd>
               <code>{meta.shared_root}</code>
+              {!meta.shared_available && (
+                <p className="error">{t("agent.sharedMissing", { root: meta.shared_root })}</p>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>{t("agent.person")}</dt>
+            <dd>
+              <code>{meta.person}</code>
             </dd>
           </div>
           <div>

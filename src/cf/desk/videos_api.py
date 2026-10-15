@@ -66,7 +66,7 @@ def media_path(root: Path, path: Path) -> str | None:
         rel = path.relative_to(root).as_posix()
     except ValueError:
         return None
-    return rel if media.resolve(root, rel) else None
+    return rel if media.resolve(root, root, rel) else None
 
 
 def file_entry(root: Path, folder: Path, path: Path) -> dict:
@@ -117,7 +117,8 @@ def text_target(folder: Folder, rel: str, *, creating: bool = False) -> Path:
     raise missing
 
 
-def asset_context(root: Path, folder: Path | None, db_path: Path | None) -> "assets.AssetContext":
+def asset_context(root: Path, folder: Path | None, db_path: Path | None,
+                  shared: Path | None = None) -> "assets.AssetContext":
     """The Library (read-only) and the Video folder's md refs, for a Script with Asset cues."""
     video = None
     if folder is not None:
@@ -128,7 +129,7 @@ def asset_context(root: Path, folder: Path | None, db_path: Path | None) -> "ass
     else:
         try:
             with storeuse.reading(db_path) as s:
-                lib = library.load(assets.library_root(root), s)
+                lib = library.load(assets.library_root(shared), s)
         except Problem as exc:
             if exc.code not in storeuse.ABSENT:
                 raise
@@ -139,7 +140,7 @@ def asset_context(root: Path, folder: Path | None, db_path: Path | None) -> "ass
 
 
 def script_violations(root: Path, repo: Path, text: str, *, script: bool, folder: Path | None = None,
-                      db_path: Path | None = None) -> list[str]:
+                      db_path: Path | None = None, shared: Path | None = None) -> list[str]:
     """Violations of a JSON text; a `script*.json` (`script` true) must be a cf-script/1 document. Asset cues are
     checked against the Library and the md files of `folder` (the Video); a Script without cues opens no store."""
     try:
@@ -158,7 +159,7 @@ def script_violations(root: Path, repo: Path, text: str, *, script: bool, folder
     manifest = None
     if NAME.match(script.footage):
         manifest = optional_json(root / script.footage / "clip_manifest.json")
-    ctx = asset_context(root, folder, db_path) if script_schema.has_cues(script) else None
+    ctx = asset_context(root, folder, db_path, shared) if script_schema.has_cues(script) else None
     return script_schema.validate(script, manifest, optional_json(repo / "style.json"), assets=ctx)
 
 
@@ -301,8 +302,9 @@ def create_video(root: Path, repo: Path, db_path: Path, body: VideoCreate) -> Fo
     return Folder(folder.name, folder, False)
 
 
-def router(root: Path, repo: Path, db_path: Path) -> APIRouter:
+def router(root: Path, repo: Path, db_path: Path, shared: Path | None = None) -> APIRouter:
     root = Path(root)
+    shared = root if shared is None else Path(shared)
     api = APIRouter()
 
     @api.get("/api/videos")
@@ -339,7 +341,7 @@ def router(root: Path, repo: Path, db_path: Path) -> APIRouter:
             raise Problem(409, "file_deleted", "the file was deleted since it was read", path=body.path)
         if text_format(body.path) == "json":
             violations = script_violations(root, repo, body.text, script=kind_of(body.path) == "script",
-                                           folder=target.parent, db_path=db_path)
+                                           folder=target.parent, db_path=db_path, shared=shared)
             if violations:
                 return JSONResponse(status_code=422, content=problem_body(
                     "script_invalid", "the Script did not pass cf-script/1 validation; nothing was written",

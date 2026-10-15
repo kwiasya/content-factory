@@ -52,6 +52,8 @@ export const ru: Dict = {
   "agent.localRoot": "Локальный корень",
   "agent.sharedRoot": "Общий корень",
   "agent.db": "База ресерча",
+  "agent.person": "Человек",
+  "agent.sharedMissing": "Общая папка не подключена: база ресерча, Reference и Library недоступны. На Маке Насти подключись к smb://<author-mac>.local/Shared; на Маке автора проверь ссылку {root}.",
   "agent.researchDocs": "Документы ресерча",
   "library.title": "Библиотека",
   "library.packs": "Паки",

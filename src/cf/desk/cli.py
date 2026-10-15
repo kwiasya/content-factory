@@ -1,7 +1,8 @@
 """python -m cf.desk [--repo PATH] [--host 127.0.0.1] [--port 8765] [--token T]
 
-Starts Desk on localhost. Any other host (the home network) requires --token; every request must then
-carry it (Authorization: Bearer T, or open http://host:port/?token=T once and the browser keeps a cookie).
+Starts Desk on localhost over the local root (CF_LOCAL_ROOT) and the shared root (CF_SHARED_ROOT: the store,
+References, the Library); without the shared root it still serves Videos, Formats and documents. Any other host
+(the home network) requires --token; every request must then carry it (Authorization: Bearer T, or open http://host:port/?token=T once and the browser keeps a cookie).
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from pathlib import Path
 import uvicorn
 
 from cf.desk.app import create_app
-from cf.research.store import RootsError, default_db_path, local_root, shared_root, single_root
+from cf.research.store import default_db_path, local_root, shared_root
 
 LOCALHOSTS = {"127.0.0.1", "localhost", "::1"}
 
@@ -35,10 +36,6 @@ def main(argv: list[str] | None = None) -> int:
     repo = args.repo.expanduser()
     if not repo.is_dir():
         parser.error(f"--repo {repo} is not a directory")
-    try:
-        single_root()
-    except RootsError as exc:
-        parser.error(str(exc))
     app = create_app(repo, local_root=local_root(), shared_root=shared_root(), db_path=default_db_path(),
                      token=args.token)
     url = f"http://{args.host}:{args.port}/" + (f"?token={args.token}" if args.token else "")

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from cf.desk.problems import Problem
 from cf.research.store import (BUSY_MESSAGE, SCHEMA_VERSION, SchemaMismatch, Store, StoreBusy, StoreMissing, connect,
-                               is_busy, mount_hint, open_store, shared_root)
+                               is_busy, mount_hint, open_store)
 
 CREATE_COMMAND = "python -m cf.research db init"
 MIGRATE_COMMAND = "python -m cf.research db migrate"
@@ -28,10 +28,9 @@ def exists(db_path: Path) -> bool:
 
 
 def _missing(p: Path) -> Problem:
-    root = shared_root()
-    if not root.is_dir() and (p.parent == root or root in p.parents):
-        return Problem(404, "shared_unavailable", f"no research store at {p}: {mount_hint(root)}",
-                       path=str(p), root=str(root))
+    if not p.parent.is_dir():
+        return Problem(404, "shared_unavailable", f"no research store at {p}: {mount_hint(p.parent)}",
+                       path=str(p), root=str(p.parent))
     return Problem(404, "db_missing", f"no research store at {p} (factory.db); `{CREATE_COMMAND}` creates it",
                    path=str(p), command=CREATE_COMMAND)
 

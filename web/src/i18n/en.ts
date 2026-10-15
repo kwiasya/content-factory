@@ -52,6 +52,8 @@ export const en = {
   "agent.localRoot": "Local root",
   "agent.sharedRoot": "Shared root",
   "agent.db": "Research store",
+  "agent.person": "Person",
+  "agent.sharedMissing": "The shared root is not mounted: the research store, References and the Library are unavailable. On Nastya's Mac connect to smb://<author-mac>.local/Shared; on the author's Mac check the symlink {root}.",
   "agent.researchDocs": "Research docs",
   "library.title": "Library",
   "library.packs": "Packs",

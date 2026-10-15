@@ -51,7 +51,9 @@ export interface Meta {
   branch: string | null;
   local_root: string;
   shared_root: string;
+  shared_available: boolean;
   db_path: string;
+  person: string;
 }
 
 export interface LogEntry {

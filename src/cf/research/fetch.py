@@ -48,7 +48,7 @@ from urllib.parse import parse_qs, unquote
 from cf.research import card, ingest, measure, quota, youtube
 from cf.research import watchlist as watchlists
 from cf.research.kinds import video_kind
-from cf.research.store import Store, dumps, now_iso, shared_root
+from cf.research.store import Store, dumps, ensure_shared_root, now_iso, shared_root
 
 VIDEO_ID_RE = re.compile(r"[\w-]{11}")  # always fullmatch: ``$`` would let a trailing newline in
 VIDEO_PATHS = {"shorts", "live", "embed", "v"}
@@ -300,7 +300,9 @@ def reference_dir(video_id: str, watchlist: str | None = None, root: Path | None
 
 def folder_for(video_id: str, watchlist: str | None = None, root: Path | None = None) -> Path:
     """The Reference folder a fetch uses: the video's existing folder under any ``references/*/``
-    (the one of ``watchlist`` when there are several), else a new one for ``watchlist``."""
+    (the one of ``watchlist`` when there are several), else a new one for ``watchlist``. Without ``root`` the
+    shared root must be mounted (``StoreError`` with the mount hint otherwise)."""
+    root = Path(root) if root is not None else ensure_shared_root()
     wanted = reference_dir(video_id, watchlist, root)
     existing = card.reference_dirs(video_id, root)
     if wanted in existing or not existing:

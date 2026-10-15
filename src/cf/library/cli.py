@@ -3,8 +3,8 @@
 Groups: ``pack`` (add, list, remove), ``index``, ``show``, ``suggest``, ``query``, ``author`` (set, orphans),
 ``import-tags``, ``tags`` (todo, apply).
 Every command takes ``--json`` (machine output on stdout), ``--db`` (default ``CF_FACTORY_DB`` or
-``<shared root>/factory.db``) and ``--shared-root`` (default ``CF_SHARED_ROOT`` or ``~/Movies/content-factory``;
-the cache lives in its ``library/``). Human output is Markdown in Russian. Errors: one line on stderr, exit 1.
+``<shared root>/factory.db``) and ``--shared-root`` (default ``CF_SHARED_ROOT`` or ``/Users/Shared/content-factory``,
+which must be mounted; the cache lives in its ``library/``). Human output is Markdown in Russian. Errors: one line on stderr, exit 1.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from cf.library.errors import AssetNotFound, LibraryError, PackError
 from cf.library.library import Asset, card, load
 from cf.library.refs import CATEGORIES, RIGHTS
 from cf.research import backup
-from cf.research.store import BUSY_MESSAGE, StoreError, is_busy, open_store, shared_root
+from cf.research.store import BUSY_MESSAGE, StoreError, ensure_shared_root, is_busy, open_store
 
 USER_ERRORS: tuple[type[Exception], ...] = (LibraryError, StoreError)
 
@@ -49,7 +49,7 @@ def md_table(headers: list[str], rows: Iterable[Iterable[Any]]) -> str:
 
 
 def _root(args) -> Path:
-    return Path(args.shared_root).expanduser() if args.shared_root else shared_root()
+    return Path(args.shared_root).expanduser() if args.shared_root else ensure_shared_root()
 
 
 def _assets_table(assets: list[Asset]) -> str:

@@ -19,6 +19,7 @@ class StoreUseTest(unittest.TestCase):
         base = Path(self.tmp.name)
         (base / "repo").mkdir()
         self.db = base / "footage" / "factory.db"
+        self.db.parent.mkdir()
         self.client = TestClient(create_app(base / "repo", local_root=base / "footage", db_path=self.db,
                                             web_dist=base / "dist"))
 
@@ -45,7 +46,6 @@ class StoreUseTest(unittest.TestCase):
         self.assertEqual((r.status_code, r.json()["values"]), (200, []))
 
     def test_a_read_does_not_migrate_an_older_store(self):
-        self.db.parent.mkdir(parents=True)
         sqlite3.connect(self.db).close()
         r = self.client.get("/api/contour/watchlists")
         self.assertEqual(r.status_code, 409, r.text)
@@ -57,7 +57,6 @@ class StoreUseTest(unittest.TestCase):
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 0)
 
     def test_a_store_newer_than_the_code_asks_for_a_restart(self):
-        self.db.parent.mkdir(parents=True)
         with sqlite3.connect(self.db) as conn:
             conn.execute(f"PRAGMA user_version = {st.SCHEMA_VERSION + 1}")
         r = self.client.get("/api/contour/watchlists")
@@ -69,10 +68,17 @@ class StoreUseTest(unittest.TestCase):
         r = self.client.post("/api/notes", json={"kind": "general", "key": "", "text": "x"})
         self.assertEqual((r.status_code, r.json()["code"]), (404, "db_missing"), r.text)
         self.assertFalse(self.db.exists())
+
+    def test_without_the_shared_root_a_store_use_names_it_and_creates_nothing(self):
+        self.db.parent.rmdir()
+        for r in (self.client.get("/api/contour/watchlists"),
+                  self.client.post("/api/notes", json={"kind": "general", "key": "", "text": "x"})):
+            self.assertEqual((r.status_code, r.json()["code"]), (404, "shared_unavailable"), r.text)
+            self.assertEqual(r.json()["params"]["root"], str(self.db.parent))
+            self.assertIn("smb://", r.json()["detail"])
         self.assertFalse(self.db.parent.exists())
 
     def test_a_note_written_to_an_older_store_is_409_and_does_not_migrate_it(self):
-        self.db.parent.mkdir(parents=True)
         sqlite3.connect(self.db).close()
         r = self.client.post("/api/notes", json={"kind": "general", "key": "", "text": "x"})
         self.assertEqual((r.status_code, r.json()["code"]), (409, "db_schema"), r.text)

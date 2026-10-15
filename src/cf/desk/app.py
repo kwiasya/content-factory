@@ -14,6 +14,7 @@ from cf.desk import (catalog, channels, contour_api, formats_api, gitread, libra
                      research_api, search, skill_lint, skill_links, videos_api)
 from cf.desk.hashed import atomic_write, digest, stale
 from cf.desk.problems import Problem
+from cf.research.store import person
 
 WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
@@ -23,10 +24,6 @@ def create_app(repo: Path, *, local_root: Path, db_path: Path, shared_root: Path
     repo = Path(repo).resolve()
     local_root = Path(local_root)
     shared_root = local_root if shared_root is None else Path(shared_root)
-    if local_root.expanduser().resolve() != shared_root.expanduser().resolve():
-        raise ValueError(f"local root {local_root} and shared root {shared_root} differ; "
-                         "separate roots are not supported yet (one root for now)")
-    root = local_root
     app = FastAPI(title="Desk", docs_url=None, redoc_url=None, openapi_url=None)
     problems.install(app)
 
@@ -74,7 +71,8 @@ def create_app(repo: Path, *, local_root: Path, db_path: Path, shared_root: Path
     @app.get("/api/meta")
     def get_meta() -> dict:
         return {"repo": str(repo), "branch": gitread.branch(repo), "local_root": str(local_root),
-                "shared_root": str(shared_root), "db_path": str(db_path)}
+                "shared_root": str(shared_root), "shared_available": shared_root.is_dir(), "db_path": str(db_path),
+                "person": person()}
 
     @app.put("/api/doc")
     def put_doc(body: DocWrite) -> dict:
@@ -97,14 +95,14 @@ def create_app(repo: Path, *, local_root: Path, db_path: Path, shared_root: Path
     app.include_router(research_api.router(repo))
     app.include_router(search.router(repo))
     app.include_router(skill_links.router(repo))
-    app.include_router(formats_api.router(repo, root))
+    app.include_router(formats_api.router(repo, local_root))
     app.include_router(skill_lint.router(repo))
     app.include_router(notes_api.router(db_path))
-    app.include_router(videos_api.router(root, repo, db_path))
-    app.include_router(channels.router(root, db_path))
-    app.include_router(media.router(root, lambda: library_api.pack_files(db_path, root)))
-    app.include_router(library_api.router(db_path, root))
-    app.include_router(contour_api.router(db_path, root))
+    app.include_router(videos_api.router(local_root, repo, db_path, shared_root))
+    app.include_router(channels.router(local_root, db_path))
+    app.include_router(media.router(local_root, shared_root, lambda: library_api.pack_files(db_path, shared_root)))
+    app.include_router(library_api.router(db_path, shared_root))
+    app.include_router(contour_api.router(db_path, shared_root, local_root))
 
     @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     def api_not_found(rest: str) -> None:

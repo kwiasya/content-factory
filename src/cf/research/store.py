@@ -1,18 +1,21 @@
-"""The research store: one SQLite file at the shared root.
+"""The research store: one SQLite file at the shared root (ADR 0013).
 
-Path: ``--db`` on the CLI, else ``CF_FACTORY_DB``, else
-``<shared root>/factory.db`` where the shared root is ``CF_SHARED_ROOT`` or
-``~/Movies/content-factory``. The two roots: the local root (``CF_LOCAL_ROOT``: Footage,
-videos, channels) and the shared root (``CF_SHARED_ROOT``: factory.db, references, library);
-``CF_FOOTAGE_ROOT`` is a deprecated fallback for both. Every table of the research spec is created up
-front (schema version in ``PRAGMA user_version``); later versions append to
-``MIGRATIONS``. Opening also loads the taxonomy seed from the repo (idempotent).
+Path: ``--db`` on the CLI, else ``CF_FACTORY_DB``, else ``<shared root>/factory.db``. The two roots:
+the local root (``CF_LOCAL_ROOT``, else the deprecated ``CF_FOOTAGE_ROOT``, else
+``~/Movies/content-factory``: Footage, videos, channels) and the shared root (``CF_SHARED_ROOT``, else
+``/Users/Shared/content-factory``: factory.db, references, library, packs, secrets.env, backups). The
+variables come from the shell or the personal ``<repo>/.env``, read on the first lookup. The default
+path is never created (only ``db init`` creates it); the journal stays ``delete``; only the CLI
+migrates. Every table of the research spec is created up front (schema version in
+``PRAGMA user_version``); later versions append to ``MIGRATIONS``. Opening also adds taxonomy seed
+values the store lacks.
 
 JSON columns hold text; ``Store.query`` returns plain dicts.
 """
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import sqlite3
@@ -21,17 +24,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-DEFAULT_ROOT = Path.home() / "Movies" / "content-factory"
+DEFAULT_LOCAL_ROOT = Path.home() / "Movies" / "content-factory"
+DEFAULT_SHARED_ROOT = Path("/Users/Shared/content-factory")
 BUSY_TIMEOUT_S = 10
 REPO_ROOT = Path(__file__).resolve().parents[3]  # the repo checkout (taxonomy seed, templates, formats/)
 
 
 class StoreError(Exception):
     """The database cannot be opened or a write breaks a store rule."""
-
-
-class RootsError(StoreError):
-    """The local and shared roots differ where only one root is supported yet."""
 
 
 class StoreMissing(StoreError):
@@ -59,33 +59,54 @@ def is_busy(exc: BaseException) -> bool:
     return isinstance(exc, sqlite3.OperationalError) and ("locked" in text or "busy" in text)
 
 
-def _root(var: str) -> Path:
-    env = os.environ.get(var) or os.environ.get("CF_FOOTAGE_ROOT")
-    return Path(env).expanduser() if env else DEFAULT_ROOT
+_env_loaded = False
+
+
+def _env(var: str) -> str | None:
+    global _env_loaded
+    if not _env_loaded:
+        _env_loaded = True
+        from cf.research import env
+        env.load_env()
+    return os.environ.get(var) or None
 
 
 def local_root() -> Path:
-    """``CF_LOCAL_ROOT``, else ``CF_FOOTAGE_ROOT`` (deprecated), else ``~/Movies/content-factory``."""
-    return _root("CF_LOCAL_ROOT")
+    """``CF_LOCAL_ROOT``, else ``CF_FOOTAGE_ROOT`` (deprecated), else ``~/Movies/content-factory``: Footage,
+    videos/, channels/, _models/ of the person on this Mac."""
+    env = _env("CF_LOCAL_ROOT") or _env("CF_FOOTAGE_ROOT")
+    return Path(env).expanduser() if env else DEFAULT_LOCAL_ROOT
 
 
 def shared_root() -> Path:
-    """``CF_SHARED_ROOT``, else ``CF_FOOTAGE_ROOT`` (deprecated), else ``~/Movies/content-factory``."""
-    return _root("CF_SHARED_ROOT")
+    """``CF_SHARED_ROOT``, else ``/Users/Shared/content-factory``: factory.db, references/, library/, packs/,
+    secrets.env and backups/, one folder for both people (ADR 0013)."""
+    env = _env("CF_SHARED_ROOT")
+    return Path(env).expanduser() if env else DEFAULT_SHARED_ROOT
 
 
-def single_root() -> Path:
-    """The local root when both roots are the same folder; ``RootsError`` otherwise."""
-    local, shared = local_root(), shared_root()
-    if local.resolve() != shared.resolve():
-        raise RootsError(f"CF_LOCAL_ROOT {local} and CF_SHARED_ROOT {shared} differ; "
-                         "separate roots are not supported yet (one root for now)")
-    return local
+def person() -> str:
+    """``CF_PERSON``, else the macOS user name: the owner of rows that point at local things (ADR 0013)."""
+    return _env("CF_PERSON") or getpass.getuser()
+
+
+def mount_hint(root: Path) -> str:
+    return (f"the shared root {root} is not available; on Nastya's Mac connect to smb://<author-mac>.local/Shared "
+            f"(it mounts at /Volumes/Shared); on the author's Mac check the symlink {root} (docs/shared-setup.md)")
+
+
+def ensure_shared_root(root: Path | None = None) -> Path:
+    """``root`` (default: the shared root) when it is a directory; ``StoreError`` with the mount hint otherwise.
+    Writers of shared files call it first, so an unmounted share never gets local files in its place."""
+    r = Path(root) if root is not None else shared_root()
+    if not r.is_dir():
+        raise StoreError(mount_hint(r))
+    return r
 
 
 def default_db_path(root: Path | None = None) -> Path:
     """``CF_FACTORY_DB`` or ``<root>/factory.db`` (``root`` defaults to the shared root)."""
-    env = os.environ.get("CF_FACTORY_DB")
+    env = _env("CF_FACTORY_DB")
     return Path(env).expanduser() if env else Path(root or shared_root()) / "factory.db"
 
 
@@ -455,17 +476,11 @@ def _statements(script: str) -> list[str]:
 
 
 def missing_message(p: Path) -> str:
-    """Why there is no store at ``p`` and what to do: the mount hint when the shared root behind it is
-    unavailable, else ``db init``."""
-    root = shared_root()
-    if not root.is_dir() and (p.parent == root or root in p.parents):
-        return f"no research store at {p}: {mount_hint(root)}"
+    """Why there is no store at ``p`` and what to do: the mount hint when the folder that should hold it (the
+    shared root) is not there, else ``db init``."""
+    if not p.parent.is_dir():
+        return f"no research store at {p}: {mount_hint(p.parent)}"
     return f"no research store at {p}; `python -m cf.research db init` creates it"
-
-
-def mount_hint(root: Path) -> str:
-    return (f"the shared root {root} is not available; on Nastya's Mac connect to smb://<author-mac>.local/Shared "
-            f"(it mounts at /Volumes/Shared); on the author's Mac check the symlink {root} (docs/shared-setup.md)")
 
 
 def connect(p: Path, *, readonly: bool = False) -> sqlite3.Connection:

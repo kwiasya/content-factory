@@ -578,6 +578,7 @@ class CaptionLangsTest(unittest.TestCase):
 class FetchCliTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        (Path(self.tmp.name) / "footage").mkdir()
         self.fake = FakeAdapters(FakeTransport(fixture("channels_list_handle.json")))
 
     def tearDown(self):
