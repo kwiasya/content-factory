@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 DEFAULT_ROOT = Path.home() / "Movies" / "content-factory"
+BUSY_TIMEOUT_S = 10
 REPO_ROOT = Path(__file__).resolve().parents[3]  # the repo checkout (taxonomy seed, templates, formats/)
 
 
@@ -324,6 +325,17 @@ MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9]  # MIGRATIONS[i] ta
 SCHEMA_VERSION = len(MIGRATIONS)
 
 
+OLD_NUMBERING_HINT = ("this store was migrated by the pre-merge code (Library as V6, idea_video as V7); "
+                      "run `python -m cf.research db renumber` first")
+
+
+def old_numbering(conn: sqlite3.Connection) -> bool:
+    """True for a store migrated by the pre-merge code: the Library as V6 and idea_video as V7, no Instagram tables."""
+    version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    return version in (6, 7) and "pack" in names and "insight" not in names
+
+
 class Store:
     """An open research database. Use as a context manager or call ``close``."""
 
@@ -371,9 +383,13 @@ class Store:
         """
         if self.schema_version() == SCHEMA_VERSION:
             return
+        if old_numbering(self.conn):
+            raise StoreError(f"{self.path}: {OLD_NUMBERING_HINT}")
         self.conn.execute("BEGIN IMMEDIATE")
         try:
             version = self.schema_version()
+            if old_numbering(self.conn):
+                raise StoreError(f"{self.path}: {OLD_NUMBERING_HINT}")
             if version > SCHEMA_VERSION:
                 raise StoreError(f"database {self.path} is schema version {version}, newer than this "
                                  f"code ({SCHEMA_VERSION}); update the repo")

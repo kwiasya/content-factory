@@ -7,7 +7,8 @@ remove-channel, add-query, add-reference), ``taxonomy`` (list, approve, reject),
 restore, note, brief, candidates), ``summary`` (hooks, formats, topics), ``hooks``
 (save, remove, list, export: the Hook library of a Format), ``notes`` (list, add,
 resolve, delete: Notes from the Author), ``own`` (sync, report, mark, unmark: the
-Author's Instagram reels with insights), ``ig`` (token-status, token-refresh). Every command takes
+Author's Instagram reels with insights), ``ig`` (token-status, token-refresh), ``db`` (renumber: the
+store file itself). Every command takes
 ``--json`` (machine output on stdout) and ``--db`` (default ``CF_FACTORY_DB`` or
 ``<shared root>/factory.db``). Human output is a Markdown table in Russian.
 Errors: one line on stderr, exit 1.
@@ -26,10 +27,10 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cf.research import (brief, card, env, feed, fetch, hooks, ideas, instagram, notes, own, picks, quota, scout,
-                         summary, taxonomy, watchlist, youtube)
+from cf.research import (brief, card, env, feed, fetch, hooks, ideas, instagram, notes, own, picks, quota, renumber,
+                         scout, summary, taxonomy, watchlist, youtube)
 from cf.research.kinds import KINDS
-from cf.research.store import StoreError, open_store
+from cf.research.store import StoreError, default_db_path, open_store
 
 # Errors a command reports as one line and exit 1.
 USER_ERRORS: tuple[type[Exception], ...] = (
@@ -1008,10 +1009,40 @@ def register_ig(sub, common) -> None:
     p.set_defaults(func=cmd_ig_token_refresh)
 
 
+# --- db -----------------------------------------------------------------------
+
+def _db_path(args) -> Path:
+    return Path(args.db).expanduser() if args.db else default_db_path()
+
+
+def cmd_db_renumber(args) -> int:
+    r = renumber.renumber(_db_path(args))
+
+    def human() -> str:
+        if not r["renumbered"]:
+            return f"{r['path']}: нумерация уже новая (версия {r['from_version']}), ничего не менял."
+        lines = [f"{r['path']}: версия {r['from_version']} (старая нумерация) → {r['renumbered_to']} → "
+                 f"{r['version']}. Копия до изменений: {r['backup']}"]
+        lines.append("Строки в таблицах не изменились." if not r["changed"]
+                     else "ИЗМЕНИЛИСЬ строки: " + ", ".join(f"{t} {a}→{b}" for t, (a, b) in r["changed"].items()))
+        return "\n".join(lines)
+    emit(args, r, human)
+    return 0 if not r.get("changed") else 1
+
+
+def register_db(sub, common) -> None:
+    g = sub.add_parser("db", help="the store file itself: renumber")
+    gs = g.add_subparsers(dest="cmd", required=True)
+    p = gs.add_parser("renumber", parents=[common],
+                      help="repair a store migrated by the pre-merge code (Library as V6, idea_video as V7), "
+                           "back it up first and migrate it to the current version")
+    p.set_defaults(func=cmd_db_renumber, opens_store=False)
+
+
 GROUPS: list[Callable] = [register_watchlist, register_taxonomy, register_quota,
                           register_scout, register_snapshot, register_feed, register_fetch, register_card,
                           register_ideas, register_summary, register_hooks, register_notes, register_own,
-                          register_ig]
+                          register_ig, register_db]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1028,6 +1059,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if not getattr(args, "opens_store", True):
+            return args.func(args)
         with open_store(args.db) as store:
             return args.func(args, store)
     except USER_ERRORS as exc:
