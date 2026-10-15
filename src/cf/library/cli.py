@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -21,7 +22,8 @@ from cf.library import index as index_mod
 from cf.library.errors import AssetNotFound, LibraryError, PackError
 from cf.library.library import Asset, card, load
 from cf.library.refs import CATEGORIES, RIGHTS
-from cf.research.store import StoreError, open_store, shared_root
+from cf.research import backup
+from cf.research.store import BUSY_MESSAGE, StoreError, is_busy, open_store, shared_root
 
 USER_ERRORS: tuple[type[Exception], ...] = (LibraryError, StoreError)
 
@@ -114,7 +116,7 @@ def register_pack(sub, common) -> None:
     p.set_defaults(func=cmd_pack_list)
     p = gs.add_parser("remove", parents=[common], help="unregister a Pack (its cache stays)")
     p.add_argument("id")
-    p.set_defaults(func=cmd_pack_remove)
+    p.set_defaults(func=cmd_pack_remove, backup="pre-pack-remove")
 
 
 # --- index ----------------------------------------------------------------------
@@ -156,7 +158,7 @@ def register_index(sub, common) -> None:
     p.add_argument("--no-loudness", action="store_true", help="skip loudness measurement")
     p.add_argument("--only", action="append", metavar="REL", help="index only this subtree (repeatable)")
     p.add_argument("--quiet", action="store_true", help="no progress lines on stderr")
-    p.set_defaults(func=cmd_index)
+    p.set_defaults(func=cmd_index, backup="pre-index")
 
 
 # --- show / suggest / query --------------------------------------------------------
@@ -341,7 +343,15 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         with open_store(args.db, seed=False) as store:
+            backup.ensure_daily(store)
+            if getattr(args, "backup", None):
+                backup.before(store, args.backup)
             return args.func(args, store)
     except USER_ERRORS as exc:
         print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except sqlite3.OperationalError as exc:
+        if not is_busy(exc):
+            raise
+        print(f"error: {BUSY_MESSAGE}", file=sys.stderr)
         return 1

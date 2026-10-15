@@ -1,9 +1,10 @@
-"""Desk opens factory.db without seeding, and reads never create or migrate it."""
+"""Desk opens factory.db without seeding and never creates nor migrates it; a held lock is 503 db_busy."""
 
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -34,7 +35,7 @@ class StoreUseTest(unittest.TestCase):
             self.assertIn("factory.db", r.json()["detail"])
             self.assertEqual(r.json()["code"], "db_missing", url)
             self.assertEqual(r.json()["params"],
-                             {"path": str(self.db), "command": "python -m cf.research watchlist list"})
+                             {"path": str(self.db), "command": "python -m cf.research db init"})
         self.assertFalse(self.db.exists())
 
     def test_a_read_does_not_seed_the_taxonomy(self):
@@ -51,7 +52,7 @@ class StoreUseTest(unittest.TestCase):
         self.assertIn("schema version 0", r.json()["detail"])
         self.assertEqual(r.json()["code"], "db_schema")
         self.assertEqual(r.json()["params"], {"path": str(self.db), "version": 0, "expected": st.SCHEMA_VERSION,
-                                              "command": "python -m cf.research watchlist list"})
+                                              "command": "python -m cf.research db migrate"})
         with sqlite3.connect(self.db) as conn:
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 0)
 
@@ -64,8 +65,33 @@ class StoreUseTest(unittest.TestCase):
         self.assertEqual(r.json()["code"], "db_schema_newer")
         self.assertIn("restart Desk", r.json()["detail"])
 
-    def test_a_note_written_without_a_store_creates_it_unseeded(self):
+    def test_a_note_written_without_a_store_is_404_and_creates_nothing(self):
+        r = self.client.post("/api/notes", json={"kind": "general", "key": "", "text": "x"})
+        self.assertEqual((r.status_code, r.json()["code"]), (404, "db_missing"), r.text)
+        self.assertFalse(self.db.exists())
+        self.assertFalse(self.db.parent.exists())
+
+    def test_a_note_written_to_an_older_store_is_409_and_does_not_migrate_it(self):
+        self.db.parent.mkdir(parents=True)
+        sqlite3.connect(self.db).close()
+        r = self.client.post("/api/notes", json={"kind": "general", "key": "", "text": "x"})
+        self.assertEqual((r.status_code, r.json()["code"]), (409, "db_schema"), r.text)
+        with sqlite3.connect(self.db) as conn:
+            self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 0)
+
+    def test_a_note_written_to_an_existing_store_does_not_seed_it(self):
+        st.open_store(self.db, seed=False).close()
         r = self.client.post("/api/notes", json={"kind": "general", "key": "", "text": "x"})
         self.assertEqual(r.status_code, 201, r.text)
         with sqlite3.connect(self.db) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM taxonomy").fetchone()[0], 0)
+
+    def test_a_write_while_another_connection_holds_the_lock_is_503_db_busy(self):
+        st.open_store(self.db, seed=False).close()
+        holder = sqlite3.connect(self.db)
+        self.addCleanup(holder.close)
+        holder.execute("BEGIN EXCLUSIVE")
+        with mock.patch.object(st, "BUSY_TIMEOUT_S", 0.1):
+            r = self.client.post("/api/notes", json={"kind": "general", "key": "", "text": "x"})
+        holder.rollback()
+        self.assertEqual((r.status_code, r.json()["code"]), (503, "db_busy"), r.text)

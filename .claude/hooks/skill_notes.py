@@ -32,7 +32,7 @@ def skill_of(event: dict) -> str:
 
 
 def open_notes(path: Path, skill: str) -> list[sqlite3.Row]:
-    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=10)
     try:
         conn.row_factory = sqlite3.Row
         if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'note'").fetchone() is None:

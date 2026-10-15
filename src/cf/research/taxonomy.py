@@ -70,8 +70,13 @@ def read_seed(path: str | Path = SEED_PATH) -> list[TaxonomyValue]:
 
 
 def load_seed(store: Store, path: str | Path = SEED_PATH) -> int:
-    """Insert seed values the store lacks as approved; return how many were new."""
+    """Insert seed values the store lacks as approved; return how many were new. Reads first and opens no
+    transaction when nothing is missing (a read path must not take the write lock)."""
     entries = read_seed(path)
+    have = {(r["kind"], r["value"]) for r in store.query("SELECT kind, value FROM taxonomy")}
+    entries = [e for e in entries if (e.kind, e.value) not in have]
+    if not entries:
+        return 0
     ts = now_iso()
     with store.transaction() as c:
         before = c.total_changes

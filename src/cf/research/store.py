@@ -34,6 +34,31 @@ class RootsError(StoreError):
     """The local and shared roots differ where only one root is supported yet."""
 
 
+class StoreMissing(StoreError):
+    """There is no store file at the path and the caller may not create one."""
+
+
+class SchemaMismatch(StoreError):
+    """The store is at another schema version and the caller may not migrate it."""
+
+    def __init__(self, message: str, version: int):
+        super().__init__(message)
+        self.version = version
+
+
+class StoreBusy(StoreError):
+    """Another process or Mac holds the write lock longer than the busy timeout."""
+
+
+BUSY_MESSAGE = "the store is busy: another process or Mac is writing or migrating; retry in a moment"
+
+
+def is_busy(exc: BaseException) -> bool:
+    """True for sqlite's "database is locked" / "busy" errors."""
+    text = str(exc).lower()
+    return isinstance(exc, sqlite3.OperationalError) and ("locked" in text or "busy" in text)
+
+
 def _root(var: str) -> Path:
     env = os.environ.get(var) or os.environ.get("CF_FOOTAGE_ROOT")
     return Path(env).expanduser() if env else DEFAULT_ROOT
@@ -385,7 +410,15 @@ class Store:
             return
         if old_numbering(self.conn):
             raise StoreError(f"{self.path}: {OLD_NUMBERING_HINT}")
-        self.conn.execute("BEGIN IMMEDIATE")
+        if self.schema_version() > 0 and self.path is not None:
+            from cf.research import backup
+            backup.backup(self.conn, self.path, f"pre-v{SCHEMA_VERSION}")
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError as exc:
+            if is_busy(exc):
+                raise StoreBusy(BUSY_MESSAGE) from exc
+            raise
         try:
             version = self.schema_version()
             if old_numbering(self.conn):
@@ -399,6 +432,8 @@ class Store:
                         self.conn.execute(stmt)
                     self.conn.execute(f"PRAGMA user_version = {v + 1}")
                 except sqlite3.Error as exc:
+                    if is_busy(exc):
+                        raise StoreBusy(BUSY_MESSAGE) from exc
                     raise StoreError(f"migration to schema version {v + 1} failed: {exc}") from exc
         except BaseException:
             self.conn.rollback()
@@ -419,24 +454,75 @@ def _statements(script: str) -> list[str]:
     return out
 
 
-def open_store(path: str | Path | None = None, *, seed: bool = True) -> Store:
-    """Open (creating if needed) the store at ``path`` or ``default_db_path()``.
+def missing_message(p: Path) -> str:
+    """Why there is no store at ``p`` and what to do: the mount hint when the shared root behind it is
+    unavailable, else ``db init``."""
+    root = shared_root()
+    if not root.is_dir() and (p.parent == root or root in p.parents):
+        return f"no research store at {p}: {mount_hint(root)}"
+    return f"no research store at {p}; `python -m cf.research db init` creates it"
 
-    Migrates to ``SCHEMA_VERSION`` and, unless ``seed`` is false, loads the
-    taxonomy seed from the repo (new values only; existing rows keep their status).
-    """
-    p = Path(path).expanduser() if path is not None else default_db_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(p)
+
+def mount_hint(root: Path) -> str:
+    return (f"the shared root {root} is not available; on Nastya's Mac connect to smb://<author-mac>.local/Shared "
+            f"(it mounts at /Volumes/Shared); on the author's Mac check the symlink {root} (docs/shared-setup.md)")
+
+
+def connect(p: Path, *, readonly: bool = False) -> sqlite3.Connection:
+    """A connection to the store file at ``p`` with the busy timeout; ``readonly`` opens it ``mode=ro``."""
+    if readonly:
+        conn = sqlite3.connect(f"{Path(p).resolve().as_uri()}?mode=ro", uri=True, timeout=BUSY_TIMEOUT_S)
+    else:
+        conn = sqlite3.connect(p, timeout=BUSY_TIMEOUT_S)
     conn.row_factory = sqlite3.Row
+    return conn
+
+
+def journal_mode(conn: sqlite3.Connection) -> str:
+    return str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+
+
+def open_store(path: str | Path | None = None, *, seed: bool = True, create: bool | None = None,
+               migrate: bool = True) -> Store:
+    """Open the store at ``path`` or ``default_db_path()``.
+
+    ``create``: None creates the file only when ``path`` was given (an explicit ``--db`` or a test's
+    temp file), never at the default path; True creates it (``db init``); False never does. A missing
+    file raises ``StoreMissing``. The journal must be ``delete`` (WAL does not work over SMB). With
+    ``migrate`` the store is brought to ``SCHEMA_VERSION``; without it another version raises
+    ``SchemaMismatch``. Unless ``seed`` is false, taxonomy seed values the store lacks are added
+    (nothing is written when none is missing).
+    """
+    explicit = path is not None
+    p = Path(path).expanduser() if explicit else default_db_path()
+    if create is None:
+        create = explicit
+    if not p.exists():
+        if not create:
+            raise StoreMissing(missing_message(p))
+        p.parent.mkdir(parents=True, exist_ok=True)
+    conn = connect(p)
     conn.execute("PRAGMA foreign_keys = ON")
     s = Store(conn, p)
     try:
+        mode = journal_mode(conn)
+        if mode == "wal":
+            raise StoreError(f"{p} is in WAL mode; WAL does not work over SMB; switch it back with "
+                             "`sqlite3 factory.db 'PRAGMA journal_mode=DELETE'` while nobody runs anything")
+        version = s.schema_version()
+        if version != SCHEMA_VERSION and not migrate:
+            raise SchemaMismatch(f"the research store {p} is schema version {version}, this code reads "
+                                 f"{SCHEMA_VERSION}; `python -m cf.research db migrate` migrates it", version)
         s.migrate()
         if seed:
             from cf.research import taxonomy
             taxonomy.load_seed(s)
-    except Exception:
+    except sqlite3.OperationalError as exc:
+        s.close()
+        if is_busy(exc):
+            raise StoreBusy(BUSY_MESSAGE) from exc
+        raise
+    except BaseException:
         s.close()
         raise
     return s

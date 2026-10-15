@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 from cf.library.errors import LibraryError
-from cf.research.store import Store
+from cf.research.store import Store, connect
 
 LIBRARY_TABLES = ("pack", "asset_author", "asset_alias")
 
@@ -17,9 +16,7 @@ def open_readonly(db_path: str | Path) -> Store | None:
     p = Path(db_path).expanduser()
     if not p.is_file():
         return None
-    conn = sqlite3.connect(f"{p.resolve().as_uri()}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    s = Store(conn, p)
+    s = Store(connect(p, readonly=True), p)
     try:
         have = set(s.tables())
         missing = [t for t in LIBRARY_TABLES if t not in have]

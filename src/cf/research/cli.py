@@ -7,8 +7,8 @@ remove-channel, add-query, add-reference), ``taxonomy`` (list, approve, reject),
 restore, note, brief, candidates), ``summary`` (hooks, formats, topics), ``hooks``
 (save, remove, list, export: the Hook library of a Format), ``notes`` (list, add,
 resolve, delete: Notes from the Author), ``own`` (sync, report, mark, unmark: the
-Author's Instagram reels with insights), ``ig`` (token-status, token-refresh), ``db`` (renumber: the
-store file itself). Every command takes
+Author's Instagram reels with insights), ``ig`` (token-status, token-refresh), ``db`` (init, check,
+backup, migrate, renumber: the store file itself). Every command takes
 ``--json`` (machine output on stdout) and ``--db`` (default ``CF_FACTORY_DB`` or
 ``<shared root>/factory.db``). Human output is a Markdown table in Russian.
 Errors: one line on stderr, exit 1.
@@ -23,14 +23,17 @@ import argparse
 import contextlib
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cf.research import (brief, card, env, feed, fetch, hooks, ideas, instagram, notes, own, picks, quota, renumber,
+from cf.research import (backup, brief, card, env, feed, fetch, hooks, ideas, instagram, notes, own, picks, quota, renumber,
                          scout, summary, taxonomy, watchlist, youtube)
 from cf.research.kinds import KINDS
-from cf.research.store import StoreError, default_db_path, open_store
+from cf.research.store import (OLD_NUMBERING_HINT, SCHEMA_VERSION, BUSY_MESSAGE, StoreError, connect, default_db_path,
+                               is_busy, journal_mode, missing_message, mount_hint, old_numbering, open_store,
+                               shared_root)
 
 # Errors a command reports as one line and exit 1.
 USER_ERRORS: tuple[type[Exception], ...] = (
@@ -327,7 +330,7 @@ def register_fetch(sub, common) -> None:
     p.add_argument("--retranscribe", action="store_true",
                    help="transcribe again in the video's own language, fetch its captions and remake the Shot log "
                         "from the media already in the folder (no download; the analysis is kept)")
-    p.set_defaults(func=cmd_fetch)
+    p.set_defaults(func=cmd_fetch, backup="pre-fetch")
 
 
 # --- scout, snapshot, feed ---------------------------------------------------
@@ -390,7 +393,7 @@ def register_scout(sub, common) -> None:
                    help="pages of 50 results per query (default %(default)s; 1 search call each)")
     p.add_argument("--duration", choices=("any", "short", "medium", "long"),
                    help="search.list videoDuration: short < 4 min, medium 4-20, long > 20")
-    p.set_defaults(func=cmd_scout)
+    p.set_defaults(func=cmd_scout, backup="pre-scout")
 
 
 def cmd_snapshot(args, store) -> int:
@@ -409,7 +412,7 @@ def register_snapshot(sub, common) -> None:
     p = sub.add_parser("snapshot", parents=[common],
                        help="record views, likes and comments of every Reference of a Watchlist")
     p.add_argument("name")
-    p.set_defaults(func=cmd_snapshot)
+    p.set_defaults(func=cmd_snapshot, backup="pre-snapshot")
 
 
 def cmd_feed(args, store) -> int:
@@ -964,7 +967,7 @@ def register_own(sub, common) -> None:
     p.add_argument("--pages", type=int, default=own.DEFAULT_PAGES, help="pages of 50 media at most (default %(default)s)")
     p.add_argument("--discovery-pages", type=int, default=own.DEFAULT_PAGES,
                    help="Business Discovery pages at most for the views of reels without insights (default %(default)s)")
-    p.set_defaults(func=cmd_own_sync)
+    p.set_defaults(func=cmd_own_sync, backup="pre-own")
     p = gs.add_parser("report", parents=[common], help="own reels ranked by views with reach, shares, saves, medians")
     p.add_argument("--days", type=float, help="reels published in the last N days only")
     p.set_defaults(func=cmd_own_report)
@@ -1030,9 +1033,90 @@ def cmd_db_renumber(args) -> int:
     return 0 if not r.get("changed") else 1
 
 
+def cmd_db_init(args) -> int:
+    p = _db_path(args)
+    existed = p.exists()
+    with open_store(p, create=True) as s:
+        data = {"path": str(p), "created": not existed, "version": s.schema_version()}
+    return emit(args, data, lambda: (f"Создал базу {p}" if data["created"] else f"База уже есть: {p}")
+                + f", версия схемы {data['version']}.")
+
+
+def _check(p: Path) -> dict:
+    root = shared_root()
+    data: dict[str, Any] = {"path": str(p), "resolved": str(p.resolve()), "exists": p.is_file(),
+                            "shared_root": str(root), "shared_root_available": root.is_dir(),
+                            "expected_version": SCHEMA_VERSION, "problems": []}
+    if not data["shared_root_available"]:
+        data["problems"].append(mount_hint(root))
+    if not data["exists"]:
+        data["problems"].append(missing_message(p))
+        return data
+    data["size_bytes"] = p.stat().st_size
+    conn = connect(p, readonly=True)
+    try:
+        data["version"] = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        data["journal_mode"] = journal_mode(conn)
+        data["quick_check"] = backup.quick_check(conn)
+        data["old_numbering"] = old_numbering(conn)
+    finally:
+        conn.close()
+    data["backups"] = backup.newest_per_label(p)
+    if data["old_numbering"]:
+        data["problems"].append(OLD_NUMBERING_HINT)
+    elif data["version"] != SCHEMA_VERSION:
+        data["problems"].append(f"schema version {data['version']}, this code reads {SCHEMA_VERSION}; "
+                                "`python -m cf.research db migrate`")
+    if data["journal_mode"] != "delete":
+        data["problems"].append(f"journal_mode is {data['journal_mode']}, must be delete")
+    if data["quick_check"] != "ok":
+        data["problems"].append(f"quick_check: {data['quick_check'].splitlines()[0]}; restore a backup")
+    return data
+
+
+def cmd_db_check(args) -> int:
+    data = _check(_db_path(args))
+
+    def human() -> str:
+        rows = [("Путь", data["path"]), ("Настоящий путь", data["resolved"]),
+                ("Общая папка", f"{data['shared_root']} ({'доступна' if data['shared_root_available'] else 'НЕ доступна'})")]
+        if data["exists"]:
+            rows += [("Версия схемы", f"{data['version']} (код: {data['expected_version']})"),
+                     ("journal_mode", data["journal_mode"]), ("quick_check", data["quick_check"]),
+                     ("Размер", f"{data['size_bytes'] / 1e6:.1f} МБ")]
+            rows += [(f"Копия {label}", name) for label, name in sorted(data["backups"].items())]
+        text = md_table(["", ""], rows)
+        if data["problems"]:
+            text += "\n\nПроблемы:\n" + "\n".join(f"- {x}" for x in data["problems"])
+        return text
+    emit(args, data, human)
+    return 1 if data["problems"] else 0
+
+
+def cmd_db_backup(args, store) -> int:
+    path = backup.before(store, args.label)
+    return emit(args, {"backup": str(path)}, lambda: f"Копия: {path}")
+
+
+def cmd_db_migrate(args, store) -> int:
+    return emit(args, {"path": str(store.path), "version": store.schema_version()},
+                lambda: f"{store.path}: версия схемы {store.schema_version()}.")
+
+
 def register_db(sub, common) -> None:
-    g = sub.add_parser("db", help="the store file itself: renumber")
+    g = sub.add_parser("db", help="the store file itself: init, check, backup, migrate, renumber")
     gs = g.add_subparsers(dest="cmd", required=True)
+    p = gs.add_parser("init", parents=[common], help="create the store (the only command that creates one)")
+    p.set_defaults(func=cmd_db_init, opens_store=False)
+    p = gs.add_parser("check", parents=[common],
+                      help="read-only: path, resolved path, schema version, journal_mode, quick_check, size, "
+                           "newest backup per label, whether the shared root is mounted; exit 1 on a problem")
+    p.set_defaults(func=cmd_db_check, opens_store=False)
+    p = gs.add_parser("backup", parents=[common], help="copy the store into backups/ next to it")
+    p.add_argument("--label", default="manual", help="the backup's label (default: manual)")
+    p.set_defaults(func=cmd_db_backup)
+    p = gs.add_parser("migrate", parents=[common], help="migrate the store to this code's schema version")
+    p.set_defaults(func=cmd_db_migrate)
     p = gs.add_parser("renumber", parents=[common],
                       help="repair a store migrated by the pre-merge code (Library as V6, idea_video as V7), "
                            "back it up first and migrate it to the current version")
@@ -1062,9 +1146,17 @@ def main(argv: list[str] | None = None) -> int:
         if not getattr(args, "opens_store", True):
             return args.func(args)
         with open_store(args.db) as store:
+            backup.ensure_daily(store)
+            if getattr(args, "backup", None):
+                backup.before(store, args.backup)
             return args.func(args, store)
     except USER_ERRORS as exc:
         print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except sqlite3.OperationalError as exc:
+        if not is_busy(exc):
+            raise
+        print(f"error: {BUSY_MESSAGE}", file=sys.stderr)
         return 1
 
 
