@@ -47,7 +47,7 @@ Backups: `daily` at the first CLI command of the day (after a passing `quick_che
 
 A0. The code is on the branch the author runs and the tests are green. Add `CF_SHARED_ROOT=/Users/madvil2/Movies/content-factory` to `.env` (until A6). Repair the author's store: `python -m cf.research db renumber`, then `db check`. This alone unblocks the author's research CLI.
 
-A1. Dry runs. `du -sh ~/Movies/content-factory/{factory.db,references,library} "/Users/madvil2/Movies/Videos/davinci templates"`; `python -m cf.library pack list`; `pgrep -fl "cf\.|uvicorn|DaVinci"` is empty here and Nastya confirms nothing of hers runs. **[Nastya]** copies her LIVE `~/Movies/content-factory/factory.db` to `/Users/madvil2/Shared/content-factory/factory.db` and stops using her local store from now on. Merge dry run:
+A1. Dry runs. `du -sh ~/Movies/content-factory/{factory.db,references,library} "/Users/madvil2/Movies/Videos/davinci templates"`; `python -m cf.library pack list`; `pgrep -fl "cf\.|uvicorn|DaVinci"` is empty here and Nastya confirms nothing of hers runs. **[Nastya]** closes her Desk and every `cf.*` command, checks that no `~/Movies/content-factory/factory.db-journal` exists, copies her LIVE `~/Movies/content-factory/factory.db` to `/Users/madvil2/Shared/content-factory/factory.db` and stops using her local store from now on. Check the copy first: `python -m cf.research db check --db /Users/madvil2/Shared/content-factory/factory.db` must show `quick_check` ok and journal `delete`; the version-mismatch line (her store is older than this checkout) is expected, `db merge` migrates its own copy. Merge dry run:
 
 ```sh
 python -m cf.research db merge --base ~/Movies/content-factory/factory.db \
@@ -60,14 +60,16 @@ Expected on the 2026-10-15 copies: 3 watchlists, 495 channels, 8 110 videos, 16 
 
 **Checkpoint: the author confirms the move and the merge.**
 
-A2. Backups: `python -m cf.research db backup --label pre-shared`; copy Nastya's file to `/Users/madvil2/Shared/content-factory/backups/factory-<ts>-nastya-pre-merge.db`.
+A2. Backups: `mkdir -p /Users/madvil2/Shared/content-factory/backups`; `python -m cf.research db backup --label pre-shared`; `cp /Users/madvil2/Shared/content-factory/factory.db /Users/madvil2/Shared/content-factory/backups/factory-<ts>-nastya-pre-merge.db`.
 
-A3. The merge for real (A1 without `--dry-run`); the report says PASS; `python -m cf.research db check --db /Users/madvil2/Shared/content-factory/merge/factory.db`.
+A3. Re-run `pgrep -fl "cf\.|uvicorn|DaVinci"` (empty) and Nastya confirms nothing of hers runs. The merge for real (A1 without `--dry-run`); the report says PASS; `python -m cf.research db check --db /Users/madvil2/Shared/content-factory/merge/factory.db`.
 
-A4. Move the shared parts and place the merged store (renames on one volume):
+A4. Re-run the `pgrep` check (empty). Move the shared parts and place the merged store (renames on one volume). The block stops at the first failure and refuses to run once anything has moved; after a partial run, finish the remaining lines by hand:
 
 ```sh
+set -e
 S=/Users/madvil2/Shared/content-factory
+[ ! -e "$S/references" ] && [ ! -e "$S/library" ] && [ ! -e /Users/Shared/content-factory ] || { echo "already moved, stop"; exit 1; }
 mkdir -p $S/packs $S/backups
 mv ~/Movies/content-factory/references $S/references
 mv ~/Movies/content-factory/library    $S/library
@@ -92,7 +94,7 @@ A5. Inherited ACLs on the real folder for both users:
 for u in madvil2 nastaglusenko; do chmod -R +a "$u allow read,write,append,delete,delete_child,add_file,add_subdirectory,readattr,writeattr,readextattr,writeextattr,readsecurity,list,search,file_inherit,directory_inherit" /Users/madvil2/Shared/content-factory; done
 ```
 
-A6. Point the code at the share: delete the `CF_SHARED_ROOT` line from `.env`. **[author]** creates `/Users/Shared/content-factory/secrets.env` (mode 600) with `YOUTUBE_API_KEY` from his `.env`; Nastya adds the four `INSTAGRAM_*` lines (N3); the secrets leave both personal `.env` files. Pack: set `root` in `.claude/skills/index-pack/packs/davinci-templates.json` to `/Users/Shared/content-factory/packs/davinci templates`; `python -m cf.library pack add --config .claude/skills/index-pack/packs/davinci-templates.json` (same id, Author fields kept); `python -m cf.library index davinci-templates` (incremental; a full ~10-minute rebuild is acceptable).
+A6. Point the code at the share: delete the `CF_SHARED_ROOT` line from `.env`. **[author]** creates `/Users/Shared/content-factory/secrets.env` (mode 600; Nastya reads and writes it through the A5 ACL, not through the mode) with `YOUTUBE_API_KEY` from his `.env`; Nastya adds the four `INSTAGRAM_*` lines (N3); the secrets leave both personal `.env` files. Pack: set `root` in `.claude/skills/index-pack/packs/davinci-templates.json` to `/Users/Shared/content-factory/packs/davinci templates`; `python -m cf.library pack add --config .claude/skills/index-pack/packs/davinci-templates.json` (same id, Author fields kept); `python -m cf.library index davinci-templates` (incremental; a full ~10-minute rebuild is acceptable).
 
 A7. Rewrite the absolute paths the old fetches left in the Reference JSON files (`shotlog.json`, `info.json`: `/Users/madvil2/Movies/content-factory/references/...`): `python -m cf.research references relativize --dry-run` shows the files and counts, then the same without `--dry-run`. A file's own media becomes relative to its Reference folder, a path into another Reference becomes `/Users/Shared/content-factory/references/...`; `foreign paths left` must be 0. New fetches already write the Shot log's clip path relative.
 
@@ -106,13 +108,24 @@ A10. Commit the repo changes (the Pack config root) when the author asks. Nothin
 
 N1. **[Nastya]** Finder → Connect to Server → `smb://<author-mac>.local/Shared` as `nastaglusenko` (not guest); it mounts at `/Volumes/Shared` (if `/Volumes/Shared-1` appears, eject the other volume first); add it to Login Items.
 
-N2. `ln -s /Volumes/Shared/content-factory /Users/Shared/content-factory`.
+N2. `[ ! -e /Users/Shared/content-factory ] && ln -s /Volumes/Shared/content-factory /Users/Shared/content-factory` (nothing happens when it is already there; `ls -l /Users/Shared/content-factory` must point at `/Volumes/Shared/content-factory`).
 
-N3. `git pull` (the checkout must have store V10), `uv pip install --python .venv/bin/python -e '.[desk,research]'`, `npm --prefix web install && npm --prefix web run build`; `.env` gets `CF_PERSON` only if she wants a name other than her macOS user; **[Nastya]** adds her four `INSTAGRAM_*` lines to `/Users/Shared/content-factory/secrets.env` and deletes them from her `.env`.
+N3. `git pull` (the checkout must have store V10), `uv pip install --python .venv/bin/python -e '.[desk,research]'`, `npm --prefix web install && npm --prefix web run build`; `.env` gets `CF_PERSON` only if she wants a name other than her macOS user; **[Nastya]** adds her four `INSTAGRAM_*` lines to `/Users/Shared/content-factory/secrets.env` and deletes them from her `.env` (the A5 ACL gives her the file; its 600 mode names only the author).
 
 N4. Copy her References to the share once (no name clash with the author's Watchlists): `rsync -a ~/Movies/content-factory/references/ /Users/Shared/content-factory/references/`. Her `library/` cache is not copied; `index` rebuilds it after N7. Then `python -m cf.research references relativize` (as in A7) rewrites the `/Users/anastasiiahlushchenko/...` paths in her Reference JSON files.
 
-N5. `python -m cf.research db check`; `watchlist list` (3 rows); `feed me-walks` shows her picks; `card show <ig code>`; `notes list --all` shows her 20 Notes. ACLs both ways: she runs `touch /Users/Shared/content-factory/.nastya-test` and the author deletes it; she deletes a file the author made. One write: `notes add general "Nastya connected"`, the author resolves it. Then her local store is renamed `~/Movies/content-factory/factory.db.local-pre-shared` (kept, unused).
+N5. `python -m cf.research db check`; `watchlist list` (3 rows); `feed me-walks` shows her picks; `card show <ig code>`; `notes list --all` shows her 20 Notes. ACLs both ways: she runs `touch /Users/Shared/content-factory/.nastya-test` and the author deletes it; she deletes a file the author made. One write: `notes add general "Nastya connected"`, the author resolves it. Her local store stays in place until N5a passes.
+
+N5a. Lock test, the go-live gate; run it after her first CLI command of the day (so the `daily` backup does not skew the timing).
+1. The author holds the write lock for 40 s:
+   ```sh
+   .venv/bin/python -c "import sqlite3,time; c=sqlite3.connect('/Users/Shared/content-factory/factory.db', timeout=10); c.execute('BEGIN IMMEDIATE'); print('holding 40 s'); time.sleep(40); c.rollback(); print('released')"
+   ```
+   Within those 40 s Nastya runs `python -m cf.research notes add general "lock test"`: it must end after about 10 s with the busy error and exit 1. After `released` she runs it again: it succeeds and the author sees the Note in `notes list`.
+2. The reverse: Nastya holds the lock with the same one-liner, the author's `notes add` must wait about 10 s and fail, then succeed after `released`.
+3. Freshness: the author adds a Note; her Desk shows it on refresh.
+
+Outcome. All three pass: her local store is renamed `~/Movies/content-factory/factory.db.local-pre-shared` (kept, unused). If a write succeeds while the other Mac holds the lock, locks are not shared across the two Macs: do not retire her local store; adopt "one writer at a time" (never scout, snapshot, fetch, index or own sync on both Macs at once; Desk writes only while the other Mac is idle) and open the network-store item of ADR 0013.
 
 N6. `python -m cf.desk` → `#/agent` shows both roots, her name and no "not mounted" line; `#/contour` shows `me-walks`; `#/library` lists the author's Pack and plays a preview; `#/videos` lists her Videos.
 
@@ -122,6 +135,8 @@ N8. Unmount test: eject the volume; `python -m cf.research watchlist list` exits
 
 ## Rollback and restore
 
-Before A8, or later with everyone stopped: move the folders back, remove the five symlinks, put `backups/factory-<ts>-author-pre-merge.db` back as `~/Movies/content-factory/factory.db` (already renumbered; `backups/factory-*-pre-renumber.db` restores the old numbering if an old checkout must read it), restore the Pack `root` and `pack add`, put `CF_SHARED_ROOT` back in `.env`. Nastya keeps her local store until N5, so her side rolls back by pointing `CF_SHARED_ROOT` at her local root.
+Before A8, or later with everyone stopped: move the folders back, remove the five symlinks, put `backups/factory-<ts>-author-pre-merge.db` back as `~/Movies/content-factory/factory.db` (already renumbered; `backups/factory-*-pre-renumber.db` restores the old numbering if an old checkout must read it), restore the Pack `root` and `pack add`, put `CF_SHARED_ROOT` back in `.env`. Nastya keeps her local store until N5a passes, so her side rolls back by pointing `CF_SHARED_ROOT` at her local root.
 
-Restore a damaged store (`db check` reports a failing `quick_check`, or a command says so): stop Desk and every `cf.*` on both Macs; `cp` the newest good file from `backups/` over `factory.db` (remove a stale `factory.db-journal` only if no process runs); `db check`. Writes since that backup are lost; re-run `scout` or `snapshot` to refill measurements.
+Hot journal: a `factory.db-journal` left by a crashed writer is rolled back by the next read-write opener (any `cf.research` or `cf.library` command); read-only openers (Desk reads, `db check`, the Notes hook) cannot roll it back and fail with a read-only error until one does. Never delete the journal while any process might run: it holds the pages that undo the half-written transaction.
+
+Restore a damaged store (`db check` reports a failing `quick_check`, or a command says so): stop Desk and every `cf.*` on both Macs; `cp` the newest good file from `backups/` over `factory.db` (remove a stale `factory.db-journal` only now, with nothing running, since the restored file replaces what it would undo); `db check`. Writes since that backup are lost; re-run `scout` or `snapshot` to refill measurements.
