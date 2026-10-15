@@ -139,7 +139,7 @@ class HelpersTest(unittest.TestCase):
 
 
 class ListClipsThroughLinksTest(unittest.TestCase):
-    def test_symlinked_clips_are_listed_and_the_walk_is_the_raw_parent(self):
+    def test_symlinked_clips_are_listed_and_the_footage_is_the_raw_parent(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp).resolve()
             source = base / "vienna"
@@ -154,7 +154,8 @@ class ListClipsThroughLinksTest(unittest.TestCase):
             with mock.patch.object(probe, "run_exiftool", return_value={}), \
                     mock.patch.object(probe, "probe_clip", side_effect=lambda p, exif: {"path": str(p.resolve())}):
                 manifest = probe.build_manifest(raw)
-            self.assertEqual(manifest["walk"], "vienna-2026-07-31")
+            self.assertEqual(manifest["footage"], "vienna-2026-07-31")
+            self.assertNotIn("walk", manifest)
             self.assertEqual(manifest["clips"], [{"path": str(source / "DJI_0001.MP4")}])
 
 

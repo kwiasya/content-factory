@@ -69,7 +69,7 @@ class VideoFolder:
 
 
 def video_folder(path: Path) -> VideoFolder | None:
-    """The Video a folder is: ``<F>/videos/<slug>/`` with a video.json, or a legacy ``<F>/<walk>/reels/<reel>/``."""
+    """The Video a folder is: ``<F>/videos/<slug>/`` with a video.json, or a legacy ``<F>/<footage>/reels/<reel>/``."""
     path = Path(path)
     if path.parent.name == "videos" and (path / "video.json").is_file():
         try:
@@ -78,8 +78,8 @@ def video_folder(path: Path) -> VideoFolder | None:
             fmt = None
         return VideoFolder(path, path.name, path.parent.parent, False, fmt if isinstance(fmt, str) else None)
     if path.parent.name == "reels" and path.parent.parent != path.parent:
-        walk = path.parent.parent
-        return VideoFolder(path, f"{walk.name}~{path.name}", walk.parent, True, "walk-reel")
+        footage = path.parent.parent
+        return VideoFolder(path, f"{footage.name}~{path.name}", footage.parent, True, "walk-reel")
     return None
 
 

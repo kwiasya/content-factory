@@ -109,7 +109,7 @@ class SubjectBoxesTest(unittest.TestCase):
 
 
 class SeamGroupTest(unittest.TestCase):
-    MANIFEST = {"walk": "w", "clips": [
+    MANIFEST = {"footage": "w", "clips": [
         {"file": "DJI.mp4", "fps": 30.0, "duration_s": 100.0, "display_width": 3840, "display_height": 2160},
         {"file": "B.mp4", "fps": 30.0, "duration_s": 100.0, "display_width": 3840, "display_height": 2160}]}
 
@@ -117,7 +117,7 @@ class SeamGroupTest(unittest.TestCase):
         last = {"clip": "DJI.mp4", "in_s": 8, "out_s": 10, "role": "loop"}
         if last_reframe:
             last["reframe"] = last_reframe
-        return from_dict({"schema": "cf-script/1", "walk": "w", "concept": "c", "format": "pov", "target_length_s": 7,
+        return from_dict({"schema": "cf-script/1", "footage": "w", "concept": "c", "format": "pov", "target_length_s": 7,
                           "hook": {"type": "pov", "text": "one two three four five", "clip": "DJI.mp4"},
                           "shots": [{"clip": "DJI.mp4", "in_s": 10, "out_s": 12.5, "role": "hook"},
                                     {"clip": "B.mp4", "in_s": 1, "out_s": 3.5, "role": "build"}, last],

@@ -12,7 +12,7 @@ from cf.script_schema import ScriptError, from_dict, load, validate
 ROOT = Path(__file__).resolve().parents[1]
 STYLE = json.loads((ROOT / "style.json").read_text())
 MANIFEST = {
-    "walk": "test-walk",
+    "footage": "test-footage",
     "clips": [
         {"file": "A.MOV", "fps": 60.0, "duration_s": 13.0},
         {"file": "B.MOV", "fps": 24.0, "duration_s": 29.0},
@@ -24,7 +24,7 @@ MANIFEST = {
 def good() -> dict:
     return {
         "schema": "cf-script/1",
-        "walk": "test-walk",
+        "footage": "test-footage",
         "concept": "A slow afternoon by the lake.",
         "format": "pov",
         "target_length_s": 9,
@@ -284,13 +284,36 @@ class BadScriptTest(unittest.TestCase):
         d["location_tag"] = ""
         self.assertViolation(d, "location_tag")
 
-    def test_wrong_schema_and_walk(self):
+    def test_wrong_schema_and_footage(self):
         d = good()
         d["schema"] = "cf-script/0"
-        d["walk"] = "other"
+        d["footage"] = "other"
         found = problems(d)
         self.assertTrue(any(p.startswith("schema:") for p in found))
-        self.assertTrue(any(p.startswith("walk:") for p in found))
+        self.assertTrue(any(p.startswith("footage:") for p in found))
+
+    def test_footage_is_read_and_legacy_walk_still_is(self):
+        self.assertEqual(from_dict(good()).footage, "test-footage")
+        d = good()
+        d["walk"] = d.pop("footage")
+        self.assertEqual(from_dict(d).footage, "test-footage")
+        d["footage"] = "test-footage"
+        self.assertEqual(from_dict(d).footage, "test-footage")
+
+    def test_footage_and_walk_that_differ_or_are_both_missing_raise(self):
+        d = good()
+        d["walk"] = "other"
+        with self.assertRaisesRegex(ScriptError, "footage and walk differ; keep footage"):
+            from_dict(d)
+        del d["walk"], d["footage"]
+        with self.assertRaisesRegex(ScriptError, "missing 'footage'"):
+            from_dict(d)
+
+    def test_a_manifest_with_legacy_walk_is_still_compared(self):
+        legacy = {k: v for k, v in MANIFEST.items() if k != "footage"}
+        self.assertEqual(problems(good(), manifest={**legacy, "walk": "test-footage"}), [])
+        found = problems(good(), manifest={**legacy, "walk": "other"})
+        self.assertTrue(any(p.startswith("footage: 'test-footage' does not match") for p in found), found)
 
     def test_structural_errors_raise(self):
         d = good()
@@ -355,7 +378,7 @@ class LoopSeamlessTest(unittest.TestCase):
 
     def test_2997_on_30_seam_is_one_source_frame_later_than_the_seconds(self):
         # Mallorca reel-01 v1: the seconds matched (out_s == in_s) but Resolve skipped frame 3610.
-        man = {"walk": "w", "clips": [{"file": "A.MOV", "fps": 29.97003, "duration_s": 383.783}]}
+        man = {"footage": "w", "clips": [{"file": "A.MOV", "fps": 29.97003, "duration_s": 383.783}]}
         d = seamless()
         d["shots"][0].update(in_s=120.487, out_s=122.8894)
         d["shots"][-1].update(in_s=119.1857, out_s=120.487)
@@ -430,7 +453,7 @@ class CliTest(unittest.TestCase):
             tmp = Path(t)
             ok = self.run_cli(tmp, good())
             self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
-            self.assertEqual(load(tmp / "script.json").walk, "test-walk")
+            self.assertEqual(load(tmp / "script.json").footage, "test-footage")
             d = good()
             d["hashtags"] = [f"#t{i}" for i in range(7)]
             bad = self.run_cli(tmp, d)

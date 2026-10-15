@@ -1,4 +1,4 @@
-"""Proxy and Shot log for one media file outside a Walk (no clip_manifest.json).
+"""Proxy and Shot log for one media file outside a Footage folder (no clip_manifest.json).
 
 A 2 s synthetic clip is made with ffmpeg's testsrc (landscape pixels, 90 degree display
 rotation, 25 fps); the heavy Shot log metrics (YOLO, OpenCV motion, Apple Vision, Whisper)
@@ -92,7 +92,8 @@ def test_shotlog_for_a_proxy_without_manifest_takes_the_header_from_the_source(m
     assert shotlog.main([made["proxy_path"], "--source", str(media), "-o", str(out)]) == 0
 
     data = json.loads(out.read_text())
-    assert data["schema"] == "reel-shotlog/1.2"
+    assert data["schema"] == "reel-shotlog/1.3"
+    assert "footage_ref_dbfs" in data["provenance"]["notes"]["speech_side"]
     assert {"clip", "per_second", "segments", "rejects", "summary", "provenance"} <= data.keys()
     clip = data["clip"]
     assert clip["header_source"] == "probe(source)"
@@ -105,7 +106,7 @@ def test_shotlog_for_a_proxy_without_manifest_takes_the_header_from_the_source(m
     assert sorted(p.name for p in ref.iterdir()) == ["proxy.mp4", "shotlog.json"]
 
 
-def test_shotlog_outside_a_walk_needs_an_output_path(media, tmp_path, light_models):
+def test_shotlog_outside_a_footage_folder_needs_an_output_path(media, tmp_path, light_models):
     made = proxy.proxy_file(media, tmp_path / "ref" / "proxy.mp4")
     with pytest.raises(SystemExit):
         shotlog.main([made["proxy_path"], "--source", str(media)])

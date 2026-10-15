@@ -1,4 +1,4 @@
-"""Make 540p SDR Rec.709 analysis proxies for every Clip in a Walk manifest, or for one file.
+"""Make 540p SDR Rec.709 analysis proxies for every Clip in a Footage manifest, or for one file.
 
 Usage:
   python -m cf.proxy <clip_manifest.json | raw_dir> <proxy_dir> [--force]
@@ -155,7 +155,7 @@ def is_fresh(proxy: Path, src: Path) -> bool:
 
 def make_proxy(clip: dict, src: Path, proxy_dir: Path, binary: str, has_zscale: bool, force: bool,
                out: Path | None = None) -> dict:
-    """Encode one proxy into proxy_dir (Walk naming), or exactly to `out` when given."""
+    """Encode one proxy into proxy_dir (Footage naming), or exactly to `out` when given."""
     exact, approx_path = (out, out) if out else proxy_paths(clip, proxy_dir)
     vf, approx = build_filter(clip, has_zscale)
     dst = approx_path if approx else exact
@@ -190,7 +190,7 @@ def make_proxy(clip: dict, src: Path, proxy_dir: Path, binary: str, has_zscale: 
 
 
 def proxy_file(src: Path, dest: Path, force: bool = False) -> dict:
-    """Proxy for one media file outside a Walk, no manifest.
+    """Proxy for one media file outside a Footage folder, no manifest.
 
     `dest` ending in .mp4 is the exact output path; anything else is a directory that gets
     <stem>.mp4 (or <stem>_approx.mp4). Returns make_proxy's result plus "proxy_path"

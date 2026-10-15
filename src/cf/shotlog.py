@@ -1,15 +1,15 @@
-"""Build a Shot log (`reel-shotlog/1.2`) for one proxy, or for every proxy of a Walk.
+"""Build a Shot log (`reel-shotlog/1.3`) for one proxy, or for every proxy of a Footage folder.
 
 Usage:
   python -m cf.shotlog <proxy.mp4> [--manifest clip_manifest.json] [-o shotlog/<clip>.json]
-  python -m cf.shotlog --all <walk_dir> [--force | --speech-only]
+  python -m cf.shotlog --all <footage_dir> [--force | --speech-only]
   python -m cf.shotlog <proxy.mp4> --source <media_file> -o <out.json>
 
-The third form is for one file outside a Walk (e.g. a downloaded Reference): no
+The third form is for one file outside a Footage folder (e.g. a downloaded Reference): no
 clip_manifest.json; the clip header (fps, duration, rotation, color tags) comes from
 cf.probe.probe_file on the source, the clip id is the source's stem, and speech is read
-from the source's audio. A proxy counts as inside a Walk only when it sits in a
-directory named proxy/; outside a Walk there are no Walk speech levels and no
+from the source's audio. A proxy counts as inside a Footage folder only when it sits in a
+directory named proxy/; outside a Footage folder there are no Footage speech levels and no
 overrides.json, and -o is required. From Python:
 analyze_proxy(proxy, source=media) -> dict, then write_json(data, out).
 
@@ -21,9 +21,9 @@ Chain per clip (one clip at a time, models released between clips):
   cf.metrics.speech   Whisper words in the RAW clip's audio (model loaded once per --all run),
                       segment levels; face landmarks on the proxy at 5 fps for clips with speech
   cf.metrics.speech_side  near (behind the camera) / far (on camera) per segment,
-                      normalised per Walk (the operator's voice is the loudest)
+                      normalised per Footage (the operator's voice is the loudest)
 then cf.scoring: usable / quality per 1 s bin, 2-5 s candidate segments, rejects,
-and last the author's <walk>/shotlog/overrides.json.
+and last the author's <footage>/shotlog/overrides.json.
 Speech is a soft flag (the author talking behind the camera; music covers it); only a
 second of on-camera speech is unusable (`speech_on_camera`, until a voiceover phase).
 Schema: docs/research/04-video-understanding-shot-quality/result-a.md section C,
@@ -54,7 +54,7 @@ from cf.probe import probe_file
 from cf.metrics import ffstats, motion, people, speech, speech_side, vision
 from cf.metrics.common import ProxyInfo, ffmpeg_bin, n_bins, probe_proxy, tool_version
 
-SCHEMA = "reel-shotlog/1.2"
+SCHEMA = "reel-shotlog/1.3"
 GENERATOR = "cf.shotlog 0.3"
 OVERRIDES = "overrides.json"
 APPROX_SUFFIX = "_approx"
@@ -310,10 +310,10 @@ def segment_levels(data: dict) -> list[float]:
     return [s["level_dbfs"] for s in data.get("speech_segments") or [] if s.get("level_dbfs") is not None]
 
 
-def classify_speech(data: dict, walk_ref: float | None, min_conf: float = speech_side.MIN_CONF) -> None:
+def classify_speech(data: dict, footage_ref: float | None, min_conf: float = speech_side.MIN_CONF) -> None:
     """Side per speech segment and per_second.speech_on_camera (in place).
 
-    `walk_ref` is speech_side.walk_reference over every segment of the Walk.
+    `footage_ref` is speech_side.footage_reference over every segment of the Footage.
     A second is on-camera speech if a far segment with side_confidence >= min_conf,
     padded speech.PAD_S each side, overlaps it.
     """
@@ -324,24 +324,24 @@ def classify_speech(data: dict, walk_ref: float | None, min_conf: float = speech
     for seg in data.get("speech_segments") or []:
         if "level_dbfs" not in seg:  # a 1.1 log: no levels yet
             continue
-        seg.update(speech_side.classify(seg, floor, walk_ref))
+        seg.update(speech_side.classify(seg, floor, footage_ref))
         if speech_side.is_on_camera(seg, min_conf):
             spans.append((seg["start"], seg["end"]))
     ps["speech_on_camera"] = speech.speech_bins(spans, nb)
     data.setdefault("provenance", {}).setdefault("notes", {})["speech_side"] = {
         "rule": (f"a second is speech_on_camera if a far segment with side_confidence >= {min_conf:g}, "
                  f"padded {speech.PAD_S:g} s each side, overlaps it; other speech is a soft flag"),
-        "walk_ref_dbfs": walk_ref,
+        "footage_ref_dbfs": footage_ref,
         "noise_floor_dbfs": floor,
-        "cues": "level vs Walk reference and clip noise floor (raw audio); face size and mouth_open spread (proxy)",
+        "cues": "level vs Footage reference and clip noise floor (raw audio); face size and mouth_open spread (proxy)",
     }
 
 
-def load_overrides(walk: Path | None) -> dict:
-    """<walk>/shotlog/overrides.json: {"<clip>": {"reject": [[in, out, "reason"]], "allow": [[in, out]]}}."""
-    if walk is None:
+def load_overrides(footage: Path | None) -> dict:
+    """<footage>/shotlog/overrides.json: {"<clip>": {"reject": [[in, out, "reason"]], "allow": [[in, out]]}}."""
+    if footage is None:
         return {}
-    path = walk / "shotlog" / OVERRIDES
+    path = footage / "shotlog" / OVERRIDES
     if not path.exists():
         return {}
     data = json.loads(path.read_text())
@@ -416,8 +416,8 @@ def finalize(data: dict, params: scoring.Params = scoring.DEFAULT, override: dic
 def analyze_proxy(proxy: Path, manifest: dict | None = None, params: scoring.Params = scoring.DEFAULT,
                   transcriber: speech.Transcriber | None = None, other_levels: list[float] | None = None,
                   override: dict | None = None, source: Path | None = None) -> dict:
-    """Full analysis of one proxy. `other_levels`: speech levels of the Walk's other clips
-    (for the Walk loudness reference); `override`: this clip's overrides.json entry;
+    """Full analysis of one proxy. `other_levels`: speech levels of the Footage's other clips
+    (for the Footage loudness reference); `override`: this clip's overrides.json entry;
     `source`: the media file the proxy was made from, probed for the header instead of a manifest."""
     proxy = proxy.resolve()
     info = probe_proxy(proxy)
@@ -508,7 +508,7 @@ def analyze_proxy(proxy: Path, manifest: dict | None = None, params: scoring.Par
         if own:
             tr.close()
     apply_speech(data, sp, sp_s, tr)
-    classify_speech(data, speech_side.walk_reference((other_levels or []) + segment_levels(data)))
+    classify_speech(data, speech_side.footage_reference((other_levels or []) + segment_levels(data)))
     return finalize(data, params, override)
 
 
@@ -516,7 +516,7 @@ def add_speech(data: dict, proxy: Path, transcriber: speech.Transcriber | None =
                params: scoring.Params = scoring.DEFAULT) -> dict:
     """Speech-only pass over an existing (e.g. 1.0) Shot log: other metrics are not recomputed.
 
-    Sides are classified against this clip alone; `run_all` reclassifies against the Walk."""
+    Sides are classified against this clip alone; `run_all` reclassifies against the Footage."""
     own = transcriber is None
     tr = transcriber or speech.Transcriber()
     try:
@@ -525,7 +525,7 @@ def add_speech(data: dict, proxy: Path, transcriber: speech.Transcriber | None =
         if own:
             tr.close()
     apply_speech(data, sp, sp_s, tr)
-    classify_speech(data, speech_side.walk_reference(segment_levels(data)))
+    classify_speech(data, speech_side.footage_reference(segment_levels(data)))
     return finalize(data, params)
 
 
@@ -595,10 +595,10 @@ def load_manifest(path: Path | None) -> dict | None:
     return None
 
 
-def walk_levels(walk: Path, exclude: str | None = None) -> list[float]:
-    """Speech levels from the Walk's existing Shot logs (for a single-clip run)."""
+def footage_levels(footage: Path, exclude: str | None = None) -> list[float]:
+    """Speech levels from the Footage's existing Shot logs (for a single-clip run)."""
     out = []
-    for f in sorted((walk / "shotlog").glob("*.json")):
+    for f in sorted((footage / "shotlog").glob("*.json")):
         if f.name == OVERRIDES or f.stem == exclude:
             continue
         try:
@@ -608,31 +608,31 @@ def walk_levels(walk: Path, exclude: str | None = None) -> list[float]:
     return out
 
 
-def run_all(walk: Path, force: bool = False, params: scoring.Params = scoring.DEFAULT, speech_only: bool = False) -> int:
-    """Analyse every proxy of a Walk; the Whisper model is loaded once for the whole run.
+def run_all(footage: Path, force: bool = False, params: scoring.Params = scoring.DEFAULT, speech_only: bool = False) -> int:
+    """Analyse every proxy of a Footage folder; the Whisper model is loaded once for the whole run.
 
     Pass 1, per clip: an up-to-date log without 1.2 speech gets only the speech pass;
     `speech_only` redoes the speech pass on every existing log (others are analysed in full).
-    Pass 2, the Walk: the loudness reference over every clip's speech, sides per segment,
+    Pass 2, the Footage: the loudness reference over every clip's speech, sides per segment,
     overrides.json, scoring, and every log is rewritten. A run where every log is up to
     date is therefore a cheap re-score after editing overrides.json.
     """
-    proxy_dir, out_dir = walk / "proxy", walk / "shotlog"
+    proxy_dir, out_dir = footage / "proxy", footage / "shotlog"
     proxies = sorted(p for p in proxy_dir.glob("*.mp4") if not p.name.startswith("."))
     if not proxies:
         print(f"no proxies in {proxy_dir}", file=sys.stderr)
         return 1
     try:
-        overrides = load_overrides(walk)
+        overrides = load_overrides(footage)
     except (ValueError, json.JSONDecodeError) as exc:
         print(f"bad {OVERRIDES}: {exc}", file=sys.stderr)
         return 1
     unknown = sorted(set(overrides) - {clip_id(p) for p in proxies})
     if unknown:
         log.warning("%s names clips with no proxy: %s", OVERRIDES, ", ".join(unknown))
-    manifest = load_manifest(walk / "clip_manifest.json")
+    manifest = load_manifest(footage / "clip_manifest.json")
     if manifest is None:
-        log.warning("no clip_manifest.json in %s; clip headers come from ffprobe", walk)
+        log.warning("no clip_manifest.json in %s; clip headers come from ffprobe", footage)
     t_all = time.perf_counter()
     done = speech_done = 0
     logs: list[tuple[dict, Path]] = []
@@ -662,20 +662,20 @@ def run_all(walk: Path, force: bool = False, params: scoring.Params = scoring.DE
                     data = analyze_proxy(proxy, manifest, params, transcriber)
                     done += 1
                     status = "analysed"
-            except Exception as exc:  # keep going; one bad clip must not stop the Walk
+            except Exception as exc:  # keep going; one bad clip must not stop the Footage
                 log.error("%s failed: %s", proxy.name, exc)
                 print(f"{cid:<12} FAILED: {exc}", flush=True)
                 continue
             if status != "up to date":
-                write_json(data, out)  # provisional until the Walk pass below
+                write_json(data, out)  # provisional until the Footage pass below
             logs.append((data, out))
             print(f"{cid:<12} {status:<12} {time.perf_counter() - t0:5.1f}s", flush=True)
     finally:
         load_s = transcriber.load_s
         transcriber.close()
 
-    ref = speech_side.walk_reference(lv for data, _ in logs for lv in segment_levels(data))
-    print(f"\nWalk speech reference {ref} dBFS (median of the {speech_side.REF_TOP_N} loudest segments); "
+    ref = speech_side.footage_reference(lv for data, _ in logs for lv in segment_levels(data))
+    print(f"\nFootage speech reference {ref} dBFS (median of the {speech_side.REF_TOP_N} loudest segments); "
           f"overrides: {', '.join(sorted(overrides)) or 'none'}\n")
     print(f"{'clip':<12} {'dur':>6}  usable  speech/oncam  best in-out   quality      [tags]  flags")
     for data, out in logs:
@@ -694,11 +694,11 @@ def run_all(walk: Path, force: bool = False, params: scoring.Params = scoring.DE
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cf.shotlog", description=__doc__.splitlines()[0])
     ap.add_argument("proxy", type=Path, nargs="?", help="proxy .mp4")
-    ap.add_argument("--all", type=Path, metavar="WALK_DIR", help="process every <walk>/proxy/*.mp4 into <walk>/shotlog/")
+    ap.add_argument("--all", type=Path, metavar="FOOTAGE_DIR", help="process every <footage>/proxy/*.mp4 into <footage>/shotlog/")
     ap.add_argument("--manifest", type=Path, help="clip_manifest.json (default: ../clip_manifest.json next to proxy/)")
     ap.add_argument("--source", type=Path, metavar="MEDIA",
-                    help="the file the proxy was made from; its probe replaces the manifest (one file outside a Walk)")
-    ap.add_argument("-o", "--output", type=Path, help="default: <walk>/shotlog/<clip>.json; required outside a Walk")
+                    help="the file the proxy was made from; its probe replaces the manifest (one file outside a Footage folder)")
+    ap.add_argument("-o", "--output", type=Path, help="default: <footage>/shotlog/<clip>.json; required outside a Footage folder")
     ap.add_argument("--force", action="store_true", help="with --all: redo up-to-date logs")
     ap.add_argument("--speech-only", action="store_true",
                     help="with --all: redo only the speech part (Whisper, levels, faces, sides) of existing logs, "
@@ -712,20 +712,20 @@ def main(argv: list[str] | None = None) -> int:
             ap.error("--force and --speech-only exclude each other")
         return run_all(args.all, args.force, speech_only=args.speech_only)
     if not args.proxy:
-        ap.error("give a proxy or --all <walk_dir>")
+        ap.error("give a proxy or --all <footage_dir>")
     proxy = args.proxy
     if not proxy.exists():
         ap.error(f"no such file: {proxy}")
     if args.source and not args.source.is_file():
         ap.error(f"no such file: {args.source}")
-    walk = proxy.resolve().parent.parent if proxy.resolve().parent.name == "proxy" else None
-    if walk is None and not args.output:
-        ap.error(f"{proxy} is not in a Walk's proxy/ directory; give -o")
-    manifest = load_manifest(args.manifest or (walk / "clip_manifest.json" if walk else None))
-    out = args.output or walk / "shotlog" / f"{clip_id(proxy)}.json"
+    footage = proxy.resolve().parent.parent if proxy.resolve().parent.name == "proxy" else None
+    if footage is None and not args.output:
+        ap.error(f"{proxy} is not in a Footage folder's proxy/ directory; give -o")
+    manifest = load_manifest(args.manifest or (footage / "clip_manifest.json" if footage else None))
+    out = args.output or footage / "shotlog" / f"{clip_id(proxy)}.json"
     t0 = time.perf_counter()
-    data = analyze_proxy(proxy, manifest, other_levels=walk_levels(walk, clip_id(proxy)) if walk else [],
-                         override=load_overrides(walk).get(clip_id(proxy)), source=args.source)
+    data = analyze_proxy(proxy, manifest, other_levels=footage_levels(footage, clip_id(proxy)) if footage else [],
+                         override=load_overrides(footage).get(clip_id(proxy)), source=args.source)
     write_json(data, out)
     print(summary_line(data, time.perf_counter() - t0))
     for line in speech_lines(data):

@@ -7,10 +7,10 @@ reject (`speech_on_camera`). Two cheap cues, combined per segment:
 1. Loudness (raw audio, the 16 kHz mono WAV Whisper reads). `level_dbfs` is the 90th
    percentile of 50 ms frame levels inside the segment (robust to pauses between
    words); `rms_dbfs` is the plain RMS over the segment, kept for the record.
-   The operator's voice is the loudest on the Walk, so the level is compared with
-   the Walk reference (median of the three loudest segment levels; normalised per
-   Walk, not per clip) and with the clip's noise floor (10th percentile of frame
-   levels). Quiet relative to the Walk and close to the floor -> far.
+   The operator's voice is the loudest on the Footage, so the level is compared with
+   the Footage reference (median of the three loudest segment levels; normalised per
+   Footage, not per clip) and with the clip's noise floor (10th percentile of frame
+   levels). Quiet relative to the Footage and close to the floor -> far.
 2. Face and mouth (proxy, tools/vision-score --landmarks --faces-only at 5 fps).
    A big face (max_face_h > FACE_BIG) during the segment raises `far`; no face at
    all lowers it (nobody can be seen talking). Mouth openness = inner-lip gap /
@@ -51,8 +51,8 @@ MIN_MOUTH_FRAMES = 2
 MIN_CONF = 0.5             # far segments at/above this confidence are speech_on_camera
 REF_TOP_N = 3
 
-# evidence scales (dB / mouth spread); tuned on the Potsdam Walk, see docs/research/shotlog-run.md
-REL_MID_DB = -16.0         # level this far under the Walk reference is neutral
+# evidence scales (dB / mouth spread); tuned on the Potsdam Footage, see docs/research/shotlog-run.md
+REL_MID_DB = -16.0         # level this far under the Footage reference is neutral
 REL_SPAN_DB = 9.0          # +-1 evidence at REL_MID_DB -+ REL_SPAN_DB
 SNR_MID_DB = 14.0          # level over the clip noise floor that is neutral
 SNR_SPAN_DB = 8.0
@@ -107,8 +107,8 @@ def add_levels(segments: list[dict], samples: np.ndarray, sr: int) -> float:
     return noise_floor_db(db)
 
 
-def walk_reference(levels: Iterable[float | None], top_n: int = REF_TOP_N) -> float | None:
-    """Median of the top_n loudest segment levels on the Walk (the operator's voice)."""
+def footage_reference(levels: Iterable[float | None], top_n: int = REF_TOP_N) -> float | None:
+    """Median of the top_n loudest segment levels on the Footage (the operator's voice)."""
     lv = sorted((float(x) for x in levels if x is not None), reverse=True)
     if not lv:
         return None
@@ -138,10 +138,10 @@ def face_stats(frames: Sequence[dict], start: float, end: float, margin: float =
 # Classification
 
 
-def evidence(seg: dict, noise_floor: float | None, walk_ref: float | None) -> dict:
+def evidence(seg: dict, noise_floor: float | None, footage_ref: float | None) -> dict:
     """Per-cue evidence in [-1, 1] (+ = far / on camera); None where the cue is missing."""
     level = seg.get("level_dbfs")
-    rel = None if level is None or walk_ref is None else level - walk_ref
+    rel = None if level is None or footage_ref is None else level - footage_ref
     snr = None if level is None or noise_floor is None else level - noise_floor
     e_rel = None if rel is None else _clamp((REL_MID_DB - rel) / REL_SPAN_DB)
     e_snr = None if snr is None else _clamp((SNR_MID_DB - snr) / SNR_SPAN_DB)
@@ -171,9 +171,9 @@ def p_far(ev: dict) -> float:
     return 1 / (1 + math.exp(-GAIN * score))
 
 
-def classify(seg: dict, noise_floor: float | None, walk_ref: float | None) -> dict:
+def classify(seg: dict, noise_floor: float | None, footage_ref: float | None) -> dict:
     """{side, side_confidence, p_far, rel_db, snr_db} for one segment with levels and face stats."""
-    ev = evidence(seg, noise_floor, walk_ref)
+    ev = evidence(seg, noise_floor, footage_ref)
     p = p_far(ev)
     side = "far" if p >= 0.5 else "near"
     prob = seg.get("prob")

@@ -27,7 +27,7 @@ VIDEO = {
     "format": "tech-explainer",
     "channel": "tech-en",
     "language": "en",
-    "walks": ["w1"],
+    "footage": ["w1"],
     "status": "script",
     "history": [{"status": "brief", "at": "2026-10-01", "note": "first"},
                 {"status": "script", "at": "2026-10-02", "note": "draft"}],
@@ -41,7 +41,7 @@ MP4 = bytes(range(256)) * 4
 OLD = 1_700_000_000
 
 MANIFEST = {
-    "walk": "w1",
+    "footage": "w1",
     "clips": [
         {"file": "A.MOV", "fps": 60.0, "duration_s": 13.0},
         {"file": "B.MOV", "fps": 24.0, "duration_s": 29.0},
@@ -53,7 +53,7 @@ MANIFEST = {
 def good_script() -> dict:
     return {
         "schema": "cf-script/1",
-        "walk": "w1",
+        "footage": "w1",
         "concept": "A slow afternoon by the lake.",
         "format": "pov",
         "target_length_s": 9,
@@ -102,11 +102,11 @@ class VideosTestCase(unittest.TestCase):
         write(self.video / "overlays" / "o1.mov", MP4)
         for p in self.video.rglob("*"):
             os.utime(p, (OLD, OLD))
-        self.walk = self.footage / "w1"
-        write(self.walk / "clip_manifest.json", json.dumps(MANIFEST))
-        write(self.walk / "raw" / "x.mp4", MP4)
-        write(self.walk / "proxy" / "A.mp4", MP4)
-        self.reel = self.walk / "reels" / "short-01"
+        self.footage_dir = self.footage / "w1"
+        write(self.footage_dir / "clip_manifest.json", json.dumps(MANIFEST))
+        write(self.footage_dir / "raw" / "x.mp4", MP4)
+        write(self.footage_dir / "proxy" / "A.mp4", MP4)
+        self.reel = self.footage_dir / "reels" / "short-01"
         write(self.reel / "script.draft.json", json.dumps(good_script(), indent=2))
         env = mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(self.footage), "CF_SHARED_ROOT": str(self.footage)})
         env.start()
@@ -181,7 +181,7 @@ class MediaTest(VideosTestCase):
 
     def test_raw_and_everything_outside_the_allowlist_is_404(self):
         write(self.footage / "references" / "wl" / "abc" / "abc.mp4", MP4)
-        (self.video / "renders" / "link.mp4").symlink_to(self.walk / "raw" / "x.mp4")
+        (self.video / "renders" / "link.mp4").symlink_to(self.footage_dir / "raw" / "x.mp4")
         for path in ("w1/raw/x.mp4", "w1/clip_manifest.json", "videos/long-one/video.json",
                      "videos/long-one/script.md", "videos/long-one/renders", "videos/long-one/renders/",
                      "videos/long-one/renders/../../../w1/raw/x.mp4", "/etc/hosts", "",
@@ -207,7 +207,7 @@ class DetailTest(VideosTestCase):
         self.assertFalse(files["video.json"]["editable"])
         self.assertEqual([p["media"] for p in detail["proxies"]], ["w1/proxy/A.mp4"])
 
-    def test_legacy_detail_lists_reel_files_and_walk_proxies_without_raw(self):
+    def test_legacy_detail_lists_reel_files_and_footage_proxies_without_raw(self):
         write(self.reel / "out" / "short-01.mp4", MP4)
         write(self.reel / "overlays" / "s01.mov", MP4)
         detail = self.ok(self.client.get("/api/videos/w1~short-01"))
@@ -220,6 +220,62 @@ class DetailTest(VideosTestCase):
         self.assertNotIn("w1/raw/x.mp4", media)
         self.assertIn("w1/reels/short-01/out/short-01.mp4", media)
         self.assertEqual([p["media"] for p in detail["proxies"]], ["w1/proxy/A.mp4"])
+
+
+class LegacyKeysTest(VideosTestCase):
+    def write_legacy(self, slug: str = "legacy") -> Path:
+        video = {k: ("walks" if k == "footage" else k, v) for k, v in VIDEO.items()}
+        folder = self.footage / "videos" / slug
+        write(folder / "video.json", json.dumps({**dict(video.values()), "slug": slug}, indent=2))
+        return folder
+
+    def test_detail_of_a_video_json_with_footage_names_it_and_its_proxies(self):
+        detail = self.ok(self.client.get("/api/videos/long-one"))
+        self.assertEqual(detail["video"]["footage"], ["w1"])
+        self.assertNotIn("walks", detail["video"])
+        self.assertEqual([(p["footage"], p["name"]) for p in detail["proxies"]], [("w1", "A.mp4")])
+        self.assertNotIn('"walk', json.dumps(detail))
+
+    def test_a_legacy_walks_key_reads_as_footage_and_its_proxies_are_found(self):
+        self.write_legacy()
+        detail = self.ok(self.client.get("/api/videos/legacy"))
+        self.assertEqual(detail["video"]["footage"], ["w1"])
+        self.assertNotIn("walks", detail["video"])
+        self.assertEqual(list(detail["video"])[:7], ["schema", "slug", "title_working", "format", "channel",
+                                                     "language", "footage"])
+        self.assertEqual([p["media"] for p in detail["proxies"]], ["w1/proxy/A.mp4"])
+
+    def test_a_legacy_reel_links_its_own_footage(self):
+        detail = self.ok(self.client.get("/api/videos/w1~short-01"))
+        self.assertEqual(detail["video"]["footage"], ["w1"])
+        self.assertNotIn("walks", detail["video"])
+
+    def test_a_status_change_rewrites_the_legacy_key(self):
+        folder = self.write_legacy()
+        digest = self.ok(self.client.get("/api/videos/legacy"))["hash"]
+        self.ok(self.client.post("/api/videos/legacy/status", json={"status": "brief", "hash": digest}))
+        on_disk = json.loads((folder / "video.json").read_text())
+        self.assertEqual(on_disk["footage"], ["w1"])
+        self.assertNotIn("walks", on_disk)
+        self.assertEqual(list(on_disk).index("footage"), list(VIDEO).index("footage"))
+
+    def test_a_script_with_legacy_walk_still_validates_against_its_manifest(self):
+        doc = self.ok(self.client.get("/api/videos/w1~short-01/file", params={"path": "script.draft.json"}))
+        script = json.loads(doc["text"])
+        script["walk"] = script.pop("footage")
+        script["hook"]["clip"] = "NOPE.MOV"
+        r = self.client.put("/api/videos/w1~short-01/file",
+                            json={"path": "script.draft.json", "text": json.dumps(script), "hash": doc["hash"]})
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertTrue(any("NOPE.MOV" in v for v in r.json()["violations"]), r.text)
+
+    def test_media_under_a_footage_proxy_is_served_and_root_folders_are_not_footage(self):
+        self.assertEqual(self.client.get("/api/media", params={"path": "w1/proxy/A.mp4"}).status_code, 200)
+        for name in ("videos", "references", "channels", "library", "packs"):
+            with self.subTest(name):
+                write(self.footage / name / "proxy" / "A.mp4", MP4)
+                r = self.client.get("/api/media", params={"path": f"{name}/proxy/A.mp4"})
+                self.assertEqual(r.status_code, 404)
 
 
 class StatusTest(VideosTestCase):
@@ -328,8 +384,8 @@ class TextFileTest(VideosTestCase):
         r = self.save("w1~short-01", "script.draft.json", "{not json", doc["hash"])
         self.assertEqual(r.status_code, 409, r.text)
 
-    def test_cf_script_of_a_walk_without_manifest_is_still_validated(self):
-        (self.walk / "clip_manifest.json").unlink()
+    def test_cf_script_of_a_footage_without_manifest_is_still_validated(self):
+        (self.footage_dir / "clip_manifest.json").unlink()
         (self.repo / "style.json").unlink()
         doc = self.ok(self.read("w1~short-01", "script.draft.json"))
         bad = json.loads(doc["text"])
@@ -458,7 +514,7 @@ class CreateTest(VideosTestCase):
         folder = self.footage / "videos" / "vienna-day-2"
         self.assertEqual(json.loads((folder / "video.json").read_text()), {
             "schema": "cf-video/1", "slug": "vienna-day-2", "title_working": "Vienna, day 2!",
-            "format": "tech-explainer", "channel": "tech-en", "language": "ru", "walks": [],
+            "format": "tech-explainer", "channel": "tech-en", "language": "ru", "footage": [],
             "status": "idea", "history": [{"status": "idea", "at": today(), "note": ""}],
             "references": [], "ideas": [], "published_url": None})
         self.assertEqual(detail, self.ok(self.client.get("/api/videos/vienna-day-2")))
@@ -544,7 +600,7 @@ class CreateTest(VideosTestCase):
                 r = self.create(422, title="T", channel=bad, new_channel=True)
                 self.assertEqual((r["code"], r["params"]), ("channel_invalid", {"channel": bad, "max": 64}))
         self.assertEqual(self.listing(), before)
-        made = self.create(title="Walk", format="walk-reel", channel="walks-ig", new_channel=True)
+        made = self.create(title="Town", format="walk-reel", channel="walks-ig", new_channel=True)
         self.assertEqual((made["video"]["channel"], made["video"]["language"]), ("walks-ig", None))
         ids = [c["id"] for c in self.ok(self.client.get("/api/channels"))["channels"]]
         self.assertEqual(ids, ["tech-en", "walks-ig"])
@@ -677,8 +733,8 @@ class ChannelsTest(VideosTestCase):
             wl.create(s, "nobody", format_id="walk-reel")
         for name in ("travel", "_unassigned", ".hidden", "tech-en"):
             (self.footage / "channels" / name / "briefs").mkdir(parents=True)
-        write(self.footage / "videos" / "walk" / "video.json",
-              json.dumps({**VIDEO, "slug": "walk", "channel": "walks-ig", "format": "walk-reel"}))
+        write(self.footage / "videos" / "town" / "video.json",
+              json.dumps({**VIDEO, "slug": "town", "channel": "walks-ig", "format": "walk-reel"}))
 
     def channels(self, client=None) -> list[dict]:
         return self.ok((client or self.client).get("/api/channels"))["channels"]

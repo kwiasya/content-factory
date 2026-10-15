@@ -31,7 +31,7 @@ export interface VideoJson {
   format?: string;
   channel?: string | null;
   language?: string | null;
-  walks?: string[];
+  footage?: string[];
   status?: VideoStatus;
   history?: HistoryEntry[];
   references?: string[];
@@ -63,7 +63,7 @@ export interface VideoFile {
 }
 
 export interface Proxy {
-  walk: string;
+  footage: string;
   name: string;
   size: number;
   media: string;

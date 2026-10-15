@@ -103,13 +103,13 @@ export function VideoPage({ slug, initialTab }: { slug: string; initialTab?: str
       {tab === "sources" && (
         <>
           <MediaList files={ofKind("source")} empty="videos.noSources" />
-          <h2 className="section">{t("videos.walkProxies")}</h2>
+          <h2 className="section">{t("videos.footageProxies")}</h2>
           {detail.proxies.length === 0 ? (
             <p className="muted">{t("videos.noProxies")}</p>
           ) : (
             <div className="media-grid">
               {detail.proxies.map((p) => (
-                <Player key={p.media} title={`${p.walk} / ${p.name}`} media={p.media} meta={formatSize(p.size, t)} />
+                <Player key={p.media} title={`${p.footage} / ${p.name}`} media={p.media} meta={formatSize(p.size, t)} />
               ))}
             </div>
           )}

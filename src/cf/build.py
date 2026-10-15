@@ -1,6 +1,6 @@
 """Build a Reel's timeline in DaVinci Resolve Studio from its script.json.
 
-    python -m cf.build <reel_dir> [--walk <walk_dir>] [--project-name NAME] [--no-stills]
+    python -m cf.build <reel_dir> [--footage <footage_dir>] [--project-name NAME] [--no-stills]
                        [--look <file.cube>|none] [--stills-only [--stills-dir DIR]] [--script FILE]
                        [--no-track] [--ambience-db DB] [--canvas WxH] [--no-superscale]
                        [--deliver sdr|hdr-hlg] [--hlg-normalize cdl|none] [--overlay-nits N]
@@ -35,7 +35,7 @@ the timeline start for the picture's length, source in-point ``script.track_in_s
 
 HDR source (``--hdr-source``, default ``style.json`` ``color.hdr_source`` = ``apple-sdr``): an
 HDR clip (iPhone HLG / Dolby Vision) is imported as its Apple SDR mezzanine
-``<walk>/mezz/<stem>.mov`` (``cf.mezz``, ``tools/apple-sdr``: AVFoundation's own HDR -> SDR tone
+``<footage>/mezz/<stem>.mov`` (``cf.mezz``, ``tools/apple-sdr``: AVFoundation's own HDR -> SDR tone
 mapping, what QuickTime and Photos show) tagged ``Rec.709 Gamma 2.4``, which passes through the
 timeline unchanged; it gets no HLG CDL (docs/adr/0011-hdr-clips-through-apple-tone-mapping.md).
 Its stills are checked against the mezzanine frame (mean luma within ``MEZZ_STILL_TOLERANCE``).
@@ -81,8 +81,8 @@ shares its cue on an A lane. Every item and value is read back, and each picture
 ``stills/cue-<cue>.png`` (``--stills-only`` takes the cue plan from the last build-report.json).
 ``--no-assets`` builds without them (their rules skipped, no Library opened). A cue-less Script
 creates the same tracks as before and never opens factory.db. The Pack is only read (Resolve imports by path).
-A Video folder (``videos/<slug>/`` with video.json) builds from ``<footage>/<script.walk>`` when
-``--walk`` is absent.
+A Video folder (``videos/<slug>/`` with video.json) builds from ``<local root>/<script.footage>`` when
+``--footage`` is absent.
 
 The planning part (``plan_shots``, ``overlay_specs``, ``plan_track``, ``beat_marker_plan``, ``append_infos``,
 ``source_end``, ``plan_reframes``, ``plan_cues``, ``sfx_volume``) is pure and has no Resolve dependency, so it is unit-tested
@@ -367,10 +367,10 @@ def overlay_specs(script: Script, shots: list[PlannedShot], fps: float, style_pa
     return out
 
 
-def write_overlay_specs(reel_dir: Path, walk_dir: Path, script_path: Path, canvas: str | None = None) -> int:
+def write_overlay_specs(reel_dir: Path, footage_dir: Path, script_path: Path, canvas: str | None = None) -> int:
     """``--overlay-specs``: write ``overlays/specs/<shot>.json`` and print the render commands."""
     style = load_json(STYLE_PATH)
-    manifest = load_json(walk_dir / "clip_manifest.json")
+    manifest = load_json(footage_dir / "clip_manifest.json")
     script = load(script_path)
     problems = validate(script, manifest, style)
     if problems:
@@ -678,11 +678,11 @@ def cue_append_infos(cues: list[PlannedCue], items: dict[str, Any]) -> list[dict
              "mediaType": c.media_type, "trackIndex": c.track_index, "recordFrame": c.record_frame} for c in cues]
 
 
-def default_walk_dir(reel_dir: Path, script: Script) -> Path:
-    """The Walk of a legacy ``<walk>/reels/<reel>/``; of a Video folder ``<F>/videos/<slug>/``, ``<F>/<walk>``."""
+def default_footage_dir(reel_dir: Path, script: Script) -> Path:
+    """The Footage of a legacy ``<footage>/reels/<reel>/``; of a Video folder ``<F>/videos/<slug>/``, ``<F>/<footage>``."""
     reel_dir = Path(reel_dir)
     if reel_dir.parent.name != "reels" and (reel_dir / "video.json").is_file():
-        return reel_dir.parent.parent / script.walk
+        return reel_dir.parent.parent / script.footage
     return reel_dir.parent.parent
 
 
@@ -867,7 +867,7 @@ def find_window(still_bgr: Any, proxy_rgb: Any, plan: rf.ReframePlan, src_w: int
 @dataclass
 class Report:
     reel: str
-    walk: str
+    footage: str
     project: str
     started: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%S%z"))
     notes: list[str] = field(default_factory=list)
@@ -931,7 +931,7 @@ def _jsonable(x: Any) -> Any:
 
 # -- Resolve steps ---------------------------------------------------------------
 class Builder:
-    def __init__(self, reel_dir: Path, walk_dir: Path, project_name: str | None, stills: bool,
+    def __init__(self, reel_dir: Path, footage_dir: Path, project_name: str | None, stills: bool,
                  look: str | None = None, stills_only: bool = False, stills_dir: Path | None = None,
                  script_path: Path | None = None, use_track: bool = True,
                  ambience_db: float | None = None, canvas: str | None = None, superscale: bool = True,
@@ -951,15 +951,15 @@ class Builder:
         self.use_track = use_track
         self.ambience_db_override = ambience_db
         self.reel = reel_dir.name
-        self.walk_dir = walk_dir
+        self.footage_dir = footage_dir
         self.want_stills = stills
         self.look_override = look
         self.stills_only = stills_only
         self.stills_dir = stills_dir or reel_dir / "stills"
         self.report_path = (self.stills_dir / "stills-report.json") if stills_only else reel_dir / "build-report.json"
         self.style = load_json(STYLE_PATH)
-        self.manifest = load_json(walk_dir / "clip_manifest.json")
-        self.walk = self.manifest.get("walk") or walk_dir.name
+        self.manifest = load_json(footage_dir / "clip_manifest.json")
+        self.footage_id = self.manifest.get("footage") or self.manifest.get("walk") or footage_dir.name
         self.hdr_source_requested = hdr_source or mezz_mod.hdr_source_default(self.style)
         self.hdr_source = mezz_mod.effective_hdr_source(self.hdr_source_requested, deliver)
         self.sources: dict[str, dict] = {}
@@ -978,8 +978,8 @@ class Builder:
         # --canvas > the Script's canvas > style.json canvas.
         self.canvas: Canvas = for_reel(self.style, self.script.canvas, canvas)
         self.width, self.height, self.fps = self.canvas.width, self.canvas.height, self.canvas.fps
-        self.project_name = project_name or f"cf-{self.walk}-{self.reel}"
-        self.r = Report(reel=self.reel, walk=self.walk, project=self.project_name)
+        self.project_name = project_name or f"cf-{self.footage_id}-{self.reel}"
+        self.r = Report(reel=self.reel, footage=self.footage_id, project=self.project_name)
         self.r.canvas = {"width": self.width, "height": self.height, "fps": self.fps,
                          "reference_width": self.canvas.reference_width, "scale": self.canvas.scale,
                          "preset": self.canvas.preset, "override": canvas, "script_canvas": self.script.canvas,
@@ -1067,7 +1067,7 @@ class Builder:
         HDR clips' mezzanines are made (or reused from the cache) here, before Resolve is touched."""
         order = list(dict.fromkeys(s.clip for s in self.script.shots))
         clips = manifest_clips(self.manifest)
-        raw = {c: str(self.walk_dir / "raw" / c) for c in order}
+        raw = {c: str(self.footage_dir / "raw" / c) for c in order}
         for c, pth in raw.items():
             if not Path(pth).exists():
                 alt = clips[c].get("path")
@@ -1075,7 +1075,7 @@ class Builder:
                     raw[c] = alt
                 else:
                     raise BuildError(f"clip file not found: {pth}")
-        self.sources = mezz_mod.plan_sources(clips, self.walk_dir, raw, self.hdr_source)
+        self.sources = mezz_mod.plan_sources(clips, self.footage_dir, raw, self.hdr_source)
         rows = {}
         for c, src in self.sources.items():
             row = {"file": src["path"], "input_color_space": src["input_color_space"], "mezz": src["mezz"]}
@@ -1098,7 +1098,7 @@ class Builder:
         clips = manifest_clips(self.manifest)
         paths = {c: self.sources[c]["path"] for c in order}
         before = d.clip_index()
-        items_list = d.import_media([paths[c] for c in order], bin_name=self.walk)
+        items_list = d.import_media([paths[c] for c in order], bin_name=self.footage_id)
         after = d.clip_index()
         items = dict(zip(order, items_list))
         for c in order:
@@ -1185,7 +1185,7 @@ class Builder:
                                                            "timelineResolutionHeight", "timelineFrameRate")}}
         clip_fps = {m["clip"]: m["resolve_fps"] for m in r.media if m["resolve_fps"]}
         shots, notes = plan_shots(self.script, self.manifest, start, fps, self.cuts, clip_fps,
-                                  raw_dir=self.walk_dir / "raw")
+                                  raw_dir=self.footage_dir / "raw")
         r.notes.extend(notes)
         self.plan = shots
 
@@ -1322,7 +1322,7 @@ class Builder:
         boxes: dict[str, list[fw.Box | None]] = {}
         try:
             for s in wanted:
-                proxy = self.walk_dir / "proxy" / (Path(s.clip).stem + ".mp4")
+                proxy = self.footage_dir / "proxy" / (Path(s.clip).stem + ".mp4")
                 key = f"{s.clip}|{s.in_s:.4f}|{s.out_s:.4f}|{fw.SAMPLE_FPS:g}|{fw.CONF:g}"
                 if key not in cache:
                     if not proxy.exists():
@@ -1467,7 +1467,7 @@ class Builder:
             raise BuildError(f"Track file not found: {plan.path}")
         d.ensure_tracks(tl, "audio", 2, AUDIO_TRACK_NAMES, sub_type="stereo")
         r.check("A2 track name", "music", d.call(tl.GetTrackName, "audio", 2))
-        (mpi,) = d.import_media([plan.path], bin_name=f"{self.walk} music")
+        (mpi,) = d.import_media([plan.path], bin_name=f"{self.footage_id} music")
         props = d.call(mpi.GetClipProperty) or {}
         r.check("Track clip FPS = timeline fps (WAV frames are timeline frames)", float(self.fps),
                 float(props.get("FPS") or 0))
@@ -1511,7 +1511,7 @@ class Builder:
         for p in paths:
             if not Path(p).exists():
                 raise BuildError(f"Asset file not found: {p}")
-        pool = d.import_media(paths, bin_name=f"{self.walk} assets")
+        pool = d.import_media(paths, bin_name=f"{self.footage_id} assets")
         items = dict(zip(paths, pool))
         file_fps = {p: float((d.call(items[p].GetClipProperty) or {}).get("FPS") or 0) for p in paths}
         cues, notes = self._plan_cues(shots, mismatch, {p: f for p, f in file_fps.items() if f})
@@ -1615,7 +1615,7 @@ class Builder:
                 f, info = hdr_mod.hlg_overlay(f, self.overlay_nits)
                 if info:
                     converted.append(info)
-            (mpi,) = d.import_media([f], bin_name=f"{self.walk} overlays" + (" hlg" if hdr else ""))
+            (mpi,) = d.import_media([f], bin_name=f"{self.footage_id} overlays" + (" hlg" if hdr else ""))
             frames = int(float((d.call(mpi.GetClipProperty) or {}).get("Frames") or 0))
             on_disk = file_frames(f)
             # A re-rendered overlay keeps its path, and Resolve keeps the old pixels (and,
@@ -1963,7 +1963,7 @@ class Builder:
                    "export_returned": ok, "export_tries": tries, "file": str(f), "bytes": size}
             if size:
                 src_t = (s.src_start + (s.duration // 2) * s.speed * s.clip_fps / self.fps) / s.clip_fps
-                proxy = self.walk_dir / "proxy" / (Path(s.clip).stem + ".mp4")
+                proxy = self.footage_dir / "proxy" / (Path(s.clip).stem + ".mp4")
                 rp = (getattr(self, "reframe_plans", None) or {}).get(s.id)
                 # An Apple SDR mezzanine is what the still must show, so it is the luma reference
                 # (on the proxy grid); otherwise the proxy (its own tone map) is.
@@ -2100,12 +2100,12 @@ class Builder:
         clip_fps: dict[str, float] = {}
         index = d.clip_index()
         for c, info in manifest_clips(self.manifest).items():
-            path = (self.sources.get(c) or {}).get("path") or str(self.walk_dir / "raw" / c)
+            path = (self.sources.get(c) or {}).get("path") or str(self.footage_dir / "raw" / c)
             items = index.get(path) or index.get(str(info.get("path"))) or []
             if items:
                 clip_fps[c] = float((d.call(items[0].GetClipProperty) or {}).get("FPS") or 0) or info["fps"]
         self.plan, notes = plan_shots(self.script, self.manifest, start, self.fps, self.cuts, clip_fps,
-                                      raw_dir=self.walk_dir / "raw")
+                                      raw_dir=self.footage_dir / "raw")
         r.notes.extend(notes)
         mismatch = (d.call(tl.GetSettings) or {}).get("timelineInputResMismatchBehavior") or "scaleToFit"
         self.reframe_plans = plan_reframes(self.script, self.manifest, self.width, self.height, mismatch,
@@ -2302,9 +2302,12 @@ class Builder:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cf.build", description=__doc__.splitlines()[0])
-    ap.add_argument("reel_dir", help="reels/<reel>/ inside the Walk folder (holds script.json)")
-    ap.add_argument("--walk", help="Walk folder with clip_manifest.json and raw/ (default: two levels up)")
-    ap.add_argument("--project-name", help="Resolve project (default: cf-<walk>-<reel>)")
+    ap.add_argument("reel_dir", help="reels/<reel>/ inside the Footage folder (holds script.json)")
+    ap.add_argument("--footage", dest="footage",
+                    help="Footage folder with clip_manifest.json and raw/ "
+                         "(default: the Script's Footage for a Video folder, else two levels up)")
+    ap.add_argument("--walk", dest="footage", help=argparse.SUPPRESS)
+    ap.add_argument("--project-name", help="Resolve project (default: cf-<footage>-<reel>)")
     ap.add_argument("--no-stills", action="store_true", help="skip the per-shot stills")
     ap.add_argument("--look", help="Look LUT (.cube) overriding style.json look.lut; 'none' clears it")
     ap.add_argument("--stills-only", action="store_true",
@@ -2356,21 +2359,21 @@ def main(argv: list[str] | None = None) -> int:
     if not script_path.exists():
         print(f"no {script_path}", file=sys.stderr)
         return 2
-    if args.walk:
-        walk_dir = Path(args.walk).expanduser().resolve()
+    if args.footage:
+        footage_dir = Path(args.footage).expanduser().resolve()
     else:
         try:
-            walk_dir = default_walk_dir(reel_dir, load(script_path))
+            footage_dir = default_footage_dir(reel_dir, load(script_path))
         except Exception:  # noqa: BLE001 - the Builder reports an unreadable Script
-            walk_dir = reel_dir.parent.parent
-    if not (walk_dir / "clip_manifest.json").exists():
-        print(f"no clip_manifest.json in {walk_dir}", file=sys.stderr)
+            footage_dir = reel_dir.parent.parent
+    if not (footage_dir / "clip_manifest.json").exists():
+        print(f"no clip_manifest.json in {footage_dir}", file=sys.stderr)
         return 2
     if args.stills_only and args.no_stills:
         print("--stills-only and --no-stills contradict each other", file=sys.stderr)
         return 2
     if args.overlay_specs:
-        return write_overlay_specs(reel_dir, walk_dir, script_path, args.canvas)
+        return write_overlay_specs(reel_dir, footage_dir, script_path, args.canvas)
     stills_dir = Path(args.stills_dir).expanduser().resolve() if args.stills_dir else None
     grade_drx = Path(args.grade_drx).expanduser().resolve() if args.grade_drx else None
     if grade_drx is not None and not grade_drx.is_dir():
@@ -2379,7 +2382,7 @@ def main(argv: list[str] | None = None) -> int:
     if grade_drx is not None and args.stills_only:
         print("--grade-drx needs a full build (it is not applied with --stills-only)", file=sys.stderr)
         return 2
-    return Builder(reel_dir, walk_dir, args.project_name, stills=not args.no_stills, look=args.look,
+    return Builder(reel_dir, footage_dir, args.project_name, stills=not args.no_stills, look=args.look,
                    stills_only=args.stills_only, stills_dir=stills_dir, script_path=script_path,
                    use_track=not args.no_track, ambience_db=args.ambience_db, canvas=args.canvas,
                    superscale=not args.no_superscale, deliver=args.deliver,

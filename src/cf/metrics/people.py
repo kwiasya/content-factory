@@ -5,7 +5,7 @@ as a fraction of frame height). Events: person_enter (a track first seen after
 the first sample and seen at least twice), stranger_closeup (a track whose box
 height exceeds CLOSEUP_H).
 
-There is no identity recognition. Most Walk footage stars the author (selfies,
+There is no identity recognition. Most Footage stars the author (selfies,
 tripod shots), so a "subject" is guessed and excluded from stranger_closeup:
 the track seen in >= SUBJECT_COVERAGE of samples, and, when the clip is
 subject-dominated (a box taller than SUBJECT_H in >= SUBJECT_COVERAGE of

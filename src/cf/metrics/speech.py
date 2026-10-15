@@ -93,14 +93,14 @@ def speech_seconds(speech: Sequence[bool]) -> int:
 # Audio
 
 
-def find_raw(walk: Path | None, cid: str, header_path: str | None = None) -> Path | None:
-    """Raw source of a clip: the manifest path if it exists, else <walk>/raw/<cid>.*"""
+def find_raw(footage: Path | None, cid: str, header_path: str | None = None) -> Path | None:
+    """Raw source of a clip: the manifest path if it exists, else <footage>/raw/<cid>.*"""
     if header_path and Path(header_path).exists():
         return Path(header_path)
-    if walk is None or not (walk / "raw").is_dir():
+    if footage is None or not (footage / "raw").is_dir():
         return None
     # glob returns the on-disk spelling (the volume may be case-insensitive)
-    hits = sorted(p for p in (walk / "raw").glob(f"{cid}.*")
+    hits = sorted(p for p in (footage / "raw").glob(f"{cid}.*")
                   if not p.name.startswith(".") and p.suffix.lower() in RAW_EXTS)
     return hits[0] if hits else None
 

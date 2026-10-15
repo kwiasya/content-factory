@@ -44,15 +44,15 @@ class ChoiceTest(unittest.TestCase):
             mezz.effective_hdr_source("apple", "sdr")
 
     def test_plan_sources(self):
-        walk = Path("/w/potsdam")
+        footage = Path("/w/potsdam")
         clips = {"IMG_0477.MOV": HLG_CLIP, "DJI_0001.MP4": SDR_CLIP}
         raw = {"IMG_0477.MOV": "/w/potsdam/raw/IMG_0477.MOV", "DJI_0001.MP4": "/w/potsdam/raw/DJI_0001.MP4"}
-        plan = mezz.plan_sources(clips, walk, raw, "apple-sdr")
+        plan = mezz.plan_sources(clips, footage, raw, "apple-sdr")
         self.assertEqual(plan["IMG_0477.MOV"], {"path": "/w/potsdam/mezz/IMG_0477.mov", "raw": raw["IMG_0477.MOV"],
                                                 "mezz": True, "input_color_space": "Rec.709 Gamma 2.4"})
         self.assertEqual(plan["DJI_0001.MP4"], {"path": raw["DJI_0001.MP4"], "raw": raw["DJI_0001.MP4"],
                                                 "mezz": False, "input_color_space": "Rec.709 Gamma 2.4"})
-        plan = mezz.plan_sources(clips, walk, raw, "resolve")
+        plan = mezz.plan_sources(clips, footage, raw, "resolve")
         self.assertEqual(plan["IMG_0477.MOV"]["path"], raw["IMG_0477.MOV"])
         self.assertEqual(plan["IMG_0477.MOV"]["input_color_space"], "Rec.2020 HLG ARIB STD-B67")
         self.assertFalse(plan["IMG_0477.MOV"]["mezz"])

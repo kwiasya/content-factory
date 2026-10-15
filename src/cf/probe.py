@@ -1,4 +1,4 @@
-"""Probe a folder of raw Clips and write clip_manifest.json for the Walk.
+"""Probe a folder of raw Clips and write clip_manifest.json for the Footage.
 
 Usage: python -m cf.probe <raw_dir> [-o clip_manifest.json]
 
@@ -331,7 +331,7 @@ def probe_clip(path: Path, exif: dict) -> dict:
 
 
 def probe_file(path: Path) -> dict:
-    """Manifest-style entry for one media file outside a Walk (e.g. a downloaded Reference).
+    """Manifest-style entry for one media file outside a Footage folder (e.g. a downloaded Reference).
 
     exiftool is best effort here: without it (or without tags) the entry still carries
     ffprobe's fps, duration, rotation and color tags; device and GPS stay empty.
@@ -362,10 +362,10 @@ def build_manifest(raw_dir: Path) -> dict:
     clips = list_clips(raw_dir)
     exif_by_name = run_exiftool(clips)
     entries = [probe_clip(p, exif_by_name.get(p.name, {})) for p in clips]
-    walk = raw_dir.parent.name if raw_dir.name == "raw" else raw_dir.name
+    footage = raw_dir.parent.name if raw_dir.name == "raw" else raw_dir.name
     return {
         "schema": MANIFEST_SCHEMA,
-        "walk": walk,
+        "footage": footage,
         "raw_dir": str(raw_dir),
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "clips": entries,

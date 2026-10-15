@@ -1,9 +1,9 @@
 """Render a Reel's timeline from DaVinci Resolve Studio and verify the file.
 
-    python -m cf.render <reel_dir> [--walk <walk_dir>] [--preset NAME] [--canvas WxH]
+    python -m cf.render <reel_dir> [--footage <footage_dir>] [--preset NAME] [--canvas WxH]
                         [--out <path.mp4>] [--no-check] [--fix-loudness] [--hdr] [--target-tp DB]
 
-Opens project ``cf-<walk>-<reel>`` (never creates one), selects timeline ``<reel>``,
+Opens project ``cf-<footage>-<reel>`` (never creates one), selects timeline ``<reel>``,
 creates or updates the render preset ``cf-instagram-<w>x<h>`` (``style.json``: ``render``
 format/codec, the canvas size and fps (``--canvas`` > the Script's ``canvas`` > ``style.json``
 ``canvas``; ``landscape`` = 3840x2160), ``render.bitrate_mbps`` for that size, i.e. mp4 /
@@ -151,7 +151,7 @@ def job_mismatches(job: dict, expect: dict, out: Path) -> list[str]:
 
 
 class Renderer:
-    def __init__(self, reel_dir: Path, walk_dir: Path, preset: str | None, out: Path | None, project: str | None,
+    def __init__(self, reel_dir: Path, footage_dir: Path, preset: str | None, out: Path | None, project: str | None,
                  canvas: str | None = None, hdr: bool = False, target_tp: float = render_check.TARGET_TP):
         self.reel_dir = reel_dir
         style = load_json(STYLE_PATH)
@@ -167,9 +167,9 @@ class Renderer:
             raise RenderError(str(exc)) from exc
         preset = preset or (hdr_preset_name(self.canvas) if hdr else preset_name(self.canvas))
         self.reel = reel_dir.name
-        manifest = load_json(walk_dir / "clip_manifest.json")
-        self.walk = manifest.get("walk") or walk_dir.name
-        self.project_name = project or f"cf-{self.walk}-{self.reel}"
+        manifest = load_json(footage_dir / "clip_manifest.json")
+        self.footage_id = manifest.get("footage") or manifest.get("walk") or footage_dir.name
+        self.project_name = project or f"cf-{self.footage_id}-{self.reel}"
         self.preset = preset
         self.out = (out or reel_dir / "out" / f"{self.reel}.mp4").expanduser().resolve()
         if self.out.suffix.lower() != ".mp4":
@@ -355,13 +355,14 @@ class Renderer:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m cf.render", description=__doc__.splitlines()[0])
-    ap.add_argument("reel_dir", help="reels/<reel>/ inside the Walk folder")
-    ap.add_argument("--walk", help="Walk folder with clip_manifest.json (default: two levels up)")
+    ap.add_argument("reel_dir", help="reels/<reel>/ inside the Footage folder")
+    ap.add_argument("--footage", dest="footage", help="Footage folder with clip_manifest.json (default: two levels up)")
+    ap.add_argument("--walk", dest="footage", help=argparse.SUPPRESS)
     ap.add_argument("--preset", help="render preset to create/update (default cf-instagram-<w>x<h> of the canvas)")
     ap.add_argument("--canvas", help="canvas preset (portrait, landscape) or WxH overriding the Script's and "
                                      "style.json canvas, e.g. 1080x1920 for a comparison render")
     ap.add_argument("--out", help="output .mp4 (default: <reel_dir>/out/<reel>.mp4)")
-    ap.add_argument("--project-name", help="Resolve project (default: cf-<walk>-<reel>)")
+    ap.add_argument("--project-name", help="Resolve project (default: cf-<footage>-<reel>)")
     ap.add_argument("--no-check", action="store_true", help="skip cf.render_check")
     ap.add_argument("--fix-loudness", action="store_true",
                     help="pass --fix-loudness to render_check (writes <reel>.normalized.mp4)")
@@ -373,12 +374,12 @@ def main(argv: list[str] | None = None) -> int:
                          f"(default {render_check.TARGET_TP:g})")
     args = ap.parse_args(argv)
     reel_dir = Path(args.reel_dir).expanduser().resolve()
-    walk_dir = Path(args.walk).expanduser().resolve() if args.walk else reel_dir.parent.parent
-    if not (walk_dir / "clip_manifest.json").exists():
-        print(f"no clip_manifest.json in {walk_dir}", file=sys.stderr)
+    footage_dir = Path(args.footage).expanduser().resolve() if args.footage else reel_dir.parent.parent
+    if not (footage_dir / "clip_manifest.json").exists():
+        print(f"no clip_manifest.json in {footage_dir}", file=sys.stderr)
         return 2
     try:
-        r = Renderer(reel_dir, walk_dir, args.preset, Path(args.out) if args.out else None, args.project_name,
+        r = Renderer(reel_dir, footage_dir, args.preset, Path(args.out) if args.out else None, args.project_name,
                      canvas=args.canvas, hdr=args.hdr, target_tp=args.target_tp)
     except (RenderError, ValueError) as exc:
         print(exc, file=sys.stderr)

@@ -4,10 +4,12 @@ source frames, levels and transforms. No Resolve."""
 import json
 import tempfile
 import unittest
+from dataclasses import asdict
 from pathlib import Path
+from unittest import mock
 
 from cf import assets as ca
-from cf.build import (BuildError, cue_append_infos, cue_plan_from_report, cue_tracks, default_walk_dir, plan_cues, plan_shots,
+from cf.build import (BuildError, cue_append_infos, cue_plan_from_report, cue_tracks, default_footage_dir, plan_cues, plan_shots,
                       reference_level, source_end, sfx_volume)
 from cf.canvas import resolve
 from cf.script_schema import check, from_dict
@@ -16,7 +18,7 @@ from library_fixture import IDS, PACK, make_library
 from test_script_schema import STYLE
 
 START = 108000
-MANIFEST = {"walk": "w", "clips": [{"file": "C30.mov", "fps": 30.0, "duration_s": 33.6, "nb_frames": 1008}]}
+MANIFEST = {"footage": "w", "clips": [{"file": "C30.mov", "fps": 30.0, "duration_s": 33.6, "nb_frames": 1008}]}
 CANVAS = resolve(STYLE)
 
 
@@ -27,7 +29,7 @@ def script(cues_by_shot, ending="reveal_last"):
         if cues:
             sh["assets"] = cues
         shots.append(sh)
-    return from_dict({"schema": "cf-script/1", "walk": "w", "concept": "c", "format": "pov",
+    return from_dict({"schema": "cf-script/1", "footage": "w", "concept": "c", "format": "pov",
                       "target_length_s": 3 * len(shots),
                       "hook": {"type": "pov", "text": "one two three four five", "clip": "C30.mov"},
                       "shots": shots, "ending": ending, "location_tag": "x"})
@@ -216,37 +218,80 @@ class NoAssetsBuildTest(unittest.TestCase):
         from test_script_schema import MANIFEST as SCHEMA_MANIFEST, good
 
         with tempfile.TemporaryDirectory() as t:
-            walk = Path(t) / "test-walk"
-            reel = walk / "reels/r1"
+            footage = Path(t) / "test-footage"
+            reel = footage / "reels/r1"
             reel.mkdir(parents=True)
-            (walk / "clip_manifest.json").write_text(json.dumps(SCHEMA_MANIFEST))
+            (footage / "clip_manifest.json").write_text(json.dumps(SCHEMA_MANIFEST))
             d = good()
             d["shots"][0]["assets"] = [{"ref": "@sfx/own-hit", "at_s": 0.0}]
             (reel / "script.json").write_text(json.dumps(d))
             none = Path(t) / "none.db"
-            b = Builder(reel, walk, None, stills=False, shared_root=Path(t), db_path=none, use_assets=False)
+            b = Builder(reel, footage, None, stills=False, shared_root=Path(t), db_path=none, use_assets=False)
             b.validate()
             self.assertIn("--no-assets: the Script's Asset cues are left out of this build", b.r.notes)
             self.assertFalse(b.cues_on())
             with self.assertRaisesRegex(BuildError, "need the Library"):
-                Builder(reel, walk, None, stills=False, shared_root=Path(t), db_path=none).validate()
+                Builder(reel, footage, None, stills=False, shared_root=Path(t), db_path=none).validate()
 
 
-class WalkDirTest(unittest.TestCase):
-    def test_default_walk_dir_for_legacy_reels_and_video_folders(self):
+class FootageDirTest(unittest.TestCase):
+    def test_default_footage_dir_for_legacy_reels_and_video_folders(self):
         sc = script([[]])
         with tempfile.TemporaryDirectory() as t:
             f = Path(t)
             reel = f / "potsdam/reels/reel-01"
             reel.mkdir(parents=True)
-            self.assertEqual(default_walk_dir(reel, sc), f / "potsdam")
+            self.assertEqual(default_footage_dir(reel, sc), f / "potsdam")
             video = f / "videos/boat"
             video.mkdir(parents=True)
             (video / "video.json").write_text(json.dumps({"format": "walk-reel"}))
-            self.assertEqual(default_walk_dir(video, sc), f / "w")
+            self.assertEqual(default_footage_dir(video, sc), f / "w")
             loose = f / "elsewhere/x"
             loose.mkdir(parents=True)
-            self.assertEqual(default_walk_dir(loose, sc), f)
+            self.assertEqual(default_footage_dir(loose, sc), f)
+
+
+
+class FootageKeysTest(unittest.TestCase):
+    def setUp(self):
+        from test_script_schema import MANIFEST as SCHEMA_MANIFEST, good
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.footage = Path(tmp.name) / "test-footage"
+        self.reel = self.footage / "reels/r1"
+        self.reel.mkdir(parents=True)
+        legacy = {k: v for k, v in SCHEMA_MANIFEST.items() if k != "footage"}
+        (self.footage / "clip_manifest.json").write_text(json.dumps({**legacy, "walk": "potsdam-2026-10-04"}))
+        (self.reel / "script.json").write_text(json.dumps({**good(), "footage": "potsdam-2026-10-04"}))
+
+    def test_a_builder_over_a_legacy_manifest_names_its_footage_in_the_report(self):
+        from cf.build import Builder
+
+        b = Builder(self.reel, self.footage, None, stills=False, use_assets=False)
+        self.assertEqual(b.footage_id, "potsdam-2026-10-04")
+        self.assertEqual(b.project_name, "cf-potsdam-2026-10-04-r1")
+        report = asdict(b.r)
+        self.assertEqual(report["footage"], "potsdam-2026-10-04")
+        self.assertNotIn("walk", report)
+
+    def test_old_build_flags_parse_into_the_new_ones(self):
+        from cf import build
+
+        for flags in (["--footage", str(self.footage), "--shared-root", "/lib"],
+                      ["--walk", str(self.footage), "--footage-root", "/lib"]):
+            with self.subTest(flags=flags[0]), mock.patch.object(build, "Builder") as builder:
+                build.main([str(self.reel), *flags])
+                self.assertEqual(builder.call_args.args[1], self.footage.resolve())
+                self.assertEqual(builder.call_args.kwargs["shared_root"], Path("/lib"))
+
+    def test_old_render_flag_parses_into_footage(self):
+        from cf import render
+
+        for flag in ("--footage", "--walk"):
+            with self.subTest(flag=flag), mock.patch.object(render, "Renderer") as renderer:
+                render.main([str(self.reel), flag, str(self.footage)])
+                self.assertEqual(renderer.call_args.args[1], self.footage.resolve())
 
 
 if __name__ == "__main__":

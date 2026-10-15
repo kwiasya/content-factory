@@ -3,7 +3,7 @@
 Inputs are plain dicts already on disk in the Reference folder: the yt-dlp
 info dict (``info.json``), the stable-ts result (``transcript.json``, the
 ``to_dict()`` shape: ``segments[*].words[*]`` with ``word``, ``start``, ``end``),
-the Shot log (``shotlog.json``, ``reel-shotlog/1.2``) and the OCR frames of the
+the Shot log (``shotlog.json``, ``reel-shotlog/1.3``) and the OCR frames of the
 first seconds (``tools/vision-score --text`` records, or None when OCR did not run).
 """
 

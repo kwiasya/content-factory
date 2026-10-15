@@ -22,9 +22,9 @@ from cf import assets, library, script_schema
 from cf.desk import channels, contour_api, formats_api, media, paths, storeuse
 from cf.desk.hashed import atomic_write, digest, stale
 from cf.desk.problems import Problem, body as problem_body
-from cf.desk.videofolders import (NAME, NOT_WALKS, SCHEMA, STAGES, STATUSES, VIDEO_SUFFIXES, Folder, find_folder,
-                                  iso, last_change, list_folders, not_an_object, read_video, summary, unreadable,
-                                  videos_dir, walk_files)
+from cf.desk.videofolders import (NAME, NOT_FOOTAGE, SCHEMA, STAGES, STATUSES, VIDEO_SUFFIXES, Folder, find_folder,
+                                  footage_ids, iso, last_change, list_folders, normalised, not_an_object, read_video,
+                                  summary, unreadable, videos_dir, walk_files)
 from cf.research import ideas as research_ideas
 from cf.research import watchlist as watchlists
 
@@ -77,18 +77,18 @@ def file_entry(root: Path, folder: Path, path: Path) -> dict:
             "editable": kind in EDITABLE, "media": media_path(root, path)}
 
 
-def proxies(root: Path, walks: list) -> list[dict]:
+def proxies(root: Path, ids: list) -> list[dict]:
     found = []
-    for walk in walks:
-        if not isinstance(walk, str) or not NAME.match(walk) or walk in NOT_WALKS:
+    for footage in ids:
+        if not isinstance(footage, str) or not NAME.match(footage) or footage in NOT_FOOTAGE:
             continue
-        folder = root / walk / "proxy"
+        folder = root / footage / "proxy"
         if not folder.is_dir():
             continue
         for p in sorted(folder.iterdir()):
             rel = media_path(root, p)
             if rel:
-                found.append({"walk": walk, "name": p.name, "size": p.stat().st_size, "media": rel})
+                found.append({"footage": footage, "name": p.name, "size": p.stat().st_size, "media": rel})
     return found
 
 
@@ -99,7 +99,7 @@ def detail(root: Path, folder: Folder) -> dict:
             "hash": None if folder.legacy else digest(meta.read_bytes()),
             "statuses": list(STATUSES), "updated": iso(last_change(folder.path)),
             "files": [file_entry(root, folder.path, p) for p in walk_files(folder.path)],
-            "proxies": proxies(root, video.get("walks") or [])}
+            "proxies": proxies(root, footage_ids(video))}
 
 
 def text_format(rel: str) -> str:
@@ -155,10 +155,9 @@ def script_violations(root: Path, repo: Path, text: str, *, script: bool, folder
         script = script_schema.from_dict(data)
     except script_schema.ScriptError as e:
         return [str(e)]
-    walk = data.get("walk")
     manifest = None
-    if isinstance(walk, str) and NAME.match(walk):
-        manifest = optional_json(root / walk / "clip_manifest.json")
+    if NAME.match(script.footage):
+        manifest = optional_json(root / script.footage / "clip_manifest.json")
     ctx = asset_context(root, folder, db_path) if script_schema.has_cues(script) else None
     return script_schema.validate(script, manifest, optional_json(repo / "style.json"), assets=ctx)
 
@@ -284,7 +283,7 @@ def create_video(root: Path, repo: Path, db_path: Path, body: VideoCreate) -> Fo
         if brief is not None:
             (folder / "brief.md").write_bytes(brief.read_bytes())
         video = {"schema": SCHEMA, "slug": folder.name, "title_working": title, "format": body.format,
-                 "channel": channel, "language": language, "walks": [], "status": "idea",
+                 "channel": channel, "language": language, "footage": [], "status": "idea",
                  "history": [{"status": "idea", "at": datetime.now(timezone.utc).date().isoformat(), "note": ""}],
                  "references": [src["external_id"] for src in idea["sources"]] if idea else [],
                  "ideas": [idea["id"]] if idea else [], "published_url": None}
@@ -369,6 +368,7 @@ def router(root: Path, repo: Path, db_path: Path) -> APIRouter:
             raise unreadable(e) from None
         if not isinstance(video, dict):
             raise not_an_object()
+        video = normalised(video)
         video["status"] = body.status
         today = datetime.now(timezone.utc).date().isoformat()
         video["history"] = [*(video.get("history") or []), {"status": body.status, "at": today, "note": body.note}]

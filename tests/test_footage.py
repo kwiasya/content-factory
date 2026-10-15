@@ -1,4 +1,4 @@
-"""cf.walk init on a temporary source folder and footage root."""
+"""cf.footage init on a temporary source folder and local root; cf.walk still runs it."""
 
 import contextlib
 import io
@@ -8,10 +8,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from cf.walk import main
+from cf import walk
+from cf.footage import main
 
 
-class WalkInitTest(unittest.TestCase):
+class FootageInitTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -22,12 +23,12 @@ class WalkInitTest(unittest.TestCase):
                            ".DS_Store": b"x"}.items():
             (self.source / name).write_bytes(data)
         (self.source / "sub").mkdir()
-        self.footage = base / "footage"
-        self.footage.mkdir()
-        env = mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(self.footage)})
+        self.root = base / "root"
+        self.root.mkdir()
+        env = mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(self.root)})
         env.start()
         self.addCleanup(env.stop)
-        self.walk = self.footage / "town-2026-07-31"
+        self.footage = self.root / "town-2026-07-31"
 
     def run_cli(self, *args: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -38,13 +39,13 @@ class WalkInitTest(unittest.TestCase):
     def test_links_clips_and_stills_and_reports_the_rest(self):
         code, out, _ = self.run_cli("town-2026-07-31", "--from", str(self.source))
         self.assertEqual(code, 0)
-        self.assertEqual(sorted(p.name for p in self.walk.iterdir()), ["proxy", "raw", "shotlog", "stills"])
-        raw = sorted(self.walk.glob("raw/*"))
+        self.assertEqual(sorted(p.name for p in self.footage.iterdir()), ["proxy", "raw", "shotlog", "stills"])
+        raw = sorted(self.footage.glob("raw/*"))
         self.assertEqual([p.name for p in raw], ["A.MP4", "B.mp4", "C.MOV"])
         for p in raw:
             self.assertTrue(p.is_symlink())
             self.assertEqual(p.resolve(), self.source / p.name)
-        still = self.walk / "stills" / "D.JPG"
+        still = self.footage / "stills" / "D.JPG"
         self.assertTrue(still.is_symlink())
         self.assertEqual(still.read_bytes(), b"d")
         self.assertIn("3 clips linked, 1 stills", out)
@@ -53,11 +54,11 @@ class WalkInitTest(unittest.TestCase):
 
     def test_second_run_is_a_no_op(self):
         self.run_cli("town-2026-07-31", "--from", str(self.source))
-        before = {p.name: os.readlink(p) for p in self.walk.glob("raw/*")}
+        before = {p.name: os.readlink(p) for p in self.footage.glob("raw/*")}
         code, out, _ = self.run_cli("town-2026-07-31", "--from", str(self.source))
         self.assertEqual(code, 0)
         self.assertIn("0 clips linked, 0 stills, 4 already present", out)
-        self.assertEqual({p.name: os.readlink(p) for p in self.walk.glob("raw/*")}, before)
+        self.assertEqual({p.name: os.readlink(p) for p in self.footage.glob("raw/*")}, before)
 
     def test_the_same_source_spelled_differently_is_a_no_op(self):
         self.run_cli("town-2026-07-31", "--from", str(self.source))
@@ -73,7 +74,7 @@ class WalkInitTest(unittest.TestCase):
         alias = self.source.parent / "alias"
         alias.symlink_to(self.source)
         self.run_cli("town-2026-07-31", "--from", str(alias / ".." / "alias"))
-        self.assertEqual(os.readlink(self.walk / "raw" / "A.MP4"), str(self.source / "A.MP4"))
+        self.assertEqual(os.readlink(self.footage / "raw" / "A.MP4"), str(self.source / "A.MP4"))
 
     def test_symlinked_files_in_the_source_keep_their_own_names(self):
         elsewhere = self.source.parent / "elsewhere"
@@ -85,20 +86,20 @@ class WalkInitTest(unittest.TestCase):
         (self.source / "S.png").symlink_to(elsewhere / "clip.bin")
         code, out, err = self.run_cli("town-2026-07-31", "--from", str(self.source))
         self.assertEqual(code, 0, err)
-        raw = {p.name: p.resolve() for p in (self.walk / "raw").iterdir()}
+        raw = {p.name: p.resolve() for p in (self.footage / "raw").iterdir()}
         self.assertEqual(sorted(raw), ["A.MP4", "B.mp4", "C.MOV", "E.MP4", "L.mov", "M.mp4"])
         self.assertEqual(raw["L.mov"], self.source / "A.MP4")
         self.assertEqual(raw["M.mp4"], self.source / "A.MP4")
         self.assertEqual(raw["E.MP4"], elsewhere / "clip.bin")
-        self.assertEqual(sorted(p.name for p in (self.walk / "stills").iterdir()), ["D.JPG", "S.png"])
+        self.assertEqual(sorted(p.name for p in (self.footage / "stills").iterdir()), ["D.JPG", "S.png"])
         self.assertIn("6 clips linked, 2 stills", out)
         code, out, err = self.run_cli("town-2026-07-31", "--from", str(self.source))
         self.assertEqual(code, 0, err)
         self.assertIn("0 clips linked, 0 stills, 8 already present", out)
 
-    def test_a_walk_subfolder_that_is_a_file_is_exit_2(self):
-        self.walk.mkdir()
-        (self.walk / "shotlog").write_text("x")
+    def test_a_footage_subfolder_that_is_a_file_is_exit_2(self):
+        self.footage.mkdir()
+        (self.footage / "shotlog").write_text("x")
         code, _, err = self.run_cli("town-2026-07-31", "--from", str(self.source))
         self.assertEqual(code, 2)
         self.assertIn("error:", err)
@@ -115,10 +116,10 @@ class WalkInitTest(unittest.TestCase):
         code, _, err = self.run_cli("town-2026-07-31", "--from", str(card), "--copy")
         self.assertEqual(code, 2)
         self.assertIn("folders not scanned: DCIM", err)
-        self.assertFalse(self.walk.exists())
+        self.assertFalse(self.footage.exists())
 
     def test_copy_replaces_a_leftover_part_file_and_compares_by_size_and_mtime(self):
-        raw = self.walk / "raw"
+        raw = self.footage / "raw"
         raw.mkdir(parents=True)
         (raw / "A.MP4.part").write_bytes(b"half")
         code, _, err = self.run_cli("town-2026-07-31", "--from", str(self.source), "--copy")
@@ -137,39 +138,50 @@ class WalkInitTest(unittest.TestCase):
         self.assertIn("B.mp4", err)
 
     def test_an_entry_pointing_elsewhere_is_an_error_and_nothing_is_touched(self):
-        (self.walk / "raw").mkdir(parents=True)
+        (self.footage / "raw").mkdir(parents=True)
         other = self.source.parent / "other.MP4"
         other.write_bytes(b"o")
-        (self.walk / "raw" / "B.mp4").symlink_to(other)
+        (self.footage / "raw" / "B.mp4").symlink_to(other)
         code, _, err = self.run_cli("town-2026-07-31", "--from", str(self.source))
         self.assertEqual(code, 2)
         self.assertIn("B.mp4", err)
-        self.assertEqual([p.name for p in (self.walk / "raw").iterdir()], ["B.mp4"])
-        self.assertFalse((self.walk / "stills").exists())
+        self.assertEqual([p.name for p in (self.footage / "raw").iterdir()], ["B.mp4"])
+        self.assertFalse((self.footage / "stills").exists())
 
     def test_copy_makes_regular_files_with_equal_bytes_and_reruns_cleanly(self):
         code, out, _ = self.run_cli("town-2026-07-31", "--from", str(self.source), "--copy")
         self.assertEqual(code, 0)
         self.assertIn("3 clips copied", out)
         for name in ("A.MP4", "B.mp4", "C.MOV"):
-            p = self.walk / "raw" / name
+            p = self.footage / "raw" / name
             self.assertFalse(p.is_symlink())
             self.assertEqual(p.read_bytes(), (self.source / name).read_bytes())
         code, out, _ = self.run_cli("town-2026-07-31", "--from", str(self.source), "--copy")
         self.assertEqual(code, 0)
         self.assertIn("4 already present", out)
 
-    def test_bad_walk_id_is_exit_2(self):
-        for bad in ("Town-2026-07-31", "town", "town-26-07-31", str(self.footage / "my walk-2026-07-31")):
+    def test_bad_footage_id_is_exit_2(self):
+        for bad in ("Town-2026-07-31", "town", "town-26-07-31", str(self.root / "my town-2026-07-31")):
             with self.subTest(bad=bad):
                 code, _, err = self.run_cli(bad, "--from", str(self.source))
                 self.assertEqual(code, 2)
                 self.assertIn("<place>-<YYYY-MM-DD>", err)
-        self.assertEqual(list(self.footage.iterdir()), [])
+                self.assertIn("Footage id", err)
+        self.assertEqual(list(self.root.iterdir()), [])
 
     def test_a_path_is_used_as_is(self):
         target = self.source.parent / "elsewhere" / "town-2026-08-01"
         code, _, _ = self.run_cli(str(target), "--from", str(self.source))
         self.assertEqual(code, 0)
         self.assertTrue((target / "raw" / "A.MP4").is_symlink())
-        self.assertEqual(list(self.footage.iterdir()), [])
+        self.assertEqual(list(self.root.iterdir()), [])
+
+
+    def test_the_old_module_name_runs_the_same_command_with_a_notice(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = walk.main(["init", "town-2026-07-31", "--from", str(self.source)])
+        self.assertEqual(code, 0)
+        self.assertIn("cf.walk is now cf.footage", err.getvalue())
+        self.assertIn("3 clips linked, 1 stills", out.getvalue())
+        self.assertEqual(sorted(p.name for p in self.footage.iterdir()), ["proxy", "raw", "shotlog", "stills"])

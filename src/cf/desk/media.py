@@ -1,7 +1,7 @@
 """Desk media streaming: renders, overlays, sources and proxies served with HTTP Range, raw camera files never.
 
 Paths are relative to the root (one root for now: the local and shared roots are the same folder). Only these subtrees are served; everything else, `raw/` included, is 404:
-`videos/<slug>/{renders,overlays,sources}/**`, `<walk>/proxy/*`, `<walk>/reels/<reel>/**`,
+`videos/<slug>/{renders,overlays,sources}/**`, `<footage>/proxy/*`, `<footage>/reels/<reel>/**`,
 `references/<watchlist>/<id>/proxy.mp4`, the Library cache `library/<pack>/{previews,keyed,converted,png,sheets}/*`
 and, from a registered Pack's own folder, `packs/<pack id>/<path in the Pack>` for files its index lists (media
 suffixes only, ADR 0007).
@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 
 from cf.desk import paths
 from cf.desk.problems import Problem
-from cf.desk.videofolders import NOT_WALKS
+from cf.desk.videofolders import NOT_FOOTAGE
 from cf.library.scan import AUDIO, FONT, IMAGE, VIDEO
 
 VIDEO_SUBTREES = {"renders", "overlays", "sources"}
@@ -38,7 +38,7 @@ def _allowlisted(parts: tuple[str, ...]) -> bool:
         return True
     if len(parts) == 4 and parts[0] == "library" and parts[2] in CACHE_SUBTREES:
         return Path(parts[3]).suffix.lower() in MEDIA_SUFFIXES
-    if parts[0] in NOT_WALKS:
+    if parts[0] in NOT_FOOTAGE:
         return False
     if len(parts) == 3 and parts[1] == "proxy":
         return True

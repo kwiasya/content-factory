@@ -116,7 +116,7 @@ class Hook:
 
 @dataclass
 class Script:
-    walk: str
+    footage: str
     concept: str
     format: str
     target_length_s: float
@@ -159,6 +159,24 @@ def _opt_num(d: dict, key: str, where: str) -> float | None:
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         raise ScriptError(f"{where}: {key!r} must be a number or null, got {v!r}")
     return float(v)
+
+
+def footage_of(d: dict) -> str:
+    """The Script's Footage id: ``footage``, else the legacy ``walk``; both present must agree."""
+    footage = _str(d, "footage", "script", required=False)
+    legacy = _str(d, "walk", "script", required=False)
+    if footage is not None and legacy is not None and footage != legacy:
+        raise ScriptError("script: footage and walk differ; keep footage")
+    if footage is None and legacy is None:
+        raise ScriptError("script: missing 'footage'")
+    return footage if footage is not None else legacy
+
+
+def manifest_footage(manifest: dict | None) -> str | None:
+    """The Footage id a clip_manifest.json names: ``footage``, else the legacy ``walk``."""
+    if not manifest:
+        return None
+    return manifest.get("footage") or manifest.get("walk")
 
 
 def _str(d: dict, key: str, where: str, required: bool = True) -> str | None:
@@ -248,7 +266,7 @@ def from_dict(d: dict) -> Script:
         raise ScriptError("'hashtags' must be a list of strings")
     return Script(
         schema=_str(d, "schema", "script"),
-        walk=_str(d, "walk", "script"),
+        footage=footage_of(d),
         concept=_str(d, "concept", "script"),
         format=_str(d, "format", "script"),
         target_length_s=_num(d, "target_length_s", "script"),
@@ -409,8 +427,9 @@ def _problems(script: Script, manifest: dict | None = None, style: dict | None =
 
     if script.schema != SCHEMA:
         v.append(f"schema: expected {SCHEMA!r}, got {script.schema!r}")
-    if manifest and manifest.get("walk") and script.walk != manifest["walk"]:
-        v.append(f"walk: {script.walk!r} does not match the manifest's {manifest['walk']!r}")
+    named = manifest_footage(manifest)
+    if named and script.footage != named:
+        v.append(f"footage: {script.footage!r} does not match the manifest's {named!r}")
     if not script.concept.strip():
         v.append("concept: empty")
     if script.format not in FORMATS:
@@ -774,7 +793,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     va = sub.add_parser("validate", help="check a script.json against the writing rules")
     va.add_argument("script")
-    va.add_argument("--manifest", help="the Walk's clip_manifest.json (enables clip and range checks)")
+    va.add_argument("--manifest", help="the Footage's clip_manifest.json (enables clip and range checks)")
     va.add_argument("--style", default=str(DEFAULT_STYLE), help="style.json (default: repo style.json)")
     va.add_argument("--shared-root", dest="shared_root",
                     help="shared root holding the Library (default: the Video folder's root, else CF_SHARED_ROOT)")

@@ -10,7 +10,7 @@ from cf.script_schema import from_dict
 
 START = 108000  # 01:00:00:00 at 30 fps (read from GetStartFrame() in a real build)
 MANIFEST = {
-    "walk": "w",
+    "footage": "w",
     "clips": [
         {"file": "A60.MOV", "fps": 60.0, "duration_s": 13.1, "nb_frames": 786, "path": "/raw/A60.MOV"},
         {"file": "B24.MOV", "fps": 24.0, "duration_s": 29.2, "nb_frames": 701, "path": "/raw/B24.MOV"},
@@ -23,7 +23,7 @@ MANIFEST = {
 
 def script(shots, **extra):
     return from_dict({
-        "schema": "cf-script/1", "walk": "w", "concept": "c", "format": "pov", "target_length_s": 10,
+        "schema": "cf-script/1", "footage": "w", "concept": "c", "format": "pov", "target_length_s": 10,
         "hook": {"type": "pov", "text": "one two three four five", "clip": shots[0]["clip"]},
         "shots": shots, "ending": "reveal_last", "location_tag": "x", **extra,
     })
@@ -309,8 +309,8 @@ class TrackPlanTest(unittest.TestCase):
 
     def test_in_point_from_script_snapped_to_a_frame(self):
         s = script([shot("C30.mov", 0.0, 3.0)], track="track/source.wav", track_in_s=2.12)
-        tp, notes = plan_track(s, "/walk/reels/r", START, 475, 30, self.BEATS)
-        self.assertEqual(tp.path, "/walk/reels/r/track/source.wav")
+        tp, notes = plan_track(s, "/footage/reels/r", START, 475, 30, self.BEATS)
+        self.assertEqual(tp.path, "/footage/reels/r/track/source.wav")
         self.assertEqual((tp.src_start, tp.src_end, tp.record_frame, tp.duration), (64, 539, START, 475))
         self.assertEqual(tp.fade_out, 18)  # 0.6 s default
         self.assertTrue(any("snapped" in n for n in notes))
@@ -342,7 +342,7 @@ class TrackPlanTest(unittest.TestCase):
 class AppendInfosTest(unittest.TestCase):
     def test_append_dicts(self):
         s = script([shot("A60.MOV", 2.0, 5.0, role="hook"), shot("B24.MOV", 1.0, 3.5)])
-        plan, _ = plan_shots(s, MANIFEST, START, 30, raw_dir="/walk/raw")
+        plan, _ = plan_shots(s, MANIFEST, START, 30, raw_dir="/footage/raw")
         items = {"A60.MOV": "<item A>", "B24.MOV": "<item B>"}
         video = append_infos(plan, items, media_type=1)
         self.assertEqual(video, [
@@ -354,7 +354,7 @@ class AppendInfosTest(unittest.TestCase):
         audio = append_infos(plan, items, media_type=2)
         self.assertEqual([a["mediaType"] for a in audio], [2, 2])
         self.assertEqual([a["recordFrame"] for a in audio], [v["recordFrame"] for v in video])
-        self.assertEqual(plan[0].path, "/walk/raw/A60.MOV")
+        self.assertEqual(plan[0].path, "/footage/raw/A60.MOV")
 
     def test_timecode(self):
         self.assertEqual(timecode(108000, 30), "01:00:00:00")

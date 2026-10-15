@@ -1,7 +1,8 @@
 """The reading side of Desk Videos: which folders are Videos, their `video.json` and their list summary.
 
-Video folders follow ADR 0006 (`videos/<slug>/video.json`); a legacy Reel `<walk>/reels/<reel>/` is addressed as
-`<walk>~<reel>`, has format `walk-reel` and a status derived from what exists in its folder.
+Video folders follow ADR 0006 (`videos/<slug>/video.json`); a legacy Reel `<footage>/reels/<reel>/` is addressed as
+`<footage>~<reel>`, has format `walk-reel` and a status derived from what exists in its folder. A `video.json` names its
+Footage in `footage`; the legacy key `walks` is still read and becomes `footage` (ADR 0012).
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ SCHEMA = "cf-video/1"
 STATUSES = ("idea", "brief", "script", "recording", "edit", "review", "published")
 LEGACY_SEP = "~"
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-NOT_WALKS = {"videos", "references", "channels", "library", "packs"}
+NOT_FOOTAGE = {"videos", "references", "channels", "library", "packs"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm"}
 STAGES = ("idea", "script", "edit", "done")
 STAGE_OF = {"idea": "idea", "brief": "idea", "script": "script", "recording": "script", "edit": "edit",
@@ -31,7 +32,7 @@ class Folder:
     slug: str
     path: Path
     legacy: bool
-    walk: str | None = None
+    footage: str | None = None
 
 
 def videos_dir(root: Path) -> Path:
@@ -46,12 +47,12 @@ def list_folders(root: Path) -> list[Folder]:
             if NAME.match(d.name) and (d / "video.json").is_file():
                 folders.append(Folder(d.name, d, False))
     if root.is_dir():
-        for walk in sorted(root.iterdir()):
-            if not NAME.match(walk.name) or walk.name in NOT_WALKS or not (walk / "reels").is_dir():
+        for footage in sorted(root.iterdir()):
+            if not NAME.match(footage.name) or footage.name in NOT_FOOTAGE or not (footage / "reels").is_dir():
                 continue
-            for reel in sorted((walk / "reels").iterdir()):
+            for reel in sorted((footage / "reels").iterdir()):
                 if reel.is_dir() and NAME.match(reel.name):
-                    folders.append(Folder(f"{walk.name}{LEGACY_SEP}{reel.name}", reel, True, walk.name))
+                    folders.append(Folder(f"{footage.name}{LEGACY_SEP}{reel.name}", reel, True, footage.name))
     return folders
 
 
@@ -97,10 +98,35 @@ def not_an_object() -> Problem:
     return Problem(422, "video_json_not_object", "video.json is not an object")
 
 
+def footage_ids(video: dict) -> list:
+    """The Footage ids a video.json links: ``footage``, else the legacy ``walks``, else none."""
+    for key in ("footage", "walks"):
+        if isinstance(video.get(key), list):
+            return video[key]
+    return []
+
+
+def normalised(video: dict) -> dict:
+    """``video`` with the legacy ``walks`` key replaced in place by ``footage``."""
+    if "walks" not in video:
+        return video
+    ids = footage_ids(video)
+    out: dict = {}
+    for key, value in video.items():
+        if key == "walks":
+            if "footage" not in video:
+                out["footage"] = ids
+        elif key == "footage":
+            out["footage"] = ids
+        else:
+            out[key] = value
+    return out
+
+
 def read_video(folder: Folder) -> dict:
     if folder.legacy:
-        return {"schema": SCHEMA, "slug": folder.slug, "title_working": f"{folder.walk} / {folder.path.name}",
-                "format": "walk-reel", "channel": None, "language": None, "walks": [folder.walk],
+        return {"schema": SCHEMA, "slug": folder.slug, "title_working": f"{folder.footage} / {folder.path.name}",
+                "format": "walk-reel", "channel": None, "language": None, "footage": [folder.footage],
                 "status": legacy_status(folder.path), "history": [], "references": [], "ideas": [],
                 "published_url": None, "legacy": True}
     try:
@@ -109,7 +135,7 @@ def read_video(folder: Folder) -> dict:
         raise unreadable(e) from None
     if not isinstance(data, dict):
         raise not_an_object()
-    return {**data, "slug": folder.slug, "legacy": False}
+    return {**normalised(data), "slug": folder.slug, "legacy": False}
 
 
 def stage_of(status: object) -> str | None:

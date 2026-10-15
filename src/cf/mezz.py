@@ -1,6 +1,6 @@
 """Apple SDR mezzanines: HDR clips (iPhone HLG / Dolby Vision) tone-mapped to SDR by AVFoundation.
 
-    python -m cf.mezz <walk_dir> [--clips IMG_1.MOV,IMG_2.MOV] [--force]
+    python -m cf.mezz <footage_dir> [--clips IMG_1.MOV,IMG_2.MOV] [--force]
     python -m cf.mezz <clip.mov> <out.mov> [--force]
 
 Why (docs/adr/0011-hdr-clips-through-apple-tone-mapping.md): the author judges colour on her
@@ -8,7 +8,7 @@ Mac, where QuickTime and Photos show an iPhone HLG clip through Apple's own HDR 
 mapping. Resolve's HLG -> Rec.709 conversion does not match it (about +30 to +45 luma levels,
 flat, grey sky). So with ``hdr_source`` ``apple-sdr`` (the default, ``style.json``
 ``color.hdr_source``) cf.build does not give Resolve the HLG file: it gives it
-``<walk>/mezz/<stem>.mov``, made by ``tools/apple-sdr`` (Swift, AVFoundation):
+``<footage>/mezz/<stem>.mov``, made by ``tools/apple-sdr`` (Swift, AVFoundation):
 
 - read through ``AVAssetReader`` with the tags ``AVAssetImageGenerator``'s forceSDR returns
   (BT.2020 primaries, SDR 709 transfer), which reproduces Apple's SDR rendition (within
@@ -75,8 +75,8 @@ def effective_hdr_source(hdr_source: str, deliver: str) -> str:
     return "resolve" if deliver == "hdr-hlg" else hdr_source
 
 
-def mezz_path(walk_dir: Path, clip_file: str) -> Path:
-    return Path(walk_dir) / MEZZ_DIR / (Path(clip_file).stem + ".mov")
+def mezz_path(footage_dir: Path, clip_file: str) -> Path:
+    return Path(footage_dir) / MEZZ_DIR / (Path(clip_file).stem + ".mov")
 
 
 def sidecar_path(mezz: Path) -> Path:
@@ -103,7 +103,7 @@ def is_fresh(src: Path, mezz: Path) -> bool:
             and meta.get("version") == TOOL_VERSION and meta.get("method") == METHOD)
 
 
-def plan_sources(clips: dict[str, dict], walk_dir: Path, raw_paths: dict[str, str], hdr_source: str) -> dict[str, dict]:
+def plan_sources(clips: dict[str, dict], footage_dir: Path, raw_paths: dict[str, str], hdr_source: str) -> dict[str, dict]:
     """Per clip: the file Resolve imports and its Input Color Space.
 
     ``clips``: manifest clips by file name; ``raw_paths``: the raw file per clip. HDR clips
@@ -114,7 +114,7 @@ def plan_sources(clips: dict[str, dict], walk_dir: Path, raw_paths: dict[str, st
     for name, raw in raw_paths.items():
         c = clips[name]
         if hdr_source == "apple-sdr" and is_hdr(c):
-            out[name] = {"path": str(mezz_path(walk_dir, name)), "raw": raw, "mezz": True,
+            out[name] = {"path": str(mezz_path(footage_dir, name)), "raw": raw, "mezz": True,
                          "input_color_space": MEZZ_INPUT_COLOR_SPACE}
         else:
             out[name] = {"path": raw, "raw": raw, "mezz": False,
@@ -153,9 +153,9 @@ def make_mezz(src: Path, dst: Path, force: bool = False) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="cf.mezz", description=__doc__.split("\n\n")[0])
-    ap.add_argument("src", help="Walk folder (with clip_manifest.json) or one clip")
+    ap.add_argument("src", help="Footage folder (with clip_manifest.json) or one clip")
     ap.add_argument("out", nargs="?", help="output .mov (one-clip form)")
-    ap.add_argument("--clips", help="comma-separated clip files (Walk form; default every HDR clip)")
+    ap.add_argument("--clips", help="comma-separated clip files (Footage form; default every HDR clip)")
     ap.add_argument("--force", action="store_true", help="remake even when the cache is fresh")
     args = ap.parse_args(argv)
     src = Path(args.src).expanduser().resolve()
