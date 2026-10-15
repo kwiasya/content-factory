@@ -1,4 +1,4 @@
-"""python -m cf.research ideas … on a temp store and footage root."""
+"""python -m cf.research ideas … on a temp store and root."""
 
 import contextlib
 import io
@@ -28,7 +28,7 @@ class IdeasCliTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.db = str(Path(self.tmp.name) / "f.db")
         self.root = Path(self.tmp.name) / "footage"
-        env = mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(self.root)})
+        env = mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(self.root), "CF_SHARED_ROOT": str(self.root)})
         env.start()
         self.addCleanup(env.stop)
         with st.open_store(self.db) as s:

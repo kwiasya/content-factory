@@ -8,11 +8,11 @@ writer. Overlay and caption rules apply only when those fields are present
 CLI::
 
     python -m cf.script_schema validate <script.json> [--manifest m.json] [--style style.json]
-                                        [--footage-root PATH] [--db PATH] [--no-library]
+                                        [--shared-root PATH] [--db PATH] [--no-library]
 
 exits 1 and prints one violation per line when the Script breaks a rule; warnings print as
 ``- WARN …`` and never fail. Shot ``assets`` (Library cues) are checked against the Library
-(``cf.assets.context``: the Video folder's footage root and factory.db, read-only); a Script
+(``cf.assets.context``: the Video folder's root, else the shared root, and factory.db, read-only); a Script
 without cues never opens the store.
 """
 
@@ -642,7 +642,7 @@ def asset_findings(script: Script, ctx: "AssetContext | None", style: dict,
     library = ctx.library if ctx is not None else None
     if library is None:
         why = ctx.library_problem if ctx is not None else "no Library context was loaded (--no-library)"
-        hint = ("index a Pack with python -m cf.library index, or pass --footage-root/--db"
+        hint = ("index a Pack with python -m cf.library index, or pass --shared-root/--db"
                 if ctx is None or ctx.cli else "index a Pack with /index-pack")
         problems.append(f"assets: {len(cues)} cue(s) need the Library: {why} ({hint})")
         return Findings(problems, warnings)
@@ -776,9 +776,10 @@ def main(argv: list[str] | None = None) -> int:
     va.add_argument("script")
     va.add_argument("--manifest", help="the Walk's clip_manifest.json (enables clip and range checks)")
     va.add_argument("--style", default=str(DEFAULT_STYLE), help="style.json (default: repo style.json)")
-    va.add_argument("--footage-root", help="footage root for the Library (default: the Video folder's, "
-                                           "else CF_FOOTAGE_ROOT)")
-    va.add_argument("--db", help="factory.db for the Library (default: CF_FACTORY_DB, else <footage>/factory.db)")
+    va.add_argument("--shared-root", dest="shared_root",
+                    help="shared root holding the Library (default: the Video folder's root, else CF_SHARED_ROOT)")
+    va.add_argument("--footage-root", dest="shared_root", help=argparse.SUPPRESS)
+    va.add_argument("--db", help="factory.db for the Library (default: CF_FACTORY_DB, else <shared root>/factory.db)")
     va.add_argument("--no-library", action="store_true", help="do not load the Library (cues then fail)")
     args = ap.parse_args(argv)
     try:
@@ -791,7 +792,7 @@ def main(argv: list[str] | None = None) -> int:
         from cf.assets import context  # noqa: PLC0415
 
         ctx = context(Path(args.script).expanduser().resolve(),
-                      footage=Path(args.footage_root).expanduser() if args.footage_root else None,
+                      root=Path(args.shared_root).expanduser() if args.shared_root else None,
                       db_path=Path(args.db).expanduser() if args.db else None)
     f = check(script, load_json(args.manifest), load_json(args.style), ctx)
     if f.problems:

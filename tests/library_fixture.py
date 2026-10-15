@@ -103,27 +103,27 @@ def write_file(path: Path, data: bytes = BYTES) -> Path:
     return path
 
 
-def make_library(tmp: Path, footage: Path | None = None, db: Path | None = None
+def make_library(tmp: Path, root: Path | None = None, db: Path | None = None
                  ) -> tuple[library.Library, Path, Path]:
-    """``(Library, footage root, factory.db)``; the Pack root is ``tmp/pack``, footage and db default to
-    ``tmp/footage`` and ``<footage>/factory.db``."""
+    """``(Library, shared root, factory.db)``; the Pack root is ``tmp/pack``, the root and db default to
+    ``tmp/footage`` and ``<root>/factory.db``."""
     tmp = Path(tmp)
     pack = tmp / "pack"
     data = assets()
     for a in data:
         for v in a["variants"]:
             write_file(pack / v["path"])
-    footage = Path(footage) if footage else tmp / "footage"
-    db = Path(db) if db else footage / "factory.db"
+    root = Path(root) if root else tmp / "footage"
+    db = Path(db) if db else root / "factory.db"
     with open_store(db, seed=False) as s:
         library.register_pack(s, {"schema": "cf-pack/1", "id": PACK, "root": str(pack)})
-        write_index(footage, PACK, {"schema": "cf-library-index/1", "pack": PACK, "root": str(pack),
-                                    "indexed_at": "2026-10-14T10:00:00Z", "assets": data, "report": {}})
+        write_index(root, PACK, {"schema": "cf-library-index/1", "pack": PACK, "root": str(pack),
+                                 "indexed_at": "2026-10-14T10:00:00Z", "assets": data, "report": {}})
         for a in data:
             for sub in a["derived"].values():
                 if sub:
-                    write_file(footage / "library" / PACK / sub)
+                    write_file(root / "library" / PACK / sub)
         author.write(s, IDS["shock"], PACK, {"name": "шок"})
         author.add_alias(s, "@emoji/старое-имя", IDS["emoji"], "rename")
-        lib = library.load(footage, s)
-    return lib, footage, db
+        lib = library.load(root, s)
+    return lib, root, db

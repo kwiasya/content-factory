@@ -13,7 +13,7 @@ from pathlib import Path
 import uvicorn
 
 from cf.desk.app import create_app
-from cf.research.store import default_db_path, footage_root
+from cf.research.store import RootsError, default_db_path, local_root, shared_root, single_root
 
 LOCALHOSTS = {"127.0.0.1", "localhost", "::1"}
 
@@ -35,7 +35,12 @@ def main(argv: list[str] | None = None) -> int:
     repo = args.repo.expanduser()
     if not repo.is_dir():
         parser.error(f"--repo {repo} is not a directory")
-    app = create_app(repo, footage_root=footage_root(), db_path=default_db_path(), token=args.token)
+    try:
+        single_root()
+    except RootsError as exc:
+        parser.error(str(exc))
+    app = create_app(repo, local_root=local_root(), shared_root=shared_root(), db_path=default_db_path(),
+                     token=args.token)
     url = f"http://{args.host}:{args.port}/" + (f"?token={args.token}" if args.token else "")
     print(f"Desk serving {repo.resolve()} at {url}", file=sys.stderr)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")

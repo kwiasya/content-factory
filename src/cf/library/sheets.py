@@ -51,12 +51,12 @@ def _tile(a: Asset) -> np.ndarray:
     return tile
 
 
-def write_sheets(footage: Path, library: Library, pack_id: str, per_sheet: int = COLS * ROWS) -> list[Path]:
+def write_sheets(root: Path, library: Library, pack_id: str, per_sheet: int = COLS * ROWS) -> list[Path]:
     view = library.pack(pack_id)
     if view is None:
         raise PackNotFound(pack_id)
-    check_roots(view.info.root, footage)
-    folder = cache_dir(footage, pack_id) / "sheets"
+    check_roots(view.info.root, root)
+    folder = cache_dir(root, pack_id) / "sheets"
     todo = tag_todo(library, pack_id)
     out: list[Path] = []
     if not todo:
@@ -86,11 +86,11 @@ def write_sheets(footage: Path, library: Library, pack_id: str, per_sheet: int =
     return out
 
 
-def apply_tags(footage: Path, pack_id: str, proposals: dict) -> tuple[int, list[str]]:
-    idx = read_index(footage, pack_id)
+def apply_tags(root: Path, pack_id: str, proposals: dict) -> tuple[int, list[str]]:
+    idx = read_index(root, pack_id)
     if idx is None:
         return 0, sorted(proposals)
-    check_roots(Path(idx["root"]), footage)
+    check_roots(Path(idx["root"]), root)
     by_id = {a["id"]: a for a in idx["assets"]}
     applied, unknown = 0, []
     at = now_iso()
@@ -106,5 +106,5 @@ def apply_tags(footage: Path, pack_id: str, proposals: dict) -> tuple[int, list[
                       "basis": p.get("basis") if p.get("basis") in ("sheet", "name") else "sheet"}
         applied += 1
     if applied:
-        write_index(footage, pack_id, idx)
+        write_index(root, pack_id, idx)
     return applied, unknown

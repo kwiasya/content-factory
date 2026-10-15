@@ -89,9 +89,15 @@ function AgentOverview({ meta, error }: { meta: Meta | null; error: Problem | nu
             <dd>{meta.branch ? <span className="branch">{meta.branch}</span> : "—"}</dd>
           </div>
           <div>
-            <dt>{t("agent.footage")}</dt>
+            <dt>{t("agent.localRoot")}</dt>
             <dd>
-              <code>{meta.footage_root}</code>
+              <code>{meta.local_root}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>{t("agent.sharedRoot")}</dt>
+            <dd>
+              <code>{meta.shared_root}</code>
             </dd>
           </div>
           <div>

@@ -193,7 +193,7 @@ class IndexTest(SyntheticPack):
         self.assertEqual((copy["caption"], copy["author_name"], copy["aliases"]), (None, None, []))
         self.assertNotEqual(copy["id"], original["id"])
 
-    def test_index_refuses_a_footage_root_inside_the_pack(self):
+    def test_index_refuses_a_shared_root_inside_the_pack(self):
         self.write_config(CONFIG, root=self.pack)
         self.cli("pack", "add", "--config", str(self.config_path))
         inner = self.pack / "unmapped" / "footage"
@@ -216,13 +216,13 @@ class IndexTest(SyntheticPack):
         self.assertEqual(self.by_path("emoji/шок.mp4")["name"], "шок-2")
         self.assertEqual(self.cli("show", "@emoji/шок")["asset"]["file"]["path"], "emoji/в шоке.mp4")
 
-    def test_sheets_refuse_a_footage_root_inside_the_pack(self):
+    def test_sheets_refuse_a_shared_root_inside_the_pack(self):
         self.add_and_index("--no-key", "--no-previews", "--no-loudness")
         from cf.library import cli
         inner = self.pack / "unmapped" / "footage"
         err = io.StringIO()
         with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
-            code = cli.main(["tags", "todo", "synth", "--sheets", "--db", str(self.db), "--footage-root", str(inner)])
+            code = cli.main(["tags", "todo", "synth", "--sheets", "--db", str(self.db), "--shared-root", str(inner)])
         self.assertEqual(code, 1)
         self.assertIn("inside the Pack", err.getvalue())
         self.assertFalse(inner.exists())

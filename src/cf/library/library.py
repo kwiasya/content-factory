@@ -159,8 +159,8 @@ class PackView:
 
 
 class Library:
-    def __init__(self, footage: Path, packs: list[PackView], assets: list[Asset], alias_map: dict[str, str]):
-        self.footage = Path(footage)
+    def __init__(self, root: Path, packs: list[PackView], assets: list[Asset], alias_map: dict[str, str]):
+        self.root = Path(root)
         self._packs = packs
         self.assets = assets
         self._by_id = {a.id: a for a in assets}
@@ -313,10 +313,10 @@ def _asset(info: PackInfo, cache: Path, a: dict, row: dict | None, aliases: tupl
         hidden_agent_tags=tuple(row.get("hidden_agent_tags") or ()))
 
 
-def load(footage: Path, store: Store | None) -> Library:
-    footage = Path(footage)
+def load(root: Path, store: Store | None) -> Library:
+    root = Path(root)
     if store is None:
-        return Library(footage, [], [], {})
+        return Library(root, [], [], {})
     rows = author.rows(store)
     alias_rows = author.alias_rows(store)
     by_asset: dict[str, list[str]] = {}
@@ -324,14 +324,14 @@ def load(footage: Path, store: Store | None) -> Library:
         by_asset.setdefault(r["asset_id"], []).append(r["ref"])
     views, assets = [], []
     for info in list_packs(store):
-        idx = read_index(footage, info.id)
+        idx = read_index(root, info.id)
         views.append(PackView(info, idx is None, (idx or {}).get("indexed_at"), (idx or {}).get("report") or {}))
-        cache = cache_dir(footage, info.id)
+        cache = cache_dir(root, info.id)
         for a in (idx or {}).get("assets", []):
             assets.append(_asset(info, cache, a, rows.get(a["id"]), tuple(sorted(by_asset.get(a["id"], ())))))
     shown = {a.ref for a in assets} | {a.file_ref for a in assets}
     assets = [replace(a, aliases=tuple(r for r in a.aliases if r not in shown)) for a in assets]
-    return Library(footage, views, assets, {r["ref"]: r["asset_id"] for r in alias_rows})
+    return Library(root, views, assets, {r["ref"]: r["asset_id"] for r in alias_rows})
 
 
 def _iso(mtime: float | None) -> str | None:

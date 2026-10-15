@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from cf.research import measure, taxonomy
-from cf.research.store import Store, dumps, footage_root, now_iso
+from cf.research.store import Store, dumps, now_iso, shared_root
 
 SCHEMA = "cf-reference-card/1"
 
@@ -259,8 +259,8 @@ def video(store: Store, ref: int | str) -> dict:
 
 
 def reference_dirs(external_id: str, root: Path | None = None) -> list[Path]:
-    """Every Reference folder of a video: ``<footage root>/references/*/<external_id>/``."""
-    base = Path(root or footage_root()) / "references"
+    """Every Reference folder of a video: ``<shared root>/references/*/<external_id>/``."""
+    base = Path(root or shared_root()) / "references"
     return sorted(p for p in base.glob(f"*/{external_id}") if p.is_dir())
 
 

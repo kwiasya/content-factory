@@ -7,8 +7,8 @@ category, rights, duration_s, pack) directly. Rules: ``docs/script-schema.md`` (
 
 CLI::
 
-    python -m cf.assets refs <video folder | script.json> [--footage-root PATH] [--db PATH] [--json]
-    python -m cf.assets font <script.json> [--footage-root PATH] [--db PATH] [--style F] [--formats DIR]
+    python -m cf.assets refs <video folder | script.json> [--shared-root PATH] [--db PATH] [--json]
+    python -m cf.assets font <script.json> [--shared-root PATH] [--db PATH] [--style F] [--formats DIR]
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from typing import Any
 from cf import library as lib
 from cf.library import refs as librefs
 from cf.library.errors import LibraryError, RefError
-from cf.research.store import default_db_path, footage_root
+from cf.research.store import default_db_path, shared_root
 
 LANE_OF = {"sfx": "audio", "meme": "video", "img": "video", "emoji": "video", "face": "video",
            "footage": "video", "fx": "video"}
@@ -63,7 +63,7 @@ def settings(style: dict | None) -> dict:
 class VideoFolder:
     path: Path
     slug: str
-    footage: Path
+    root: Path
     legacy: bool
     format: str | None
 
@@ -125,7 +125,7 @@ class AssetContext:
     cli: bool = True  # messages may name CLI flags (False: the caller is Desk)
 
 
-def load_library(footage: Path, db_path: Path) -> tuple[lib.Library | None, str | None]:
+def load_library(root: Path, db_path: Path) -> tuple[lib.Library | None, str | None]:
     try:
         store = lib.open_readonly(db_path)
     except LibraryError as exc:
@@ -133,22 +133,22 @@ def load_library(footage: Path, db_path: Path) -> tuple[lib.Library | None, str 
     if store is None:
         return None, f"no factory.db at {db_path}"
     try:
-        return lib.load(footage, store), None
+        return lib.load(root, store), None
     except Exception as exc:  # noqa: BLE001 - an unreadable store is a reason, not a crash
         return None, f"cannot read the Library from {db_path}: {exc}"
     finally:
         store.close()
 
 
-def context(script_path: Path | None, *, footage: Path | None = None, db_path: Path | None = None,
+def context(script_path: Path | None, *, root: Path | None = None, db_path: Path | None = None,
             library: lib.Library | None = None, video: VideoFolder | None = None) -> AssetContext:
     """The Library and the Video's md refs for a Script. The store is opened read-only."""
     video = video or (video_of(script_path) if script_path is not None else None)
     refs_in = md_refs(video.path) if video else {}
     if library is not None:
         return AssetContext(library, None, video, refs_in)
-    root = Path(footage) if footage else (video.footage if video else footage_root())
-    found, problem = load_library(root, Path(db_path) if db_path is not None else default_db_path(root))
+    lib_root = Path(root) if root else (video.root if video else shared_root())
+    found, problem = load_library(lib_root, Path(db_path) if db_path is not None else default_db_path(lib_root))
     return AssetContext(found, problem, video, refs_in)
 
 
@@ -365,7 +365,7 @@ def overlay_font(style: dict | None, format_text: str | None, library: lib.Libra
     return FontChoice(a.ref, path, source)
 
 
-def font_for_script(script_path: Path, style: dict, formats_dir: Path, *, footage: Path | None = None,
+def font_for_script(script_path: Path, style: dict, formats_dir: Path, *, root: Path | None = None,
                     db_path: Path | None = None) -> FontChoice | None:
     video = video_of(script_path)
     fmt = video.format if video else None
@@ -375,7 +375,7 @@ def font_for_script(script_path: Path, style: dict, formats_dir: Path, *, footag
         text = f.read_text(encoding="utf-8") if f.is_file() else None
     if format_font(text) is None and not ((style.get("typography") or {}).get("font")):
         return None
-    ctx = context(script_path, footage=footage, db_path=db_path)
+    ctx = context(script_path, root=root, db_path=db_path)
     return overlay_font(style, text, ctx.library, format_id=fmt, library_problem=ctx.library_problem)
 
 
@@ -415,16 +415,18 @@ def main(argv: list[str] | None = None) -> int:
     fp.add_argument("--style", default=str(REPO_ROOT / "style.json"))
     fp.add_argument("--formats", default=str(REPO_ROOT / "formats"), help="the formats/ folder")
     for p in (rp, fp):
-        p.add_argument("--footage-root", help="footage root (default: the Video's, else CF_FOOTAGE_ROOT)")
-        p.add_argument("--db", help="factory.db (default: CF_FACTORY_DB, else <footage>/factory.db)")
+        p.add_argument("--shared-root", dest="shared_root",
+                       help="shared root holding library/ (default: the Video's root, else CF_SHARED_ROOT)")
+        p.add_argument("--footage-root", dest="shared_root", help=argparse.SUPPRESS)
+        p.add_argument("--db", help="factory.db (default: CF_FACTORY_DB, else <shared root>/factory.db)")
     args = ap.parse_args(argv)
-    footage = Path(args.footage_root).expanduser() if args.footage_root else None
+    root = Path(args.shared_root).expanduser() if args.shared_root else None
     db = Path(args.db).expanduser() if args.db else None
     if args.cmd == "font":
         try:
             style = json.loads(Path(args.style).read_text(encoding="utf-8"))
             got = font_for_script(Path(args.script).expanduser().resolve(), style, Path(args.formats),
-                                  footage=footage, db_path=db)
+                                  root=root, db_path=db)
         except (AssetFontError, OSError, ValueError) as exc:
             print(str(exc), file=sys.stderr)
             return 1
@@ -435,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
     video = video_folder(folder)
     if video is None:
         video = VideoFolder(folder, folder.name, folder.parent, False, None)
-    ctx = context(None, footage=footage, db_path=db, video=video)
+    ctx = context(None, root=root, db_path=db, video=video)
     rows = resolved_refs(ctx)
     if args.json:
         print(json.dumps({"library_problem": ctx.library_problem, "refs": rows}, ensure_ascii=False))

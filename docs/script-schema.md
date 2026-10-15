@@ -88,7 +88,7 @@ A cue places one Library Asset (`@<category>/<name>`, `GLOSSARY.md` Asset ref) i
 
 Unknown keys in a cue are violations. A cue may run into later shots, never past the end of the Reel. Cues place `sfx` (sound) and `meme`, `img`, `emoji`, `face`, `footage`, `fx` (picture, plus its sound when the file has one); `bg`, `music`, `font` and `template` are rejected (the Track is the Author's, fonts come from the Format).
 
-Validator rules (`python -m cf.script_schema validate` loads the Library itself: the Video folder's footage root and `factory.db`, read-only; `--footage-root`, `--db`, `--no-library`). Warnings print as `- WARN …` and never fail. A Script without cues never opens the store.
+Validator rules (`python -m cf.script_schema validate` loads the Library itself: the Video folder's root (one root for now) and `factory.db`, read-only; `--shared-root`, `--db`, `--no-library`). Warnings print as `- WARN …` and never fail. A Script without cues never opens the store.
 
 - **The Library:** no Library (no `factory.db`, an old schema) is one problem for the whole Script.
 - **Refs:** a ref that is not `@<category>/<name>` fails; an unknown ref fails with up to 5 nearest refs.

@@ -68,10 +68,10 @@ class ResearchTestCase(unittest.TestCase):
         git(self.repo, "commit", "-q", "-m", "Initial tree")
         footage = base / "footage"
         footage.mkdir()
-        env = mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(footage)})
+        env = mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(footage), "CF_SHARED_ROOT": str(footage)})
         env.start()
         self.addCleanup(env.stop)
-        self.client = TestClient(create_app(self.repo, footage_root=footage, db_path=footage / "factory.db",
+        self.client = TestClient(create_app(self.repo, local_root=footage, db_path=footage / "factory.db",
                                             web_dist=base / "dist"))
 
     def get(self, url: str, **params) -> dict:

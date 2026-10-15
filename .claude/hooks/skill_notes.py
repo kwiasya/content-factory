@@ -19,7 +19,7 @@ from pathlib import Path
 def db_path() -> Path:
     if os.environ.get("CF_FACTORY_DB"):
         return Path(os.environ["CF_FACTORY_DB"]).expanduser()
-    root = os.environ.get("CF_FOOTAGE_ROOT")
+    root = os.environ.get("CF_SHARED_ROOT") or os.environ.get("CF_FOOTAGE_ROOT")
     return (Path(root).expanduser() if root else Path.home() / "Movies" / "content-factory") / "factory.db"
 
 

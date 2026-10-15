@@ -154,6 +154,6 @@ def set_author(store: Store, library: "Library", asset_id: str, *, caption: Any 
             drop_alias(store, refs.make(asset.category, new), asset.id)
         fields["name"] = new
     write(store, asset.id, asset.pack, fields)
-    fresh = load(library.footage, store).get(asset.id)
+    fresh = load(library.root, store).get(asset.id)
     assert fresh is not None
     return fresh

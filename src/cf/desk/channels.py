@@ -1,5 +1,5 @@
 """Known Channels: the union of the Watchlists' `author_channel` in factory.db, the Brief folders
-`<footage>/channels/<name>/` and the `channel` of every `videos/*/video.json`. There is no Channel registry."""
+`<local root>/channels/<name>/` and the `channel` of every `videos/*/video.json`. There is no Channel registry."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def store_watchlists(db_path: Path) -> list[watchlists.Watchlist]:
         raise
 
 
-def list_channels(footage: Path, db_path: Path) -> list[dict]:
+def list_channels(root: Path, db_path: Path) -> list[dict]:
     found: dict[str, dict] = {}
 
     def entry(name: str) -> dict:
@@ -39,12 +39,12 @@ def list_channels(footage: Path, db_path: Path) -> list[dict]:
             e["formats"].add(w.format_id)
             e["languages"].add(w.language)
             e["watchlists"].add(w.name)
-    folders = Path(footage) / "channels"
+    folders = Path(root) / "channels"
     if folders.is_dir():
         for d in folders.iterdir():
             if d.is_dir() and valid_name(d.name):
                 entry(d.name)
-    for folder in videofolders.list_folders(Path(footage)):
+    for folder in videofolders.list_folders(Path(root)):
         if folder.legacy:
             continue
         try:
@@ -60,11 +60,11 @@ def list_channels(footage: Path, db_path: Path) -> list[dict]:
              "watchlists": sorted(e["watchlists"])} for _, e in sorted(found.items())]
 
 
-def router(footage_root: Path, db_path: Path) -> APIRouter:
+def router(root: Path, db_path: Path) -> APIRouter:
     api = APIRouter()
 
     @api.get("/api/channels")
     def get_channels() -> dict:
-        return {"channels": list_channels(Path(footage_root), db_path)}
+        return {"channels": list_channels(Path(root), db_path)}
 
     return api

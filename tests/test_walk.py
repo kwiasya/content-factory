@@ -24,7 +24,7 @@ class WalkInitTest(unittest.TestCase):
         (self.source / "sub").mkdir()
         self.footage = base / "footage"
         self.footage.mkdir()
-        env = mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(self.footage)})
+        env = mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(self.footage)})
         env.start()
         self.addCleanup(env.stop)
         self.walk = self.footage / "town-2026-07-31"

@@ -1,4 +1,4 @@
-"""Desk HTTP API through the FastAPI TestClient on a temporary git repo, footage root and db."""
+"""Desk HTTP API through the FastAPI TestClient on a temporary git repo, root and db."""
 
 import os
 import subprocess
@@ -56,11 +56,11 @@ class DeskTestCase(unittest.TestCase):
         self.footage = base / "footage"
         self.footage.mkdir()
         self.db = self.footage / "factory.db"
-        env = mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(self.footage)})
+        env = mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(self.footage), "CF_SHARED_ROOT": str(self.footage)})
         env.start()
         self.addCleanup(env.stop)
         self.dist = base / "dist"
-        self.client = TestClient(create_app(self.repo, footage_root=self.footage, db_path=self.db,
+        self.client = TestClient(create_app(self.repo, local_root=self.footage, db_path=self.db,
                                             web_dist=self.dist, token=self.token))
 
     def catalog(self, **params) -> dict:
@@ -267,7 +267,18 @@ class MetaTest(DeskTestCase):
         r = self.client.get("/api/meta")
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json(), {"repo": str(self.repo.resolve()), "branch": "main",
-                                    "footage_root": str(self.footage), "db_path": str(self.db)})
+                                    "local_root": str(self.footage), "shared_root": str(self.footage),
+                                    "db_path": str(self.db)})
+
+    def test_two_different_roots_are_refused(self):
+        with self.assertRaises(ValueError):
+            create_app(self.repo, local_root=self.footage, shared_root=self.footage.parent / "shared",
+                       db_path=self.db, web_dist=self.footage / "dist")
+
+    def test_the_same_root_spelled_differently_is_one_root(self):
+        app = create_app(self.repo, local_root=self.footage, shared_root=Path(f"{self.footage}/"),
+                         db_path=self.db, web_dist=self.footage / "dist")
+        self.assertEqual(TestClient(app).get("/api/meta").status_code, 200)
 
     def test_desk_does_not_create_the_db(self):
         self.client.get("/api/meta")

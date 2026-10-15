@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from cf import STILL_EXTENSIONS, VIDEO_EXTENSIONS
-from cf.research.store import footage_root
+from cf.research.store import local_root
 
 WALK_ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*-\d{4}-\d{2}-\d{2}$")
 WALK_ID_RULE = "a Walk id is <place>-<YYYY-MM-DD>: lowercase letters, digits and dashes, ending with the first shooting day"
@@ -39,7 +39,7 @@ def walk_dir_of(walk: str) -> Path:
     if "/" in walk or walk.startswith((".", "~")):
         path = Path(walk).expanduser().absolute()
     else:
-        path = footage_root() / walk
+        path = local_root() / walk
     if not WALK_ID.match(path.name):
         raise WalkError(f"bad Walk id {path.name!r}: {WALK_ID_RULE}")
     return path

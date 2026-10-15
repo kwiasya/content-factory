@@ -1,4 +1,4 @@
-"""Desk research contour API through the FastAPI TestClient on a temporary db and footage root."""
+"""Desk research contour API through the FastAPI TestClient on a temporary db and root."""
 
 import json
 import os
@@ -76,7 +76,7 @@ class ContourCase(unittest.TestCase):
             ideas.shortlist(s, self.briefed)
             self.brief_path = brief.create(s, self.briefed, root=self.footage)
             self.inbox = ideas.add(s, "lisbon", [V2], fields(title="Porto stairs at noon")).id
-        self.client = TestClient(create_app(base / "repo", footage_root=self.footage, db_path=self.db,
+        self.client = TestClient(create_app(base / "repo", local_root=self.footage, db_path=self.db,
                                             web_dist=base / "dist"))
 
     def get(self, url: str, expect: int = 200, **params):

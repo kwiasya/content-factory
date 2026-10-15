@@ -5,7 +5,7 @@
                        [--no-track] [--ambience-db DB] [--canvas WxH] [--no-superscale]
                        [--deliver sdr|hdr-hlg] [--hlg-normalize cdl|none] [--overlay-nits N]
                        [--grade-drx <dir>] [--hdr-source apple-sdr|resolve]
-                       [--footage-root PATH] [--db PATH] [--no-assets]
+                       [--shared-root PATH] [--db PATH] [--no-assets]
     python -m cf.build <reel_dir> --overlay-specs [--canvas WxH]
 
 Rules: ``docs/resolve-rules.md``; contract: ``.claude/skills/build-reel/SKILL.md``;
@@ -73,7 +73,7 @@ with more than 8 px of black at an edge fails the build. ``smart`` (opt-in) runs
 (Pan reads 0), so the still is its read-back. ``x_end`` is not animated (no keyframe API).
 
 Asset cues (``shots[].assets``, ``docs/script-schema.md`` Assets): the Library is loaded read-only
-(``cf.assets.context``; ``--footage-root`` / ``--db``) only for a Script with cues. Sounds go on A3
+(``cf.assets.context``; ``--shared-root`` / ``--db``) only for a Script with cues. Sounds go on A3
 "sfx" (A4 when two overlap) at the level of ``plan_cues`` (6 LU under the Track's measured loudness
 over the part used, else under the target loudness), pictures on V4 "assets" (V5) from the file
 ``cf.assets.placement`` picks, with the ``pos`` transform (ZoomX ganged, Pan, Tilt); a meme's sound
@@ -937,7 +937,7 @@ class Builder:
                  ambience_db: float | None = None, canvas: str | None = None, superscale: bool = True,
                  deliver: str = "sdr", hlg_normalize: str = "cdl",
                  overlay_nits: float = hdr_mod.GRAPHICS_WHITE_NITS, grade_drx: Path | None = None,
-                 hdr_source: str | None = None, footage_root: Path | None = None,
+                 hdr_source: str | None = None, shared_root: Path | None = None,
                  db_path: Path | None = None, use_assets: bool = True):
         self.reel_dir = reel_dir
         self.use_assets = use_assets
@@ -994,7 +994,7 @@ class Builder:
         if has_cues(self.script) and use_assets:
             from cf.assets import context  # noqa: PLC0415
 
-            self.assets_ctx = context(script_path or reel_dir / "script.json", footage=footage_root, db_path=db_path)
+            self.assets_ctx = context(script_path or reel_dir / "script.json", root=shared_root, db_path=db_path)
             self.r.assets["library_problem"] = self.assets_ctx.library_problem
 
     # ---- steps
@@ -2336,9 +2336,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--grade-drx", metavar="DIR",
                     help="after the build, ApplyGradeFromDRX each shot's <shot>.drx / <shot>_*.drx from DIR "
                          "(a hand grade saved with ExportStills, e.g. reels/<reel>/author-grade)")
-    ap.add_argument("--footage-root", help="footage root for the Library (default: the Video folder's, "
-                                           "else CF_FOOTAGE_ROOT)")
-    ap.add_argument("--db", help="factory.db for the Library (default: CF_FACTORY_DB, else <footage>/factory.db)")
+    ap.add_argument("--shared-root", dest="shared_root",
+                    help="shared root holding the Library (default: the Video folder's root, else CF_SHARED_ROOT)")
+    ap.add_argument("--footage-root", dest="shared_root", help=argparse.SUPPRESS)
+    ap.add_argument("--db", help="factory.db for the Library (default: CF_FACTORY_DB, else <shared root>/factory.db)")
     ap.add_argument("--no-assets", action="store_true",
                     help="build without the Script's Asset cues (their rules are skipped; no Library is needed)")
     args = ap.parse_args(argv)
@@ -2384,7 +2385,7 @@ def main(argv: list[str] | None = None) -> int:
                    superscale=not args.no_superscale, deliver=args.deliver,
                    hlg_normalize=args.hlg_normalize, overlay_nits=args.overlay_nits, grade_drx=grade_drx,
                    hdr_source=args.hdr_source,
-                   footage_root=Path(args.footage_root).expanduser() if args.footage_root else None,
+                   shared_root=Path(args.shared_root).expanduser() if args.shared_root else None,
                    db_path=Path(args.db).expanduser() if args.db else None, use_assets=not args.no_assets).run()
 
 

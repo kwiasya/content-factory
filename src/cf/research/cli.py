@@ -9,7 +9,7 @@ restore, note, brief, candidates), ``summary`` (hooks, formats, topics), ``hooks
 resolve, delete: Notes from the Author), ``own`` (sync, report, mark, unmark: the
 Author's Instagram reels with insights), ``ig`` (token-status, token-refresh). Every command takes
 ``--json`` (machine output on stdout) and ``--db`` (default ``CF_FACTORY_DB`` or
-``<footage root>/factory.db``). Human output is a Markdown table in Russian.
+``<shared root>/factory.db``). Human output is a Markdown table in Russian.
 Errors: one line on stderr, exit 1.
 
 To add a group: write ``register_<group>(sub, common)``, append it to ``GROUPS``; each
@@ -142,7 +142,7 @@ def register_watchlist(sub, common) -> None:
     p.add_argument("name")
     p.add_argument("--format", required=True, help="Format id: lower case letters, digits, - or _ (e.g. walk-reel, tech-explainer)")
     p.add_argument("--channel", help="the Author's Channel this Watchlist serves (folder name under "
-                   "<footage root>/channels/, where its Briefs go); not a Reference channel")
+                   "<local root>/channels/, where its Briefs go); not a Reference channel")
     p.add_argument("--language", default="en")
     p.add_argument("--region", help="ISO 3166-1 alpha-2, e.g. US")
     p.add_argument("--query", action="append", default=[],
@@ -704,7 +704,7 @@ def register_ideas(sub, common) -> None:
     p.add_argument("text")
     p.set_defaults(func=cmd_ideas_note)
     p = gs.add_parser("brief", parents=[common],
-                      help="write the Brief of a shortlisted Idea under <footage root>/channels/<channel>/briefs/")
+                      help="write the Brief of a shortlisted Idea under <local root>/channels/<channel>/briefs/")
     p.add_argument("id", type=int)
     p.add_argument("--channel", help="the Author's Channel folder (default: the Watchlist's Author's Channel, "
                    "else _unassigned)")
@@ -1017,7 +1017,7 @@ GROUPS: list[Callable] = [register_watchlist, register_taxonomy, register_quota,
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--json", action="store_true", help="machine output (JSON on stdout)")
-    common.add_argument("--db", help="research database (default: CF_FACTORY_DB or <footage root>/factory.db)")
+    common.add_argument("--db", help="research database (default: CF_FACTORY_DB or <shared root>/factory.db)")
     ap = argparse.ArgumentParser(prog="python -m cf.research", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="group", required=True)
     for register in GROUPS:

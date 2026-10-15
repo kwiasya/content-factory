@@ -1,4 +1,4 @@
-"""python -m cf.research card validate|save|show and taxonomy approve|reject|list on a temp store and footage root."""
+"""python -m cf.research card validate|save|show and taxonomy approve|reject|list on a temp store and roots."""
 
 import contextlib
 import io
@@ -22,7 +22,7 @@ class CardCliTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.db = str(Path(self.tmp.name) / "f.db")
         root = Path(self.tmp.name) / "footage"
-        env = mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(root)})
+        env = mock.patch.dict(os.environ, {"CF_SHARED_ROOT": str(root)})
         env.start()
         self.addCleanup(env.stop)
         self.dir = root / "references" / "lisbon" / VID

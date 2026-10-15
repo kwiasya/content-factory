@@ -1,4 +1,4 @@
-"""One Pack's index: ``<footage>/library/<pack>/index.json``, built incrementally from a scan of the Pack.
+"""One Pack's index: ``<shared root>/library/<pack>/index.json``, built incrementally from a scan of the Pack.
 
 The Pack is only read. Everything derived lives in the cache folder next to the index; the Author's fields live
 in the store and are never written here.
@@ -27,16 +27,16 @@ DERIVED_KEYS = ("alpha", "converted", "png", "poster", "preview")
 SUBDIRS = ("keyed", "converted", "png", "previews", "sheets")
 
 
-def cache_dir(footage: Path, pack_id: str) -> Path:
-    return Path(footage) / "library" / pack_id
+def cache_dir(root: Path, pack_id: str) -> Path:
+    return Path(root) / "library" / pack_id
 
 
-def index_path(footage: Path, pack_id: str) -> Path:
-    return cache_dir(footage, pack_id) / "index.json"
+def index_path(root: Path, pack_id: str) -> Path:
+    return cache_dir(root, pack_id) / "index.json"
 
 
-def read_index(footage: Path, pack_id: str) -> dict | None:
-    p = index_path(footage, pack_id)
+def read_index(root: Path, pack_id: str) -> dict | None:
+    p = index_path(root, pack_id)
     if not p.is_file():
         return None
     try:
@@ -46,8 +46,8 @@ def read_index(footage: Path, pack_id: str) -> dict | None:
     return data if isinstance(data, dict) and data.get("schema") == SCHEMA else None
 
 
-def write_index(footage: Path, pack_id: str, data: dict) -> None:
-    p = index_path(footage, pack_id)
+def write_index(root: Path, pack_id: str, data: dict) -> None:
+    p = index_path(root, pack_id)
     p.parent.mkdir(parents=True, exist_ok=True)
     atomic_write(p, (json.dumps(data, ensure_ascii=False, indent=1) + "\n").encode("utf-8"))
 
@@ -165,18 +165,18 @@ def _build_asset(key: tuple, variants: list[dict], entries: dict[str, FileEntry]
     }
 
 
-def _owners(store: Store, footage: Path, pack_id: str, alive: dict[str, str]) -> dict[str, dict[str, str]]:
+def _owners(store: Store, root: Path, pack_id: str, alive: dict[str, str]) -> dict[str, dict[str, str]]:
     """Names held outside this Pack's file-derived names: other Packs' names, and the Author names and aliases of
     every Asset that exists (on disk in an index, or in this run as ``alive``: id → category)."""
     out: dict[str, dict[str, str]] = defaultdict(dict)
     for info in list_packs(store):
         if info.id == pack_id:
             continue
-        other = read_index(footage, info.id) or {}
+        other = read_index(root, info.id) or {}
         for a in other.get("assets", []):
             out[a["category"]][a["name"]] = a["id"]
     cats: dict[str, str] = {}
-    for idx in [read_index(footage, i.id) or {} for i in list_packs(store)]:
+    for idx in [read_index(root, i.id) or {} for i in list_packs(store)]:
         for a in idx.get("assets", []):
             cats[a["id"]] = a["category"]
     cats.update(alive)
@@ -194,35 +194,35 @@ def _owners(store: Store, footage: Path, pack_id: str, alive: dict[str, str]) ->
     return out
 
 
-def check_roots(root: Path, footage: Path) -> None:
+def check_roots(pack_root: Path, root: Path) -> None:
     """Refuse a Pack root inside the Library cache and a cache inside a Pack: the Pack is never written."""
-    lib_root = (Path(footage) / "library").resolve()
-    pack = Path(root).resolve()
+    lib_root = (Path(root) / "library").resolve()
+    pack = Path(pack_root).resolve()
     if pack == lib_root or pack.is_relative_to(lib_root):
-        raise PackError(f"Pack root {root} is inside the Library cache {lib_root}; a Pack is never there")
+        raise PackError(f"Pack root {pack_root} is inside the Library cache {lib_root}; a Pack is never there")
     if lib_root.is_relative_to(pack):
-        raise PackError(f"the Library cache {lib_root} is inside the Pack {root}; a Pack is never written")
+        raise PackError(f"the Library cache {lib_root} is inside the Pack {pack_root}; a Pack is never written")
 
 
 def _within(rel: str, only: tuple[str, ...]) -> bool:
     return any(rel == p or rel.startswith(p + "/") for p in only)
 
 
-def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, previews: bool = True,
+def index_pack(store: Store, root: Path, pack_id: str, *, key: bool = True, previews: bool = True,
                loudness: bool = True, only: tuple[str, ...] | str | None = None,
                log: Callable[[str], None] = print) -> Report:
     from cf.library import aliases, derive
 
     started = time.monotonic()
-    footage = Path(footage)
+    root = Path(root)
     info = get_pack(store, pack_id)
     cfg: PackConfig = info.config
     if not cfg.root.is_dir():
         raise PackError(f"Pack root {cfg.root} is not a folder; re-register it with pack add --root")
-    check_roots(cfg.root, footage)
+    check_roots(cfg.root, root)
     only_t = (only,) if isinstance(only, str) else tuple(only or ())
     report = Report()
-    prev = read_index(footage, pack_id) or {"assets": []}
+    prev = read_index(root, pack_id) or {"assets": []}
     prev_assets = {a["id"]: a for a in prev.get("assets", [])}
     prev_variants = {v["path"]: v for a in prev.get("assets", []) for v in a["variants"]}
 
@@ -266,7 +266,7 @@ def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, p
                 break
 
 
-    owners = _owners(store, footage, pack_id, {a["id"]: a["category"] for a in built + carried})
+    owners = _owners(store, root, pack_id, {a["id"]: a["category"] for a in built + carried})
     for a in carried:
         owners[a["category"]][a["name"]] = a["id"]
     by_cat: dict[str, list[dict]] = defaultdict(list)
@@ -300,7 +300,7 @@ def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, p
             report.changed += 1
     report.removed = len([i for i in prev_assets if i not in seen and i not in claimed])
 
-    cache = cache_dir(footage, pack_id)
+    cache = cache_dir(root, pack_id)
     derive.run(cache, cfg.root, built, report, key=key, previews=previews, loudness=loudness, log=log)
     report.aliases = aliases.after_index(store, pack_id, built, prev_assets, seen)
     report.author_orphans = len([r for r in store.query("SELECT asset_id FROM asset_author WHERE pack_id = ?",
@@ -314,7 +314,7 @@ def index_pack(store: Store, footage: Path, pack_id: str, *, key: bool = True, p
     report.orphans_removed = derive.remove_orphans(cache, {a["id"] for a in assets})
     report.seconds = round(time.monotonic() - started, 2)
     at = now_iso()
-    write_index(footage, pack_id, {"schema": SCHEMA, "pack": pack_id, "root": str(cfg.root), "indexed_at": at,
+    write_index(root, pack_id, {"schema": SCHEMA, "pack": pack_id, "root": str(cfg.root), "indexed_at": at,
                                    "ffmpeg": derive.ffmpeg_version(), "assets": assets, "report": report.to_dict()})
     mark_indexed(store, pack_id, at)
     return report

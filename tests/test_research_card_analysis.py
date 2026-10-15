@@ -136,7 +136,7 @@ class StoredCardCase(AnalysisCase):
     def setUp(self):
         super().setUp()
         self.root = Path(self.tmp.name) / "footage"
-        env = mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(self.root)})
+        env = mock.patch.dict(os.environ, {"CF_SHARED_ROOT": str(self.root)})
         env.start()
         self.addCleanup(env.stop)
         self.dir = self.root / "references" / "lisbon" / "dQw4w9WgXcQ"

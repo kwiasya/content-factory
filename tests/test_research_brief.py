@@ -1,4 +1,4 @@
-"""Brief from a shortlisted Idea: file content from the template, path rules, refusals. Temp footage root."""
+"""Brief from a shortlisted Idea: file content from the template, path rules, refusals. Temp root."""
 
 import os
 import unittest
@@ -42,8 +42,8 @@ class PathTest(BriefCase):
         path = self.create(i.id)
         self.assertEqual(path, self.root / "channels" / "_unassigned" / "briefs" / f"{i.id}-порто-лестницы.md")
 
-    def test_default_root_is_the_footage_root(self):
-        with mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(self.root)}):
+    def test_default_root_is_the_local_root(self):
+        with mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(self.root)}):
             path = brief.create(self.store, self.idea.id)
         self.assertTrue(str(path).startswith(str(self.root / "channels" / "travelwalks")))
 

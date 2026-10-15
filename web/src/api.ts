@@ -49,7 +49,8 @@ export interface Doc extends CatalogEntry {
 export interface Meta {
   repo: string;
   branch: string | null;
-  footage_root: string;
+  local_root: string;
+  shared_root: string;
   db_path: string;
 }
 

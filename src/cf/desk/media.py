@@ -1,6 +1,6 @@
 """Desk media streaming: renders, overlays, sources and proxies served with HTTP Range, raw camera files never.
 
-Paths are relative to the footage root. Only these subtrees are served; everything else, `raw/` included, is 404:
+Paths are relative to the root (one root for now: the local and shared roots are the same folder). Only these subtrees are served; everything else, `raw/` included, is 404:
 `videos/<slug>/{renders,overlays,sources}/**`, `<walk>/proxy/*`, `<walk>/reels/<reel>/**`,
 `references/<watchlist>/<id>/proxy.mp4`, the Library cache `library/<pack>/{previews,keyed,converted,png,sheets}/*`
 and, from a registered Pack's own folder, `packs/<pack id>/<path in the Pack>` for files its index lists (media
@@ -59,7 +59,7 @@ def _pack_file(parts: tuple[str, ...], packs: PackFiles) -> Path | None:
     return target if target is not None and target.is_file() else None
 
 
-def resolve(footage: Path, rel: str, packs: PackFiles | None = None) -> Path | None:
+def resolve(root: Path, rel: str, packs: PackFiles | None = None) -> Path | None:
     """The file a media path names, or None when it is outside the allowlist, missing or escapes its root."""
     parts = paths.plain_parts(rel)
     if parts is None:
@@ -68,7 +68,7 @@ def resolve(footage: Path, rel: str, packs: PackFiles | None = None) -> Path | N
         return _pack_file(parts, packs or {})
     if not _allowlisted(parts):
         return None
-    target = paths.contained(footage, rel)
+    target = paths.contained(root, rel)
     return target if target is not None and target.is_file() else None
 
 
@@ -76,14 +76,14 @@ def content_type(path: Path) -> str | None:
     return CONTENT_TYPES.get(path.suffix.lower()) or mimetypes.guess_type(path.name)[0]
 
 
-def router(footage_root: Path, pack_files: Callable[[], PackFiles] = dict) -> APIRouter:
-    footage = Path(footage_root)
+def router(root: Path, pack_files: Callable[[], PackFiles] = dict) -> APIRouter:
+    root = Path(root)
     api = APIRouter()
 
     @api.get("/api/media")
     def get_media(path: str) -> FileResponse:
         roots = pack_files() if path.startswith("packs/") else {}
-        target = resolve(footage, path, roots)
+        target = resolve(root, path, roots)
         if target is None:
             raise Problem(404, "media_not_found", "not a served media file", path=path)
         return FileResponse(target, media_type=content_type(target))

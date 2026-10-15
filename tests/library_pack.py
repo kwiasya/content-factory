@@ -96,7 +96,7 @@ def snapshot(root: Path) -> dict[str, tuple]:
 
 
 class SyntheticPack(unittest.TestCase):
-    """A fresh copy of the Pack, an empty footage root and a db; ``cli`` drives ``cf.library.cli``."""
+    """A fresh copy of the Pack, an empty shared root and a db; ``cli`` drives ``cf.library.cli``."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -122,7 +122,7 @@ class SyntheticPack(unittest.TestCase):
         from cf.library import cli
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = cli.main([*args, "--db", str(self.db), "--footage-root", str(self.footage), "--json"])
+            code = cli.main([*args, "--db", str(self.db), "--shared-root", str(self.footage), "--json"])
         return code, out.getvalue(), err.getvalue()
 
     def cli(self, *args: str):

@@ -74,7 +74,7 @@ class LibraryTestCase(unittest.TestCase):
         self.write_index()
         write(self.footage / f"library/p/previews/{FACE}.jpg", b"\xff\xd8jpeg")
         (self.footage / "library/p/keyed").mkdir(parents=True)
-        self.client = TestClient(create_app(self.repo, footage_root=self.footage, db_path=self.db,
+        self.client = TestClient(create_app(self.repo, local_root=self.footage, db_path=self.db,
                                             web_dist=base / "dist"))
 
     def write_index(self, assets=None):

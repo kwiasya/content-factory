@@ -18,7 +18,7 @@ class StoreUseTest(unittest.TestCase):
         base = Path(self.tmp.name)
         (base / "repo").mkdir()
         self.db = base / "footage" / "factory.db"
-        self.client = TestClient(create_app(base / "repo", footage_root=base / "footage", db_path=self.db,
+        self.client = TestClient(create_app(base / "repo", local_root=base / "footage", db_path=self.db,
                                             web_dist=base / "dist"))
 
     def test_listing_notes_without_a_store_is_empty_and_creates_nothing(self):

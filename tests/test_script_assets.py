@@ -172,11 +172,11 @@ class RightsTest(AssetsTestCase):
             v.mkdir(parents=True)
             (v / "video.json").write_text(json.dumps({"format": "walk-reel", "slug": "boat-day"}))
             got = ca.video_of(v / "script.json")
-            self.assertEqual((got.slug, got.footage, got.format, got.legacy), ("boat-day", f, "walk-reel", False))
+            self.assertEqual((got.slug, got.root, got.format, got.legacy), ("boat-day", f, "walk-reel", False))
             r = f / "potsdam/reels/reel-01"
             r.mkdir(parents=True)
             got = ca.video_of(r / "script.json")
-            self.assertEqual((got.slug, got.footage, got.format, got.legacy),
+            self.assertEqual((got.slug, got.root, got.format, got.legacy),
                              ("potsdam~reel-01", f, "walk-reel", True))
             self.assertIsNone(ca.video_of(f / "loose.json"))
             (v / "video.json").write_text("{not json")
@@ -253,7 +253,7 @@ class TimingTest(AssetsTestCase):
         d = with_cues([{"ref": "@sfx/own-hit", "at_s": 0.0}], [{"ref": "@sfx/boom", "at_s": 0.0}])
         got = check(from_dict(d), None, STYLE, ca.AssetContext(None, "no factory.db at /x", None, {})).problems
         self.assertEqual(got, ["assets: 2 cue(s) need the Library: no factory.db at /x (index a Pack with "
-                               "python -m cf.library index, or pass --footage-root/--db)"])
+                               "python -m cf.library index, or pass --shared-root/--db)"])
         self.assertEqual(len(check(from_dict(d), None, STYLE, None).problems), 1)
 
     def test_structural_check_without_cue_rules(self):
@@ -309,7 +309,7 @@ class CliTest(unittest.TestCase):
             (v / "notes.md").write_text("meme here: @meme/chipi\n")
             script = v / "script.json"
             script.write_text(json.dumps(with_cues([{"ref": "@meme/chipi", "at_s": 0.0, "dur_s": 2.0}])))
-            res = self.run_cli(script, "--footage-root", str(footage), "--db", str(db))
+            res = self.run_cli(script, "--shared-root", str(footage), "--db", str(db))
             self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
             self.assertIn("OK ", res.stdout)
             self.assertIn("- WARN shots[0] (s01).assets[0] (@meme/chipi): unknown rights; allowed: the Author "

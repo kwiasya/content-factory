@@ -1,7 +1,7 @@
 """Deep fetch of one Reference by URL or video id, even outside every Watchlist.
 
 Steps, each skipped when its artifact is already in the Reference folder
-(``<footage root>/references/<watchlist or _adhoc>/<video_id>/``) unless ``force``;
+(``<shared root>/references/<watchlist or _adhoc>/<video_id>/``) unless ``force``;
 ``retranscribe`` redoes steps 2, 3 and the Shot log from the media already there.
 A video has one Reference folder: a refetch reuses the folder it already has under
 any ``references/*/``, whatever Watchlist is given now (nothing moves or doubles).
@@ -48,7 +48,7 @@ from urllib.parse import parse_qs, unquote
 from cf.research import card, ingest, measure, quota, youtube
 from cf.research import watchlist as watchlists
 from cf.research.kinds import video_kind
-from cf.research.store import Store, dumps, footage_root, now_iso
+from cf.research.store import Store, dumps, now_iso, shared_root
 
 VIDEO_ID_RE = re.compile(r"[\w-]{11}")  # always fullmatch: ``$`` would let a trailing newline in
 VIDEO_PATHS = {"shorts", "live", "embed", "v"}
@@ -294,8 +294,8 @@ def _caption_language(name: str, video_id: str) -> str | None:
 
 
 def reference_dir(video_id: str, watchlist: str | None = None, root: Path | None = None) -> Path:
-    """``<footage root>/references/<watchlist or _adhoc>/<video_id>/``."""
-    return Path(root or footage_root()) / "references" / (watchlist or ADHOC) / video_id
+    """``<shared root>/references/<watchlist or _adhoc>/<video_id>/``."""
+    return Path(root or shared_root()) / "references" / (watchlist or ADHOC) / video_id
 
 
 def folder_for(video_id: str, watchlist: str | None = None, root: Path | None = None) -> Path:

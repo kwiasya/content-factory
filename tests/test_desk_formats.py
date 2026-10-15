@@ -1,4 +1,4 @@
-"""Desk Format shelf and skill lint through the FastAPI TestClient on a temporary repo and footage root."""
+"""Desk Format shelf and skill lint through the FastAPI TestClient on a temporary repo and root."""
 
 import json
 import os
@@ -67,10 +67,10 @@ class FormatsTestCase(unittest.TestCase):
             path.write_text(text)
         self.footage = base / "footage"
         self.footage.mkdir()
-        env = mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(self.footage)})
+        env = mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(self.footage), "CF_SHARED_ROOT": str(self.footage)})
         env.start()
         self.addCleanup(env.stop)
-        self.client = TestClient(create_app(self.repo, footage_root=self.footage,
+        self.client = TestClient(create_app(self.repo, local_root=self.footage,
                                             db_path=self.footage / "factory.db", web_dist=base / "dist"))
 
     def get(self, url: str) -> dict:
@@ -155,7 +155,7 @@ class FormatRulesTest(FormatsTestCase):
 
 
 class FormatVideosTest(FormatsTestCase):
-    def test_videos_of_the_format_come_from_video_json_under_the_footage_root(self):
+    def test_videos_of_the_format_come_from_video_json_under_the_local_root(self):
         self.write_video("b-long", video("b-long", "tech-explainer", "brief"))
         self.write_video("a-long", video("a-long", "tech-explainer"))
         self.write_video("reel-1", video("reel-1", "walk-reel"))

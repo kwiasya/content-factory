@@ -2,7 +2,7 @@
 
 ``create`` fills ``research/templates/brief.md`` (``string.Template``, ``$name``
 placeholders) and writes it to
-``<footage root>/channels/<channel>/briefs/<idea id>-<slug>.md``, where the
+``<local root>/channels/<channel>/briefs/<idea id>-<slug>.md``, where the
 channel is the argument, else the Watchlist's Author's Channel (``author_channel``),
 else ``_unassigned``.
 Then the Idea moves shortlisted → brief with ``brief_path``. One Brief per
@@ -18,7 +18,7 @@ from string import Template
 
 from cf.research import feed, ideas, outlier
 from cf.research.ideas import IdeaError
-from cf.research.store import REPO_ROOT, Store, footage_root, now_iso
+from cf.research.store import REPO_ROOT, Store, local_root, now_iso
 from cf.research.watchlist import get as get_watchlist
 
 TEMPLATE_PATH = REPO_ROOT / "research" / "templates" / "brief.md"
@@ -43,7 +43,7 @@ def _folder(name: str) -> str:
 
 
 def path_for(idea: ideas.Idea, channel: str, root: Path | None = None) -> Path:
-    return Path(root or footage_root()) / "channels" / _folder(channel) / "briefs" / f"{idea.id}-{slug(idea.title)}.md"
+    return Path(root or local_root()) / "channels" / _folder(channel) / "briefs" / f"{idea.id}-{slug(idea.title)}.md"
 
 
 def _analysis(store: Store, video_id: int) -> dict | None:

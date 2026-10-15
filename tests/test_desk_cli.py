@@ -20,7 +20,7 @@ class DeskCliTest(unittest.TestCase):
         self.repo = Path(self.tmp.name) / "repo"
         self.repo.mkdir()
         footage = Path(self.tmp.name) / "footage"
-        env = mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(footage)})
+        env = mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(footage), "CF_SHARED_ROOT": str(footage)})
         env.start()
         self.addCleanup(env.stop)
         self.footage = footage
@@ -44,8 +44,25 @@ class DeskCliTest(unittest.TestCase):
         self.assertEqual((kwargs["host"], kwargs["port"]), ("127.0.0.1", 8765))
         meta = TestClient(self.run.call_args.args[0]).get("/api/meta").json()
         self.assertEqual(meta["repo"], str(self.repo.resolve()))
-        self.assertEqual(meta["footage_root"], str(self.footage))
+        self.assertEqual((meta["local_root"], meta["shared_root"]), (str(self.footage), str(self.footage)))
+        self.assertNotIn("footage_root", meta)
         self.assertEqual(meta["db_path"], str(self.footage / "factory.db"))
+
+    def test_two_different_roots_exit_2_with_the_roots_message(self):
+        with mock.patch.dict(os.environ, {"CF_SHARED_ROOT": str(self.footage.parent / "shared")}):
+            code, err = self.main()
+        self.assertEqual(code, 2)
+        self.assertIn("separate roots are not supported yet", err)
+        self.run.assert_not_called()
+
+    def test_the_old_root_variable_still_sets_both_roots(self):
+        with mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(self.footage)}):
+            os.environ.pop("CF_LOCAL_ROOT")
+            os.environ.pop("CF_SHARED_ROOT")
+            code, _ = self.main()
+        self.assertEqual(code, 0)
+        meta = TestClient(self.run.call_args.args[0]).get("/api/meta").json()
+        self.assertEqual((meta["local_root"], meta["shared_root"]), (str(self.footage), str(self.footage)))
 
     def test_non_localhost_host_without_token_is_refused(self):
         code, err = self.main("--host", "0.0.0.0")

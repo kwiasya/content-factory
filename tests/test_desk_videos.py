@@ -1,4 +1,4 @@
-"""Desk Videos API and media streaming through the FastAPI TestClient on a temporary footage root."""
+"""Desk Videos API and media streaming through the FastAPI TestClient on a temporary root."""
 
 import json
 import os
@@ -108,10 +108,10 @@ class VideosTestCase(unittest.TestCase):
         write(self.walk / "proxy" / "A.mp4", MP4)
         self.reel = self.walk / "reels" / "short-01"
         write(self.reel / "script.draft.json", json.dumps(good_script(), indent=2))
-        env = mock.patch.dict(os.environ, {"CF_FOOTAGE_ROOT": str(self.footage)})
+        env = mock.patch.dict(os.environ, {"CF_LOCAL_ROOT": str(self.footage), "CF_SHARED_ROOT": str(self.footage)})
         env.start()
         self.addCleanup(env.stop)
-        self.client = TestClient(create_app(self.repo, footage_root=self.footage,
+        self.client = TestClient(create_app(self.repo, local_root=self.footage,
                                             db_path=self.footage / "factory.db", web_dist=base / "dist"))
 
     def ok(self, response) -> dict:
@@ -386,7 +386,7 @@ class ScriptCuesTest(VideosTestCase):
         super().setUp()
         from library_fixture import make_library
 
-        make_library(Path(self.tmp.name), footage=self.footage, db=self.footage / "factory.db")
+        make_library(Path(self.tmp.name), root=self.footage, db=self.footage / "factory.db")
         write(self.video / "script.json", json.dumps(good_script(), indent=2))
         write(self.video / "notes.md", "After the reveal: @meme/chipi\n")
 
@@ -417,7 +417,7 @@ class ScriptCuesTest(VideosTestCase):
         r = self.save_cues([{"ref": "@sfx/own-hit", "at_s": 0.0}])
         self.assertEqual(r.status_code, 422, r.text)
         self.assertTrue(any("need the Library" in v and "/index-pack" in v for v in r.json()["violations"]), r.text)
-        self.assertFalse(any("--footage-root" in v for v in r.json()["violations"]), r.text)
+        self.assertFalse(any("--shared-root" in v for v in r.json()["violations"]), r.text)
         self.ok(self.save_cues(None))
 
 
@@ -484,14 +484,14 @@ class CreateTest(VideosTestCase):
             with self.subTest(title):
                 self.assertEqual(self.create(title=title)["slug"], slug)
 
-    def test_without_a_footage_root_create_is_409_and_creates_nothing(self):
+    def test_without_a_local_root_create_is_409_and_creates_nothing(self):
         missing = self.footage.parent / "nowhere"
-        client = TestClient(create_app(self.repo, footage_root=missing, db_path=self.db,
+        client = TestClient(create_app(self.repo, local_root=missing, db_path=self.db,
                                        web_dist=self.footage / "dist"))
         r = client.post("/api/videos", json={"title": "T", "format": "tech-explainer", "channel": "x",
                                              "new_channel": True})
         self.assertEqual((r.status_code, r.json()["code"], r.json()["params"]),
-                         (409, "footage_missing", {"path": str(missing)}))
+                         (409, "local_root_missing", {"path": str(missing)}))
         self.assertFalse(missing.exists())
 
     def test_a_new_channel_name_is_lower_case_capped_and_matches_known_ones_ignoring_case(self):
@@ -570,7 +570,7 @@ class CreateTest(VideosTestCase):
         self.assertEqual(self.listing(), before)
 
     def test_without_a_db_create_works_but_a_brief_link_is_404_db_missing(self):
-        client = TestClient(create_app(self.repo, footage_root=self.footage, db_path=self.footage / "none.db",
+        client = TestClient(create_app(self.repo, local_root=self.footage, db_path=self.footage / "none.db",
                                        web_dist=self.footage / "dist"))
         r = client.post("/api/videos", json={"title": "T", "format": "tech-explainer", "channel": "tech-en"})
         self.assertEqual(r.status_code, 201, r.text)
@@ -699,7 +699,7 @@ class ChannelsTest(VideosTestCase):
         conn.close()
         for db in (self.footage / "none.db", other):
             with self.subTest(db.name):
-                client = TestClient(create_app(self.repo, footage_root=self.footage, db_path=db,
+                client = TestClient(create_app(self.repo, local_root=self.footage, db_path=db,
                                                web_dist=self.footage / "dist"))
                 self.assertEqual([(c["id"], c["videos"], c["watchlists"]) for c in self.channels(client)],
                                  [("tech-en", 1, []), ("travel", 0, []), ("walks-ig", 1, [])])

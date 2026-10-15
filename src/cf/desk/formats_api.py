@@ -81,10 +81,10 @@ def parse_rules(text: str, topic: str) -> list[dict]:
     return rules
 
 
-def format_videos(footage_root: Path, fid: str) -> list[dict]:
-    footage = Path(footage_root)
+def format_videos(root: Path, fid: str) -> list[dict]:
+    root = Path(root)
     videos = []
-    for folder in videofolders.list_folders(footage):
+    for folder in videofolders.list_folders(root):
         item = videofolders.summary(folder)
         if item["format"] == fid:
             videos.append({"slug": item["slug"], "title": item["title"], "status": item["status"],
@@ -92,7 +92,7 @@ def format_videos(footage_root: Path, fid: str) -> list[dict]:
     return videos
 
 
-def format_page(repo: Path, footage_root: Path, fid: str) -> dict | None:
+def format_page(repo: Path, root: Path, fid: str) -> dict | None:
     folder = repo / FORMATS_DIR / fid
     if not FORMAT_ID_RE.fullmatch(fid) or not (folder / "FORMAT.md").is_file():
         return None
@@ -110,11 +110,11 @@ def format_page(repo: Path, footage_root: Path, fid: str) -> dict | None:
         "hook_library": read_doc(repo, folder / "hook-library.md"),
         "topics": topics,
         "rules": rules,
-        "videos": format_videos(footage_root, fid),
+        "videos": format_videos(root, fid),
     }
 
 
-def router(repo: Path, footage_root: Path) -> APIRouter:
+def router(repo: Path, root: Path) -> APIRouter:
     r = APIRouter()
 
     @r.get("/api/formats")
@@ -123,7 +123,7 @@ def router(repo: Path, footage_root: Path) -> APIRouter:
 
     @r.get("/api/formats/{fid}")
     def get_format(fid: str) -> dict:
-        page = format_page(repo, footage_root, fid)
+        page = format_page(repo, root, fid)
         if page is None:
             raise Problem(404, "format_not_found", "no such Format", id=fid)
         return page

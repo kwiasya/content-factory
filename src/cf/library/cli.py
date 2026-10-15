@@ -1,9 +1,9 @@
-"""Library CLI: ``python -m cf.library <group> <cmd> [--json] [--db PATH] [--footage-root PATH]``.
+"""Library CLI: ``python -m cf.library <group> <cmd> [--json] [--db PATH] [--shared-root PATH]``.
 
 Groups: ``pack`` (add, list, remove), ``index``, ``show``, ``suggest``, ``query``, ``author`` (set, orphans),
 ``import-tags``, ``tags`` (todo, apply).
 Every command takes ``--json`` (machine output on stdout), ``--db`` (default ``CF_FACTORY_DB`` or
-``<footage root>/factory.db``) and ``--footage-root`` (default ``CF_FOOTAGE_ROOT`` or ``~/Movies/content-factory``;
+``<shared root>/factory.db``) and ``--shared-root`` (default ``CF_SHARED_ROOT`` or ``~/Movies/content-factory``;
 the cache lives in its ``library/``). Human output is Markdown in Russian. Errors: one line on stderr, exit 1.
 """
 
@@ -21,7 +21,7 @@ from cf.library import index as index_mod
 from cf.library.errors import AssetNotFound, LibraryError, PackError
 from cf.library.library import Asset, card, load
 from cf.library.refs import CATEGORIES, RIGHTS
-from cf.research.store import StoreError, footage_root, open_store
+from cf.research.store import StoreError, open_store, shared_root
 
 USER_ERRORS: tuple[type[Exception], ...] = (LibraryError, StoreError)
 
@@ -46,8 +46,8 @@ def md_table(headers: list[str], rows: Iterable[Iterable[Any]]) -> str:
     return "\n".join(lines)
 
 
-def _footage(args) -> Path:
-    return Path(args.footage_root).expanduser() if args.footage_root else footage_root()
+def _root(args) -> Path:
+    return Path(args.shared_root).expanduser() if args.shared_root else shared_root()
 
 
 def _assets_table(assets: list[Asset]) -> str:
@@ -142,14 +142,14 @@ def _report_human(pack_id: str, r: dict) -> str:
 
 def cmd_index(args, store) -> int:
     log = (lambda m: print(m, file=sys.stderr)) if not args.quiet else (lambda m: None)
-    rep = index_mod.index_pack(store, _footage(args), args.pack, key=not args.no_key,
+    rep = index_mod.index_pack(store, _root(args), args.pack, key=not args.no_key,
                                previews=not args.no_previews, loudness=not args.no_loudness,
                                only=tuple(args.only or ()), log=log).to_dict()
     return emit(args, rep, lambda: _report_human(args.pack, rep))
 
 
 def register_index(sub, common) -> None:
-    p = sub.add_parser("index", parents=[common], help="index one Pack into <footage>/library/<pack>/")
+    p = sub.add_parser("index", parents=[common], help="index one Pack into <shared root>/library/<pack>/")
     p.add_argument("pack")
     p.add_argument("--no-key", action="store_true", help="skip chroma keying of green-screen folders")
     p.add_argument("--no-previews", action="store_true", help="skip posters, preview mp4s, png and gif conversions")
@@ -176,7 +176,7 @@ def _card_human(a: Asset) -> str:
 
 
 def cmd_show(args, store) -> int:
-    lib = load(_footage(args), store)
+    lib = load(_root(args), store)
     a, alias = _find(lib, args.ref)
     return emit(args, {"asset": card(a), "canonical": a.ref, "alias": alias}, lambda: _card_human(a))
 
@@ -188,7 +188,7 @@ def register_show(sub, common) -> None:
 
 
 def cmd_suggest(args, store) -> int:
-    found = load(_footage(args), store).suggest(args.q, args.limit)
+    found = load(_root(args), store).suggest(args.q, args.limit)
     return emit(args, {"suggestions": [card(a, full=False) for a in found]}, lambda: _assets_table(found))
 
 
@@ -200,7 +200,7 @@ def register_suggest(sub, common) -> None:
 
 
 def cmd_query(args, store) -> int:
-    found = load(_footage(args), store).query(pack=args.pack, category=args.category, tags=args.tag or (),
+    found = load(_root(args), store).query(pack=args.pack, category=args.category, tags=args.tag or (),
                                               text=args.q or "", rights=args.rights)
     return emit(args, {"assets": [card(a, full=False) for a in found], "total": len(found)},
                 lambda: _assets_table(found))
@@ -219,7 +219,7 @@ def register_query(sub, common) -> None:
 # --- author ------------------------------------------------------------------------
 
 def cmd_author_set(args, store) -> int:
-    lib = load(_footage(args), store)
+    lib = load(_root(args), store)
     a, _ = _find(lib, args.ref)
     kw: dict[str, Any] = {}
     if args.caption is not None:
@@ -239,7 +239,7 @@ def cmd_author_set(args, store) -> int:
 
 
 def cmd_author_orphans(args, store) -> int:
-    lib = load(_footage(args), store)
+    lib = load(_root(args), store)
     rows = [r for r in author_mod.rows(store).values()
             if lib.get(r["asset_id"]) is None and (not args.pack or r["pack_id"] == args.pack)]
     return emit(args, {"orphans": rows},
@@ -269,7 +269,7 @@ def register_author(sub, common) -> None:
 # --- import-tags / tags -------------------------------------------------------------
 
 def cmd_import_tags(args, store) -> int:
-    lib = load(_footage(args), store)
+    lib = load(_root(args), store)
     rep = imports.import_tags(store, lib, args.pack, Path(args.file), args.base, names=args.names).to_dict()
     return emit(args, rep, lambda: (
         f"Записей {rep['entries']}: найдено {rep['matched']}, изменено {rep['changed']}, имён {rep['named']}; "
@@ -288,9 +288,9 @@ def register_import_tags(sub, common) -> None:
 
 
 def cmd_tags_todo(args, store) -> int:
-    lib = load(_footage(args), store)
+    lib = load(_root(args), store)
     todo = sheets.tag_todo(lib, args.pack)
-    written = [str(p) for p in sheets.write_sheets(_footage(args), lib, args.pack)] if args.sheets else []
+    written = [str(p) for p in sheets.write_sheets(_root(args), lib, args.pack)] if args.sheets else []
     return emit(args, {"todo": len(todo), "sheets": written},
                 lambda: f"Без тегов агента: {len(todo)}." + ("\n" + "\n".join(written) if written else ""))
 
@@ -302,7 +302,7 @@ def cmd_tags_apply(args, store) -> int:
         raise LibraryError(f"cannot read {args.file}: {exc}") from exc
     if not isinstance(proposals, dict):
         raise LibraryError(f"{args.file}: expected an object of asset id → {{caption, tags}}")
-    applied, unknown = sheets.apply_tags(_footage(args), args.pack, proposals)
+    applied, unknown = sheets.apply_tags(_root(args), args.pack, proposals)
     return emit(args, {"applied": applied, "unknown": unknown},
                 lambda: f"Применено: {applied}." + (" Неизвестные id: " + ", ".join(unknown) if unknown else ""))
 
@@ -327,8 +327,9 @@ GROUPS: list[Callable] = [register_pack, register_index, register_show, register
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--json", action="store_true", help="machine output (JSON on stdout)")
-    common.add_argument("--db", help="the store (default: CF_FACTORY_DB or <footage root>/factory.db)")
-    common.add_argument("--footage-root", help="footage root holding library/ (default: CF_FOOTAGE_ROOT)")
+    common.add_argument("--db", help="the store (default: CF_FACTORY_DB or <shared root>/factory.db)")
+    common.add_argument("--shared-root", dest="shared_root", help="shared root holding library/ (default: CF_SHARED_ROOT)")
+    common.add_argument("--footage-root", dest="shared_root", help=argparse.SUPPRESS)
     ap = argparse.ArgumentParser(prog="python -m cf.library", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="group", required=True)
     for register in GROUPS:

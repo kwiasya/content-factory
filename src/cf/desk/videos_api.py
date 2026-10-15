@@ -59,47 +59,47 @@ def kind_of(rel: str) -> str:
     return "other"
 
 
-def media_path(footage: Path, path: Path) -> str | None:
+def media_path(root: Path, path: Path) -> str | None:
     if path.suffix.lower() not in VIDEO_SUFFIXES:
         return None
     try:
-        rel = path.relative_to(footage).as_posix()
+        rel = path.relative_to(root).as_posix()
     except ValueError:
         return None
-    return rel if media.resolve(footage, rel) else None
+    return rel if media.resolve(root, rel) else None
 
 
-def file_entry(footage: Path, folder: Path, path: Path) -> dict:
+def file_entry(root: Path, folder: Path, path: Path) -> dict:
     rel = path.relative_to(folder).as_posix()
     kind = kind_of(rel)
     st = path.stat()
     return {"path": rel, "kind": kind, "size": st.st_size, "mtime": iso(st.st_mtime),
-            "editable": kind in EDITABLE, "media": media_path(footage, path)}
+            "editable": kind in EDITABLE, "media": media_path(root, path)}
 
 
-def proxies(footage: Path, walks: list) -> list[dict]:
+def proxies(root: Path, walks: list) -> list[dict]:
     found = []
     for walk in walks:
         if not isinstance(walk, str) or not NAME.match(walk) or walk in NOT_WALKS:
             continue
-        folder = footage / walk / "proxy"
+        folder = root / walk / "proxy"
         if not folder.is_dir():
             continue
         for p in sorted(folder.iterdir()):
-            rel = media_path(footage, p)
+            rel = media_path(root, p)
             if rel:
                 found.append({"walk": walk, "name": p.name, "size": p.stat().st_size, "media": rel})
     return found
 
 
-def detail(footage: Path, folder: Folder) -> dict:
+def detail(root: Path, folder: Folder) -> dict:
     video = read_video(folder)
     meta = folder.path / "video.json"
     return {"slug": folder.slug, "legacy": folder.legacy, "folder": str(folder.path), "video": video,
             "hash": None if folder.legacy else digest(meta.read_bytes()),
             "statuses": list(STATUSES), "updated": iso(last_change(folder.path)),
-            "files": [file_entry(footage, folder.path, p) for p in walk_files(folder.path)],
-            "proxies": proxies(footage, video.get("walks") or [])}
+            "files": [file_entry(root, folder.path, p) for p in walk_files(folder.path)],
+            "proxies": proxies(root, video.get("walks") or [])}
 
 
 def text_format(rel: str) -> str:
@@ -117,28 +117,28 @@ def text_target(folder: Folder, rel: str, *, creating: bool = False) -> Path:
     raise missing
 
 
-def asset_context(footage: Path, folder: Path | None, db_path: Path | None) -> "assets.AssetContext":
+def asset_context(root: Path, folder: Path | None, db_path: Path | None) -> "assets.AssetContext":
     """The Library (read-only) and the Video folder's md refs, for a Script with Asset cues."""
     video = None
     if folder is not None:
-        video = assets.video_folder(folder) or assets.VideoFolder(folder, folder.name, footage, False, None)
+        video = assets.video_folder(folder) or assets.VideoFolder(folder, folder.name, root, False, None)
     lib, problem = None, None
     if db_path is None:
         problem = "no factory.db configured"
     else:
         try:
             with storeuse.reading(db_path) as s:
-                lib = library.load(footage, s)
+                lib = library.load(root, s)
         except Problem as exc:
             if exc.code not in storeuse.ABSENT:
                 raise
             problem = exc.detail
     if lib is None:
         return assets.AssetContext(None, problem, video, assets.md_refs(video.path) if video else {}, cli=False)
-    return replace(assets.context(None, footage=footage, library=lib, video=video), cli=False)
+    return replace(assets.context(None, root=root, library=lib, video=video), cli=False)
 
 
-def script_violations(footage: Path, repo: Path, text: str, *, script: bool, folder: Path | None = None,
+def script_violations(root: Path, repo: Path, text: str, *, script: bool, folder: Path | None = None,
                       db_path: Path | None = None) -> list[str]:
     """Violations of a JSON text; a `script*.json` (`script` true) must be a cf-script/1 document. Asset cues are
     checked against the Library and the md files of `folder` (the Video); a Script without cues opens no store."""
@@ -158,8 +158,8 @@ def script_violations(footage: Path, repo: Path, text: str, *, script: bool, fol
     walk = data.get("walk")
     manifest = None
     if isinstance(walk, str) and NAME.match(walk):
-        manifest = optional_json(footage / walk / "clip_manifest.json")
-    ctx = asset_context(footage, folder, db_path) if script_schema.has_cues(script) else None
+        manifest = optional_json(root / walk / "clip_manifest.json")
+    ctx = asset_context(root, folder, db_path) if script_schema.has_cues(script) else None
     return script_schema.validate(script, manifest, optional_json(repo / "style.json"), assets=ctx)
 
 
@@ -195,22 +195,22 @@ def slug_for(title: str) -> str:
     return s.strip("-") or "video"
 
 
-def claim_folder(footage: Path, base: str) -> Path:
+def claim_folder(root: Path, base: str) -> Path:
     """Create and return the first free `videos/<base>`, `videos/<base>-2`, …; the mkdir is the claim."""
-    if not footage.is_dir():
-        raise Problem(409, "footage_missing", f"the footage root {footage} does not exist; nothing was created",
-                      path=str(footage))
-    root = videos_dir(footage)
-    root.mkdir(exist_ok=True)
+    if not root.is_dir():
+        raise Problem(409, "local_root_missing", f"the local root {root} does not exist; nothing was created",
+                      path=str(root))
+    vdir = videos_dir(root)
+    vdir.mkdir(exist_ok=True)
     n = 1
     while True:
         name = base if n == 1 else f"{base}-{n}"
         try:
-            (root / name).mkdir(parents=False, exist_ok=False)
+            (vdir / name).mkdir(parents=False, exist_ok=False)
         except FileExistsError:
             n += 1
             continue
-        return root / name
+        return vdir / name
 
 
 class VideoCreate(BaseModel):
@@ -237,10 +237,10 @@ def checked_format(repo: Path, fid: str) -> None:
                       format=fid, formats=known)
 
 
-def checked_channel(footage: Path, db_path: Path, name: str, new: bool) -> str:
+def checked_channel(root: Path, db_path: Path, name: str, new: bool) -> str:
     """The Channel a Video is created for: a known one, or with `new` a lower-case folder name of at most
     `CHANNEL_MAX` characters, which becomes the known Channel it equals ignoring case."""
-    known = [c["id"] for c in channels.list_channels(footage, db_path)]
+    known = [c["id"] for c in channels.list_channels(root, db_path)]
     if new:
         wanted = name.strip().lower()
         if len(wanted) > CHANNEL_MAX or not channels.valid_name(wanted):
@@ -254,32 +254,32 @@ def checked_channel(footage: Path, db_path: Path, name: str, new: bool) -> str:
     return name
 
 
-def linked_brief(footage: Path, db_path: Path, idea_id: int) -> tuple[Path, dict, str | None]:
+def linked_brief(root: Path, db_path: Path, idea_id: int) -> tuple[Path, dict, str | None]:
     """The Brief file of Idea `idea_id`, the Idea, and its Watchlist's language."""
     with storeuse.reading(db_path) as s:
         idea = contour_api.idea_of(s, idea_id)
-        path = contour_api.brief_file(footage, idea)
+        path = contour_api.brief_file(root, idea)
         language = watchlists.get(s, idea.watchlist).language
     return path, idea.to_dict(), language
 
 
-def channel_language(footage: Path, db_path: Path, channel: str) -> str | None:
-    for c in channels.list_channels(footage, db_path):
+def channel_language(root: Path, db_path: Path, channel: str) -> str | None:
+    for c in channels.list_channels(root, db_path):
         if c["id"] == channel and len(c["languages"]) == 1:
             return c["languages"][0]
     return None
 
 
-def create_video(footage: Path, repo: Path, db_path: Path, body: VideoCreate) -> Folder:
+def create_video(root: Path, repo: Path, db_path: Path, body: VideoCreate) -> Folder:
     title = checked_title(body.title)
     checked_format(repo, body.format)
-    channel = checked_channel(footage, db_path, body.channel, body.new_channel)
+    channel = checked_channel(root, db_path, body.channel, body.new_channel)
     brief, idea, language = None, None, None
     if body.idea_id is not None:
-        brief, idea, language = linked_brief(footage, db_path, body.idea_id)
+        brief, idea, language = linked_brief(root, db_path, body.idea_id)
     if language is None:
-        language = channel_language(footage, db_path, channel)
-    folder = claim_folder(footage, slug_for(title))
+        language = channel_language(root, db_path, channel)
+    folder = claim_folder(root, slug_for(title))
     try:
         if brief is not None:
             (folder / "brief.md").write_bytes(brief.read_bytes())
@@ -302,35 +302,35 @@ def create_video(footage: Path, repo: Path, db_path: Path, body: VideoCreate) ->
     return Folder(folder.name, folder, False)
 
 
-def router(footage_root: Path, repo: Path, db_path: Path) -> APIRouter:
-    footage = Path(footage_root)
+def router(root: Path, repo: Path, db_path: Path) -> APIRouter:
+    root = Path(root)
     api = APIRouter()
 
     @api.get("/api/videos")
     def get_videos(format: str = "", channel: str = "") -> dict:
-        items = [summary(f) for f in list_folders(footage)]
+        items = [summary(f) for f in list_folders(root)]
         items = [v for v in items if (not format or v["format"] == format) and (not channel or v["channel"] == channel)]
         items.sort(key=lambda v: v["updated"], reverse=True)
         return {"videos": items, "statuses": list(STATUSES), "stages": list(STAGES)}
 
     @api.post("/api/videos", status_code=201)
     def post_video(body: VideoCreate) -> dict:
-        return detail(footage, create_video(footage, repo, db_path, body))
+        return detail(root, create_video(root, repo, db_path, body))
 
     @api.get("/api/videos/{slug}")
     def get_video(slug: str) -> dict:
-        return detail(footage, find_folder(footage, slug))
+        return detail(root, find_folder(root, slug))
 
     @api.get("/api/videos/{slug}/file")
     def get_file(slug: str, path: str) -> dict:
-        target = text_target(find_folder(footage, slug), path)
+        target = text_target(find_folder(root, slug), path)
         data = target.read_bytes()
         return {"path": path, "kind": kind_of(path), "format": text_format(path),
                 "text": data.decode("utf-8", errors="replace"), "hash": digest(data)}
 
     @api.put("/api/videos/{slug}/file", response_model=None)
     def put_file(slug: str, body: TextWrite) -> dict | JSONResponse:
-        folder = find_folder(footage, slug)
+        folder = find_folder(root, slug)
         target = text_target(folder, body.path, creating=True)
         current = target.read_bytes() if target.exists() else None
         conflict = stale(current, body.hash) if current is not None else None
@@ -339,7 +339,7 @@ def router(footage_root: Path, repo: Path, db_path: Path) -> APIRouter:
         if current is None and body.hash:
             raise Problem(409, "file_deleted", "the file was deleted since it was read", path=body.path)
         if text_format(body.path) == "json":
-            violations = script_violations(footage, repo, body.text, script=kind_of(body.path) == "script",
+            violations = script_violations(root, repo, body.text, script=kind_of(body.path) == "script",
                                            folder=target.parent, db_path=db_path)
             if violations:
                 return JSONResponse(status_code=422, content=problem_body(
@@ -351,7 +351,7 @@ def router(footage_root: Path, repo: Path, db_path: Path) -> APIRouter:
 
     @api.post("/api/videos/{slug}/status", response_model=None)
     def set_status(slug: str, body: StatusChange) -> dict | JSONResponse:
-        folder = find_folder(footage, slug)
+        folder = find_folder(root, slug)
         if folder.legacy:
             raise Problem(409, "legacy_status",
                           "a legacy Reel's status is derived from its folder; migrate it to videos/ first")
@@ -373,6 +373,6 @@ def router(footage_root: Path, repo: Path, db_path: Path) -> APIRouter:
         today = datetime.now(timezone.utc).date().isoformat()
         video["history"] = [*(video.get("history") or []), {"status": body.status, "at": today, "note": body.note}]
         atomic_write(target, (json.dumps(video, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
-        return detail(footage, folder)
+        return detail(root, folder)
 
     return api

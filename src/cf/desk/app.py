@@ -18,9 +18,15 @@ from cf.desk.problems import Problem
 WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
 
-def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path = WEB_DIST,
-               token: str | None = None) -> FastAPI:
+def create_app(repo: Path, *, local_root: Path, db_path: Path, shared_root: Path | None = None,
+               web_dist: Path = WEB_DIST, token: str | None = None) -> FastAPI:
     repo = Path(repo).resolve()
+    local_root = Path(local_root)
+    shared_root = local_root if shared_root is None else Path(shared_root)
+    if local_root.expanduser().resolve() != shared_root.expanduser().resolve():
+        raise ValueError(f"local root {local_root} and shared root {shared_root} differ; "
+                         "separate roots are not supported yet (one root for now)")
+    root = local_root
     app = FastAPI(title="Desk", docs_url=None, redoc_url=None, openapi_url=None)
     problems.install(app)
 
@@ -67,8 +73,8 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
 
     @app.get("/api/meta")
     def get_meta() -> dict:
-        return {"repo": str(repo), "branch": gitread.branch(repo), "footage_root": str(footage_root),
-                "db_path": str(db_path)}
+        return {"repo": str(repo), "branch": gitread.branch(repo), "local_root": str(local_root),
+                "shared_root": str(shared_root), "db_path": str(db_path)}
 
     @app.put("/api/doc")
     def put_doc(body: DocWrite) -> dict:
@@ -91,14 +97,14 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
     app.include_router(research_api.router(repo))
     app.include_router(search.router(repo))
     app.include_router(skill_links.router(repo))
-    app.include_router(formats_api.router(repo, footage_root))
+    app.include_router(formats_api.router(repo, root))
     app.include_router(skill_lint.router(repo))
     app.include_router(notes_api.router(db_path))
-    app.include_router(videos_api.router(footage_root, repo, db_path))
-    app.include_router(channels.router(footage_root, db_path))
-    app.include_router(media.router(footage_root, lambda: library_api.pack_files(db_path, footage_root)))
-    app.include_router(library_api.router(db_path, footage_root))
-    app.include_router(contour_api.router(db_path, footage_root))
+    app.include_router(videos_api.router(root, repo, db_path))
+    app.include_router(channels.router(root, db_path))
+    app.include_router(media.router(root, lambda: library_api.pack_files(db_path, root)))
+    app.include_router(library_api.router(db_path, root))
+    app.include_router(contour_api.router(db_path, root))
 
     @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     def api_not_found(rest: str) -> None:
@@ -109,9 +115,9 @@ def create_app(repo: Path, *, footage_root: Path, db_path: Path, web_dist: Path 
         index = web_dist / "index.html"
         if not index.is_file():
             return HTMLResponse(NO_BUILD)
-        root = web_dist.resolve()
-        candidate = (root / rest).resolve()
-        if rest and candidate.is_relative_to(root) and candidate.is_file():
+        dist = web_dist.resolve()
+        candidate = (dist / rest).resolve()
+        if rest and candidate.is_relative_to(dist) and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(index)
 

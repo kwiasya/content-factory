@@ -19,11 +19,13 @@ class StoreLocationTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_default_database_lives_at_the_footage_root(self):
-        env = {"CF_FOOTAGE_ROOT": str(self.dir)}
-        with mock.patch.dict(os.environ, env, clear=False):
-            os.environ.pop("CF_FACTORY_DB", None)
-            self.assertEqual(st.default_db_path(), self.dir / "factory.db")
+    def test_default_database_lives_at_the_shared_root(self):
+        for var in ("CF_SHARED_ROOT", "CF_FOOTAGE_ROOT"):
+            with self.subTest(var), mock.patch.dict(os.environ, {var: str(self.dir)}, clear=False):
+                for other in ("CF_FACTORY_DB", "CF_SHARED_ROOT", "CF_FOOTAGE_ROOT"):
+                    if other != var:
+                        os.environ.pop(other, None)
+                self.assertEqual(st.default_db_path(), self.dir / "factory.db")
 
     def test_factory_db_variable_overrides_the_default(self):
         path = self.dir / "elsewhere" / "x.db"

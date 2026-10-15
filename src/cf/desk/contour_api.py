@@ -57,10 +57,10 @@ def _pending(store: Store, analysis: dict | None) -> list[dict]:
     return out
 
 
-def _proxy(footage: Path, external_id: str) -> str | None:
-    for d in card.reference_dirs(external_id, footage):
-        rel = (d / "proxy.mp4").relative_to(footage).as_posix()
-        if media.resolve(footage, rel):
+def _proxy(root: Path, external_id: str) -> str | None:
+    for d in card.reference_dirs(external_id, root):
+        rel = (d / "proxy.mp4").relative_to(root).as_posix()
+        if media.resolve(root, rel):
             return rel
     return None
 
@@ -89,15 +89,15 @@ def idea_of(s: Store, idea_id: int) -> ideas.Idea:
         raise Problem(404, "idea_not_found", str(e), id=idea_id) from None
 
 
-def brief_file(footage: Path, idea: ideas.Idea) -> Path:
+def brief_file(root: Path, idea: ideas.Idea) -> Path:
     if not idea.brief_path:
         command = f"python -m cf.research ideas brief {idea.id}"
         raise Problem(404, "brief_missing", f"Idea {idea.id} has no Brief yet; shortlist it, then run "
                                             f"{command} (skill /suggest-ideas)", id=idea.id, command=command)
-    rel = paths.relative_under(footage, Path(idea.brief_path))
-    path = paths.contained(footage, rel) if rel is not None else None
+    rel = paths.relative_under(root, Path(idea.brief_path))
+    path = paths.contained(root, rel) if rel is not None else None
     if path is None or path.suffix != ".md":
-        raise Problem(404, "brief_outside", f"the Brief of Idea {idea.id} is not a .md file under the footage "
+        raise Problem(404, "brief_outside", f"the Brief of Idea {idea.id} is not a .md file under the local "
                                             "root (no `..`, no symlink)", id=idea.id)
     if not path.is_file():
         raise Problem(404, "brief_file_missing", f"the Brief of Idea {idea.id} is missing on disk: {path}",
@@ -105,8 +105,8 @@ def brief_file(footage: Path, idea: ideas.Idea) -> Path:
     return path
 
 
-def router(db_path: Path, footage_root: Path) -> APIRouter:
-    footage = Path(footage_root)
+def router(db_path: Path, root: Path) -> APIRouter:
+    root = Path(root)
     api = APIRouter(prefix="/api/contour")
 
     @contextmanager
@@ -165,7 +165,7 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
                 row["outlier"] = round(row["outlier"], 2)
             return {"external_id": v["external_id"], "reference": row, "card": c,
                     "sections": c["measured"].get("sections") or [], "proposed": _pending(s, c["analysis"]),
-                    "media": _proxy(footage, v["external_id"])}
+                    "media": _proxy(root, v["external_id"])}
 
     @api.get("/watchlists/{name}/summary/{what}")
     def get_summary(name: str, what: str, days: float = summary.DEFAULT_DAYS) -> dict:
@@ -208,14 +208,14 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
     @api.get("/ideas/{idea_id}/brief")
     def get_brief(idea_id: int) -> dict:
         with store() as s:
-            path = brief_file(footage, idea_of(s, idea_id))
+            path = brief_file(root, idea_of(s, idea_id))
         data = path.read_bytes()
         return {"idea": idea_id, "path": str(path), "text": data.decode("utf-8"), "hash": digest(data)}
 
     @api.put("/ideas/{idea_id}/brief", response_model=None)
     def put_brief(idea_id: int, body: BriefWrite) -> dict | JSONResponse:
         with store() as s:
-            path = brief_file(footage, idea_of(s, idea_id))
+            path = brief_file(root, idea_of(s, idea_id))
         conflict = stale(path.read_bytes(), body.hash, "the Brief changed on disk since it was read", "brief_changed")
         if conflict:
             return conflict
@@ -239,7 +239,7 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
         _taxonomy_value(kind, value)
         with store(write=True) as s:
             if action == "approve":
-                return taxonomy.approve(s, kind, value, root=footage).to_dict()
+                return taxonomy.approve(s, kind, value, root=root).to_dict()
             return taxonomy.reject(s, kind, value).to_dict()
 
     @api.get("/own")

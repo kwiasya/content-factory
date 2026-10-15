@@ -26,7 +26,7 @@ class NotesApiTest(unittest.TestCase):
         base = Path(self.tmp.name)
         (base / "repo").mkdir()
         self.db = base / "footage" / "factory.db"
-        self.client = TestClient(create_app(base / "repo", footage_root=base / "footage", db_path=self.db,
+        self.client = TestClient(create_app(base / "repo", local_root=base / "footage", db_path=self.db,
                                             web_dist=base / "dist"))
 
     def add(self, kind: str, key: str, text: str) -> dict:
@@ -88,10 +88,12 @@ class SkillHookTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.db = Path(self.tmp.name) / "factory.db"
+        self.hook_env = {"CF_FACTORY_DB": str(self.db)}
 
     def run_hook(self, stdin: str) -> subprocess.CompletedProcess:
-        env = {k: v for k, v in os.environ.items() if k not in ("CF_FACTORY_DB", "CF_FOOTAGE_ROOT")}
-        env["CF_FACTORY_DB"] = str(self.db)
+        dropped = ("CF_FACTORY_DB", "CF_FOOTAGE_ROOT", "CF_SHARED_ROOT", "CF_LOCAL_ROOT")
+        env = {k: v for k, v in os.environ.items() if k not in dropped}
+        env.update(self.hook_env)
         return subprocess.run([sys.executable, str(HOOK)], input=stdin, env=env,
                               capture_output=True, text=True, timeout=30)
 
@@ -126,6 +128,13 @@ class SkillHookTest(unittest.TestCase):
             self.assertIn(wanted, text)
         for unwanted in ("Other skill", "Other folder", "Already done"):
             self.assertNotIn(unwanted, text)
+
+    def test_finds_the_db_under_the_shared_root(self):
+        self.seed()
+        for var in ("CF_SHARED_ROOT", "CF_FOOTAGE_ROOT"):
+            with self.subTest(var):
+                self.hook_env = {var: self.tmp.name}
+                self.assertIn("Shorter hook", self.context_of(json.loads(self.skill_call("reel"))))
 
     def test_typed_slash_command_gets_the_same_notes(self):
         self.seed()

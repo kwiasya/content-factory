@@ -75,7 +75,7 @@ class FontTest(unittest.TestCase):
             fmt = Path(t) / "walk-reel"
             fmt.mkdir()
             (fmt / "FORMAT.md").write_text(FORMAT)
-            res = subprocess.run([sys.executable, "-m", "cf.assets", "font", str(v / "script.json"), "--footage-root",
+            res = subprocess.run([sys.executable, "-m", "cf.assets", "font", str(v / "script.json"), "--shared-root",
                                   str(self.footage), "--db", str(self.db), "--formats", t],
                                  capture_output=True, text=True, env=env, cwd=ROOT)
             self.assertEqual(res.returncode, 0, res.stderr)

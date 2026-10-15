@@ -224,12 +224,12 @@ class NoAssetsBuildTest(unittest.TestCase):
             d["shots"][0]["assets"] = [{"ref": "@sfx/own-hit", "at_s": 0.0}]
             (reel / "script.json").write_text(json.dumps(d))
             none = Path(t) / "none.db"
-            b = Builder(reel, walk, None, stills=False, footage_root=Path(t), db_path=none, use_assets=False)
+            b = Builder(reel, walk, None, stills=False, shared_root=Path(t), db_path=none, use_assets=False)
             b.validate()
             self.assertIn("--no-assets: the Script's Asset cues are left out of this build", b.r.notes)
             self.assertFalse(b.cues_on())
             with self.assertRaisesRegex(BuildError, "need the Library"):
-                Builder(reel, walk, None, stills=False, footage_root=Path(t), db_path=none).validate()
+                Builder(reel, walk, None, stills=False, shared_root=Path(t), db_path=none).validate()
 
 
 class WalkDirTest(unittest.TestCase):

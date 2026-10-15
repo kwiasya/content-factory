@@ -1,8 +1,10 @@
-"""The research store: one SQLite file at the footage root.
+"""The research store: one SQLite file at the shared root.
 
 Path: ``--db`` on the CLI, else ``CF_FACTORY_DB``, else
-``<footage root>/factory.db`` where the footage root is ``CF_FOOTAGE_ROOT`` or
-``~/Movies/content-factory``. Every table of the research spec is created up
+``<shared root>/factory.db`` where the shared root is ``CF_SHARED_ROOT`` or
+``~/Movies/content-factory``. The two roots: the local root (``CF_LOCAL_ROOT``: Footage,
+videos, channels) and the shared root (``CF_SHARED_ROOT``: factory.db, references, library);
+``CF_FOOTAGE_ROOT`` is a deprecated fallback for both. Every table of the research spec is created up
 front (schema version in ``PRAGMA user_version``); later versions append to
 ``MIGRATIONS``. Opening also loads the taxonomy seed from the repo (idempotent).
 
@@ -19,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-DEFAULT_FOOTAGE_ROOT = Path.home() / "Movies" / "content-factory"
+DEFAULT_ROOT = Path.home() / "Movies" / "content-factory"
 REPO_ROOT = Path(__file__).resolve().parents[3]  # the repo checkout (taxonomy seed, templates, formats/)
 
 
@@ -27,16 +29,38 @@ class StoreError(Exception):
     """The database cannot be opened or a write breaks a store rule."""
 
 
-def footage_root() -> Path:
-    """``CF_FOOTAGE_ROOT`` or ``~/Movies/content-factory``."""
-    env = os.environ.get("CF_FOOTAGE_ROOT")
-    return Path(env).expanduser() if env else DEFAULT_FOOTAGE_ROOT
+class RootsError(StoreError):
+    """The local and shared roots differ where only one root is supported yet."""
 
 
-def default_db_path(footage: Path | None = None) -> Path:
-    """``CF_FACTORY_DB`` or ``<footage>/factory.db`` (``footage`` defaults to the footage root)."""
+def _root(var: str) -> Path:
+    env = os.environ.get(var) or os.environ.get("CF_FOOTAGE_ROOT")
+    return Path(env).expanduser() if env else DEFAULT_ROOT
+
+
+def local_root() -> Path:
+    """``CF_LOCAL_ROOT``, else ``CF_FOOTAGE_ROOT`` (deprecated), else ``~/Movies/content-factory``."""
+    return _root("CF_LOCAL_ROOT")
+
+
+def shared_root() -> Path:
+    """``CF_SHARED_ROOT``, else ``CF_FOOTAGE_ROOT`` (deprecated), else ``~/Movies/content-factory``."""
+    return _root("CF_SHARED_ROOT")
+
+
+def single_root() -> Path:
+    """The local root when both roots are the same folder; ``RootsError`` otherwise."""
+    local, shared = local_root(), shared_root()
+    if local.resolve() != shared.resolve():
+        raise RootsError(f"CF_LOCAL_ROOT {local} and CF_SHARED_ROOT {shared} differ; "
+                         "separate roots are not supported yet (one root for now)")
+    return local
+
+
+def default_db_path(root: Path | None = None) -> Path:
+    """``CF_FACTORY_DB`` or ``<root>/factory.db`` (``root`` defaults to the shared root)."""
     env = os.environ.get("CF_FACTORY_DB")
-    return Path(env).expanduser() if env else Path(footage or footage_root()) / "factory.db"
+    return Path(env).expanduser() if env else Path(root or shared_root()) / "factory.db"
 
 
 def now_iso(now: datetime | None = None) -> str:

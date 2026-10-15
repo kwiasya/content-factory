@@ -585,7 +585,7 @@ class FetchCliTest(unittest.TestCase):
 
     def run_cli(self, *argv):
         out, err = io.StringIO(), io.StringIO()
-        env = {"CF_FOOTAGE_ROOT": str(Path(self.tmp.name) / "footage")}
+        env = {"CF_SHARED_ROOT": str(Path(self.tmp.name) / "footage")}
         with mock.patch.dict(os.environ, env), mock.patch.object(fetch, "default_adapters", lambda: self.fake), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = cli.main([*argv, "--db", str(Path(self.tmp.name) / "f.db")])

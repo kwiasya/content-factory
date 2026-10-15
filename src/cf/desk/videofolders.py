@@ -34,19 +34,19 @@ class Folder:
     walk: str | None = None
 
 
-def videos_dir(footage: Path) -> Path:
-    return footage / "videos"
+def videos_dir(root: Path) -> Path:
+    return root / "videos"
 
 
-def list_folders(footage: Path) -> list[Folder]:
+def list_folders(root: Path) -> list[Folder]:
     folders = []
-    root = videos_dir(footage)
-    if root.is_dir():
-        for d in sorted(root.iterdir()):
+    vdir = videos_dir(root)
+    if vdir.is_dir():
+        for d in sorted(vdir.iterdir()):
             if NAME.match(d.name) and (d / "video.json").is_file():
                 folders.append(Folder(d.name, d, False))
-    if footage.is_dir():
-        for walk in sorted(footage.iterdir()):
+    if root.is_dir():
+        for walk in sorted(root.iterdir()):
             if not NAME.match(walk.name) or walk.name in NOT_WALKS or not (walk / "reels").is_dir():
                 continue
             for reel in sorted((walk / "reels").iterdir()):
@@ -55,18 +55,18 @@ def list_folders(footage: Path) -> list[Folder]:
     return folders
 
 
-def find_folder(footage: Path, slug: str) -> Folder:
-    for folder in list_folders(footage):
+def find_folder(root: Path, slug: str) -> Folder:
+    for folder in list_folders(root):
         if folder.slug == slug:
             return folder
     raise Problem(404, "video_not_found", "no such Video", slug=slug)
 
 
 def walk_files(folder: Path) -> list[Path]:
-    root = folder.resolve()
+    top = folder.resolve()
     return sorted(p for p in folder.rglob("*")
                   if p.is_file() and not any(part.startswith(".") for part in p.relative_to(folder).parts)
-                  and p.resolve().is_relative_to(root))
+                  and p.resolve().is_relative_to(top))
 
 
 def last_change(folder: Path) -> float:
