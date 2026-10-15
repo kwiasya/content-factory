@@ -22,7 +22,8 @@ The grade, in order, on linear light (``apply_look``):
 3. saturation around luminance: base gain, vibrance (more gain for low-saturation
    colors), roll-off toward ``highlight_floor`` x gain in highlights and toward 1 in the
    noise floor, a skin band (hue window) that keeps only ``1 - protect`` of the change, and
-   optional hue bands that scale the gain (e.g. calmer yellow-green foliage);
+   optional hue bands that scale the gain (e.g. calmer yellow-green foliage) and can rotate
+   the hue inside the band (``shift``, luminance kept: lime grass toward green or olive);
 4. split toning: multiplicative (log-offset) push toward a hue in the highlights and
    another in the shadows, luminance-neutral;
 5. highlight shoulder (off unless ``shoulder.compress`` > 0): above ``knee`` stops over the
@@ -114,6 +115,7 @@ class HueBand:
     hue: float = 75.0      # HSV hue (degrees) of the band centre
     width: float = 20.0    # half width (full effect inside, cosine falloff to 2x)
     gain: float = 1.0      # multiplier on the saturation gain inside the band
+    shift: float = 0.0     # hue rotation (degrees, + = toward higher HSV hue) inside the band
 
 
 @dataclass
@@ -257,6 +259,22 @@ def _tone_vector(hue: float) -> np.ndarray:
     return v / np.abs(v).max()
 
 
+def _rotate_hue(rgb: np.ndarray, degrees: np.ndarray) -> np.ndarray:
+    """Rotate chroma around the Rec.709 luminance axis (luminance kept); + = toward higher HSV hue.
+
+    Works in the (B - Y, R - Y) plane; G is solved from the luminance. Used by hue bands
+    with a ``shift`` (e.g. lime grass toward green or toward olive).
+    """
+    y = _luma(rgb)
+    cb, cr = rgb[..., 2] - y, rgb[..., 0] - y
+    t = -np.radians(degrees)
+    c, s = np.cos(t), np.sin(t)
+    cb2, cr2 = c * cb + s * cr, -s * cb + c * cr
+    r, b = y + cr2, y + cb2
+    g = (y - LUMA_709[0] * r - LUMA_709[2] * b) / LUMA_709[1]
+    return np.stack([r, g, b], axis=-1)
+
+
 def apply_look(rgb: np.ndarray, spec: LookSpec) -> np.ndarray:
     """Grade linear light with Rec.709 primaries (any shape (..., 3); negatives allowed)."""
     rgb = np.asarray(rgb, dtype=np.float64) * (2.0 ** spec.exposure)
@@ -286,6 +304,10 @@ def apply_look(rgb: np.ndarray, spec: LookSpec) -> np.ndarray:
         w = _hue_window(hue, band.hue, band.width) * _smoothstep(0.04, 0.15, hsv_s)
         gain = gain * (1.0 + (band.gain - 1.0) * w)
     rgb = y[..., None] + gain[..., None] * (rgb - y[..., None])
+    for band in s.bands:
+        if band.shift:
+            w = _hue_window(hue, band.hue, band.width) * _smoothstep(0.04, 0.15, hsv_s)
+            rgb = _rotate_hue(rgb, band.shift * w)
 
     # 4. split toning (log offsets weighted by distance from the crossover)
     st = spec.split_tone

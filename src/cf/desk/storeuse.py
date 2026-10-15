@@ -17,7 +17,7 @@ from cf.research.store import SCHEMA_VERSION, Store, open_store
 
 CREATE_COMMAND = "python -m cf.research watchlist list"
 CREATE_HINT = "any python -m cf.research command (for example: watchlist list) creates and migrates it"
-ABSENT = frozenset({"db_missing", "db_schema"})
+ABSENT = frozenset({"db_missing", "db_schema", "db_schema_newer"})
 
 
 def exists(db_path: Path) -> bool:
@@ -35,6 +35,10 @@ def reading(db_path: Path) -> Iterator[Store]:
     conn.row_factory = sqlite3.Row
     with Store(conn, p) as s:
         version = s.schema_version()
+        if version > SCHEMA_VERSION:
+            raise Problem(409, "db_schema_newer", f"the research store {p} is schema version {version}, newer than "
+                                                  f"the {SCHEMA_VERSION} this Desk process reads; restart Desk",
+                          path=str(p), version=version, expected=SCHEMA_VERSION)
         if version != SCHEMA_VERSION:
             raise Problem(409, "db_schema", f"the research store {p} is schema version {version}, this code reads "
                                             f"{SCHEMA_VERSION}; {CREATE_HINT}",

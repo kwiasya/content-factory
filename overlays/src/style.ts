@@ -19,12 +19,16 @@ export type FontSpec = {
 export type Anchor =
   | "center"
   | "middle-left"
+  | "top-right"
   | "top-left"
   | "top-center"
   | "bottom-left"
   | "bottom-center";
 
 export type OverlayPosition = { anchor: Anchor; x?: number; y: number };
+
+/** Explicit placement: anchor type plus reference-px x/y ("top-right": x = right edge). */
+export type AnchorSpec = { anchor: Anchor; x?: number; y: number; align?: "left" | "center" | "right" };
 
 export type Style = {
   /** Output pixels. `reference_width` (default 1080) is the width every other pixel
@@ -80,8 +84,11 @@ export type OverlayProps = {
   style: Style;
   /** Overrides style.typography.preset for this render. */
   preset?: string;
-  /** Named placement from slots.json; overrides the role's own anchor/x/y/align. */
-  anchor?: string;
+  /** Named placement from slots.json, or an explicit placement in reference px
+   * (e.g. from a frame-aware picker); overrides the role's own anchor/x/y/align. */
+  anchor?: string | AnchorSpec;
+  /** Reference-px point a role with `arrow` points at (e.g. the person). */
+  arrowTo?: [number, number];
   /** Overrides the role's scrim strength (0..1). */
   scrim?: number;
   /** Measurement only: "background" hides the glyphs (keeps scrim and boxes),

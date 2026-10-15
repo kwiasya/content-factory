@@ -170,3 +170,20 @@ class Grade(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_hue_band_shift_rotates_hue_and_keeps_luminance():
+    import numpy as np
+    from cf.look import LUMA_709, HueBand, LookSpec, _hsv_hue_sat, apply_look
+
+    lime = np.array([[0.3, 0.5, 0.05]])
+    base = LookSpec()
+    shifted = LookSpec.from_dict({"saturation": {"bands": [{"hue": 79, "width": 15, "gain": 1.0, "shift": 10}]}})
+    assert isinstance(shifted.saturation.bands[0], HueBand)
+    h0, _ = _hsv_hue_sat(apply_look(lime, base))
+    h1, _ = _hsv_hue_sat(apply_look(lime, shifted))
+    assert 7 < h1[0] - h0[0] < 13
+    assert abs(apply_look(lime, shifted) @ LUMA_709 - lime @ LUMA_709)[0] < 1e-9
+    # Outside the band (a red) nothing moves.
+    red = np.array([[0.6, 0.1, 0.08]])
+    assert np.allclose(apply_look(red, shifted), apply_look(red, base))

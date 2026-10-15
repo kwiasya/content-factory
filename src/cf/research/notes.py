@@ -2,7 +2,8 @@
 
 A Note has a ``kind`` (``KINDS``) and a ``key``: a repo-relative path for a
 ``document``, the skill name for a ``skill``, the id of a ``video``, ``card`` or
-``idea``. A ``general`` Note has an empty key and applies to every skill. A Note
+``idea``, ``<platform>:@handle`` for a ``channel`` (a Reference channel, e.g.
+``instagram:@lyuba_bich``). A ``general`` Note has an empty key and applies to every skill. A Note
 is open until it is resolved; ``list`` shows open Notes unless asked for all.
 """
 
@@ -12,7 +13,7 @@ from dataclasses import asdict, dataclass
 
 from cf.research.store import Store, now_iso
 
-KINDS = ("document", "skill", "video", "card", "idea", "general")
+KINDS = ("document", "skill", "video", "card", "idea", "channel", "general")
 
 
 class NoteError(Exception):

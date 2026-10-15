@@ -1,0 +1,51 @@
+{
+  "name": "day-vivid",
+  "description": "Vivid and clean: crisp contrast, punchy but deeper greens (less lime), bluer sky where there is blue, natural skin.",
+  "exposure": -0.2,
+  "contrast": {
+    "amount": 1.35,
+    "pivot": 0.18,
+    "toe_stops": 2.0,
+    "shoulder_stops": 1.5,
+    "per_channel": 0.15
+  },
+  "saturation": {
+    "amount": 1.12,
+    "vibrance": 0.15,
+    "highlight_start": 1.0,
+    "highlight_end": 4.0,
+    "highlight_floor": 0.85,
+    "skin": {
+      "hue": 22,
+      "width": 14,
+      "protect": 0.85
+    },
+    "bands": [
+      {
+        "hue": 72,
+        "width": 16,
+        "gain": 0.95,
+        "shift": 14
+      },
+      {
+        "hue": 210,
+        "width": 25,
+        "gain": 1.6
+      }
+    ]
+  },
+  "split_tone": {
+    "highlights": {
+      "hue": 34,
+      "strength": 0.0
+    },
+    "shadows": {
+      "hue": 175,
+      "strength": 0.1
+    },
+    "balance": 0.5,
+    "highlight_range": 3.0,
+    "shadow_range": 4.0
+  },
+  "black_lift": 0.0
+}

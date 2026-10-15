@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -64,6 +65,10 @@ class Overlay:
     text: str
     type: str
     span: int = 1  # shots it covers: this one and the next span-1 (one label across a place's shots)
+    preset: str | None = None  # overlays/src/presets.ts name; None = style.json typography.preset
+    anchor: str | dict | None = None  # slot name, or {"anchor", "x", "y", "align"?} in reference px
+    in_frames: int | None = None  # fade-in frames for this overlay (0 = cuts on); None = style.animation
+    out_frames: int | None = None  # fade-out frames (0 = cuts off); None = style.animation
 
 
 CUE_KEYS = ("ref", "at_s", "dur_s", "pos", "db")
@@ -105,7 +110,7 @@ class Shot:
 @dataclass
 class Hook:
     type: str
-    text: str
+    text: str | None  # None: an explicit text-free Reel (music only); every shot overlay must then be null
     clip: str
 
 
@@ -187,8 +192,20 @@ def shot_from_dict(d: dict, index: int) -> Shot:
         span = ov.get("span", 1)
         if isinstance(span, bool) or not isinstance(span, int) or span < 1:
             raise ScriptError(f"{where}.overlay: 'span' must be an int >= 1, got {span!r}")
+        preset = ov.get("preset")
+        if preset is not None and (not isinstance(preset, str) or not preset.strip()):
+            raise ScriptError(f"{where}.overlay: 'preset' must be a non-empty string, got {preset!r}")
+        anchor = ov.get("anchor")
+        if anchor is not None and not isinstance(anchor, (str, dict)):
+            raise ScriptError(f"{where}.overlay: 'anchor' must be a slot name or an object, got {anchor!r}")
+        fades = {}
+        for k in ("in_frames", "out_frames"):
+            f = ov.get(k)
+            if f is not None and (isinstance(f, bool) or not isinstance(f, int) or f < 0):
+                raise ScriptError(f"{where}.overlay: {k!r} must be an int >= 0, got {f!r}")
+            fades[k] = f
         overlay = Overlay(text=_str(ov, "text", f"{where}.overlay"), type=_str(ov, "type", f"{where}.overlay"),
-                          span=span)
+                          span=span, preset=preset, anchor=anchor, **fades)
     try:
         reframe = rf.from_shot(d.get("reframe"), f"{where}.reframe")
     except ValueError as exc:
@@ -235,7 +252,9 @@ def from_dict(d: dict) -> Script:
         concept=_str(d, "concept", "script"),
         format=_str(d, "format", "script"),
         target_length_s=_num(d, "target_length_s", "script"),
-        hook=Hook(type=_str(hook, "type", "hook"), text=_str(hook, "text", "hook"), clip=_str(hook, "clip", "hook")),
+        hook=Hook(type=_str(hook, "type", "hook"),
+                  text=None if "text" in hook and hook["text"] is None else _str(hook, "text", "hook"),
+                  clip=_str(hook, "clip", "hook")),
         shots=[shot_from_dict(s, i) for i, s in enumerate(shots)],
         ending=_str(d, "ending", "script"),
         audience=_str(d, "audience", "script", required=False),
@@ -274,6 +293,60 @@ def manifest_clips(manifest: dict | None) -> dict[str, dict]:
 def words(text: str) -> int:
     """Words in ``text``; a token with no letter or digit (an emoji, a dash) is not a word."""
     return sum(1 for t in text.split() if any(ch.isalnum() for ch in t))
+
+
+ANCHOR_TYPES = ("center", "middle-left", "top-right", "top-left", "top-center", "bottom-left", "bottom-center")
+OVERLAYS_SRC = REPO_ROOT / "overlays" / "src"
+
+
+def known_presets(presets_ts: Path = OVERLAYS_SRC / "presets.ts") -> set[str] | None:
+    """Preset names in ``overlays/src/presets.ts`` (the same scan render.mjs does); None if absent."""
+    try:
+        src = presets_ts.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return {"legacy", *re.findall(r'^  "([a-z0-9-]+)": \{$', src, flags=re.M)}
+
+
+def known_slots(style: dict, canvas: str | None = None) -> set[str] | None:
+    """Slot names an overlay ``anchor`` may name: the canvas preset's ``slots`` or ``overlays/src/slots.json``."""
+    table = None
+    if canvas:
+        table = ((style.get("canvases") or {}).get(canvas) or {}).get("slots")
+    if table is None:
+        table = style.get("slots")
+    if table is None:
+        try:
+            table = json.loads((OVERLAYS_SRC / "slots.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+    return {k for k in table if not k.startswith("_")}
+
+
+def overlay_anchor_problems(anchor: Any, slots: set[str] | None) -> list[str]:
+    """Problems with an overlay ``anchor``: a known slot name, or an explicit
+    ``{"anchor", "x", "y", "align"?}`` in reference px (the shape overlays/render.mjs accepts)."""
+    if anchor is None:
+        return []
+    if isinstance(anchor, str):
+        if slots is not None and anchor not in slots:
+            return [f"overlay.anchor {anchor!r} is not a slot (known: {', '.join(sorted(slots))})"]
+        return []
+    out = []
+    extra = sorted(set(anchor) - {"anchor", "x", "y", "align"})
+    if extra:
+        out.append(f"overlay.anchor has unknown keys {extra}")
+    if anchor.get("anchor") not in ANCHOR_TYPES:
+        out.append(f"overlay.anchor.anchor {anchor.get('anchor')!r} not in {ANCHOR_TYPES}")
+    num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)  # noqa: E731
+    if not num(anchor.get("y")):
+        out.append(f"overlay.anchor.y must be a number (reference px), got {anchor.get('y')!r}")
+    a = str(anchor.get("anchor") or "")
+    if "x" in anchor and not num(anchor["x"]) or (a.endswith(("-left", "-right")) and not num(anchor.get("x"))):
+        out.append(f"overlay.anchor.x must be a number (reference px) for {a!r}, got {anchor.get('x')!r}")
+    if anchor.get("align") not in (None, "left", "center", "right"):
+        out.append(f"overlay.anchor.align {anchor['align']!r} not in ('left', 'center', 'right')")
+    return out
 
 
 def overlay_cover(shots: list[Shot]) -> dict[int, int]:
@@ -331,6 +404,8 @@ def _problems(script: Script, manifest: dict | None = None, style: dict | None =
         v.append(f"canvas: {exc}")
         canvas_w, canvas_h = canvas_size(style)
     clips = manifest_clips(manifest)
+    presets = known_presets()
+    slots = known_slots(style, script.canvas)
 
     if script.schema != SCHEMA:
         v.append(f"schema: expected {SCHEMA!r}, got {script.schema!r}")
@@ -348,9 +423,16 @@ def _problems(script: Script, manifest: dict | None = None, style: dict | None =
     # Hook.
     if script.hook.type not in HOOK_TYPES:
         v.append(f"hook.type: {script.hook.type!r} not in {HOOK_TYPES}")
-    n = words(script.hook.text)
-    if not HOOK_WORDS[0] <= n <= HOOK_WORDS[1]:
-        v.append(f"hook.text: {n} words, must be {HOOK_WORDS[0]}-{HOOK_WORDS[1]}: {script.hook.text!r}")
+    if script.hook.text is None:
+        # An explicit text-free Reel (music only): no overlay anywhere.
+        texted = [s.id for s in script.shots if s.overlay is not None]
+        if texted:
+            v.append(f"hook.text: null marks a text-free Reel, but {', '.join(texted)} carry an overlay; "
+                     "set every overlay to null or give the hook a text")
+    else:
+        n = words(script.hook.text)
+        if not HOOK_WORDS[0] <= n <= HOOK_WORDS[1]:
+            v.append(f"hook.text: {n} words, must be {HOOK_WORDS[0]}-{HOOK_WORDS[1]}: {script.hook.text!r}")
     if clips and script.hook.clip not in clips:
         v.append(f"hook.clip: {script.hook.clip!r} not in the manifest")
     if script.shots and script.shots[0].clip != script.hook.clip:
@@ -400,6 +482,10 @@ def _problems(script: Script, manifest: dict | None = None, style: dict | None =
         if s.overlay is not None:
             if s.overlay.type not in OVERLAY_TYPES:
                 v.append(f"{w}: overlay.type {s.overlay.type!r} not in {OVERLAY_TYPES}")
+            if s.overlay.preset is not None and presets is not None and s.overlay.preset not in presets:
+                v.append(f"{w}: overlay.preset {s.overlay.preset!r} not in overlays/src/presets.ts "
+                         f"(known: {', '.join(sorted(presets))})")
+            v.extend(f"{w}: {p}" for p in overlay_anchor_problems(s.overlay.anchor, slots))
             ow = words(s.overlay.text)
             if ow == 0 or ow > OVERLAY_MAX_WORDS:
                 v.append(f"{w}: overlay has {ow} words, must be 1-{OVERLAY_MAX_WORDS}: {s.overlay.text!r}")

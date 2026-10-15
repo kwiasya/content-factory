@@ -3,7 +3,10 @@
     python -m cf.build <reel_dir> [--walk <walk_dir>] [--project-name NAME] [--no-stills]
                        [--look <file.cube>|none] [--stills-only [--stills-dir DIR]] [--script FILE]
                        [--no-track] [--ambience-db DB] [--canvas WxH] [--no-superscale]
+                       [--deliver sdr|hdr-hlg] [--hlg-normalize cdl|none] [--overlay-nits N]
+                       [--grade-drx <dir>] [--hdr-source apple-sdr|resolve]
                        [--footage-root PATH] [--db PATH] [--no-assets]
+    python -m cf.build <reel_dir> --overlay-specs [--canvas WxH]
 
 Rules: ``docs/resolve-rules.md``; contract: ``.claude/skills/build-reel/SKILL.md``;
 decision to rebuild rather than patch: ``docs/adr/0001-timeline-rebuilt-from-plan.md``.
@@ -15,6 +18,13 @@ graph of the project's ``cf-look`` color group, and every V1 item joins that gro
 API cannot add a node 2 to a clip (docs/research/look-experiment.md). ``--stills-only``
 keeps the existing timeline, (re)applies the Look and exports the stills, without a rebuild.
 
+``--grade-drx <dir>`` re-applies a hand grade saved per shot as DRX (``<shot>.drx`` or the
+``<shot>_<n>.<n>.<n>.drx`` that ``GalleryStillAlbum.ExportStills`` writes, e.g.
+``reels/reel-01/author-grade/``) with ``ApplyGradeFromDRX`` on every V1 item, after the HLG
+CDL and the Look. It replaces each clip's whole grade (node 1 included), so build with the
+options the grade was made on: ``<dir>/grade.json`` ``build`` lists them, and a difference
+is reported as a note. The group's post-clip Look LUT is not touched by it.
+
 Record frames come from ``<reel_dir>/cuts.json`` when it exists (``beat-grid`` writes it);
 otherwise shots are laid back to back, each snapped down to whole timeline frames.
 With ``script.track`` set (and no ``--no-track``), the Track WAV goes on A2 "music" from
@@ -22,6 +32,28 @@ the timeline start for the picture's length, source in-point ``script.track_in_s
 ``intro_end`` from the ``beats.json`` next to the Track), 0 dB, ``track_fade_out_s`` fade
 (default 0.6 s); the A1 ambience sits at ``style.audio.ambience_db``. ``cuts.json``
 ``beat_markers`` become timeline markers (downbeats Blue, other beats Cyan).
+
+HDR source (``--hdr-source``, default ``style.json`` ``color.hdr_source`` = ``apple-sdr``): an
+HDR clip (iPhone HLG / Dolby Vision) is imported as its Apple SDR mezzanine
+``<walk>/mezz/<stem>.mov`` (``cf.mezz``, ``tools/apple-sdr``: AVFoundation's own HDR -> SDR tone
+mapping, what QuickTime and Photos show) tagged ``Rec.709 Gamma 2.4``, which passes through the
+timeline unchanged; it gets no HLG CDL (docs/adr/0011-hdr-clips-through-apple-tone-mapping.md).
+Its stills are checked against the mezzanine frame (mean luma within ``MEZZ_STILL_TOLERANCE``).
+``resolve`` imports the HLG file and lets Resolve convert it (below). ``--deliver hdr-hlg``
+always uses ``resolve``. SDR clips are imported as they are either way.
+
+Delivery (``--deliver``): ``sdr`` (default) outputs Rec.709 Gamma 2.4 and puts the HLG
+normalization CDL (``--hlg-normalize cdl``, -1.02 stop) on node 1 of every HLG item;
+``--hlg-normalize none`` leaves it off (Resolve's own BT.2408 HLG -> 709 conversion, one stop
+brighter). ``hdr-hlg`` outputs Rec.2100 HLG for an HDR render (``cf.render --hdr``): no CDL
+and no Look unless ``--look`` names one, so the pictures stay as the source HLG; the SDR
+overlays are placed at HDR graphics white (``color_settings``, ``HDR_OVERLAY``;
+docs/research/hdr-hlg-delivery.md).
+
+Overlays: ``--overlay-specs`` writes one ``overlays/render.mjs`` spec per shot overlay to
+``overlays/specs/<shot>.json`` (length = its spanned shots in whole timeline frames; the
+overlay's ``preset``, ``anchor`` and ``in_frames``/``out_frames`` pass through) and prints the
+render commands, without touching Resolve. The build places ``overlays/<shot>.mov`` on V2.
 
 The project and timeline resolution come from ``--canvas`` (a ``style.json`` ``canvases``
 name or WxH, e.g. ``1080x1920`` for a comparison build), else the Script's ``canvas``
@@ -52,7 +84,7 @@ creates the same tracks as before and never opens factory.db. The Pack is only r
 A Video folder (``videos/<slug>/`` with video.json) builds from ``<footage>/<script.walk>`` when
 ``--walk`` is absent.
 
-The planning part (``plan_shots``, ``plan_track``, ``beat_marker_plan``, ``append_infos``,
+The planning part (``plan_shots``, ``overlay_specs``, ``plan_track``, ``beat_marker_plan``, ``append_infos``,
 ``source_end``, ``plan_reframes``, ``plan_cues``, ``sfx_volume``) is pure and has no Resolve dependency, so it is unit-tested
 in ``tests/test_build_plan.py`` and ``tests/test_reframe.py``.
 """
@@ -72,9 +104,11 @@ from typing import Any
 
 from cf import follow as fw
 from cf import frames
+from cf import hdr as hdr_mod
+from cf import mezz as mezz_mod
 from cf import reframe as rf
 from cf.canvas import Canvas, for_reel, scaled_safe_zone, spec_of, upscale_plan
-from cf.script_schema import Script, check, has_cues, load, load_json, manifest_clips
+from cf.script_schema import Script, check, has_cues, load, load_json, manifest_clips, validate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STYLE_PATH = REPO_ROOT / "style.json"
@@ -113,6 +147,35 @@ LUT_SUBDIR = "content-factory"
 LOOK_GROUP = "cf-look"
 HLG_NORMALIZE_CDL = {"NodeIndex": "1", "Slope": "1 1 1", "Offset": "-0.0749 -0.0749 -0.0749",
                      "Power": "1 1 1", "Saturation": "1.25"}
+# Delivery modes (--deliver). hdr-hlg changes only the output side: the same HDR 1000
+# working space, the source HLG clips without the CDL, and a Rec.2100 HLG output.
+DELIVERIES = ("sdr", "hdr-hlg")
+HLG_NORMALIZE_MODES = ("cdl", "none")
+# The output string matches the clips' input string: HLG in and out then round-trips through
+# the HDR 1000 timeline within 1 code value; 'Rec.2100 HLG' out rolled off the top and sat
+# 7 code values low (docs/research/hdr-hlg-delivery.md).
+HDR_HLG_SETTINGS = {"colorSpaceOutput": "Rec.2020 HLG ARIB STD-B67"}
+# A still of a shot from an Apple SDR mezzanine vs the mezzanine frame, both at the proxy size:
+# Resolve passes Rec.709 Gamma 2.4 through unchanged, so more than this is a colour change.
+MEZZ_STILL_TOLERANCE = 3.0
+
+
+def color_settings(deliver: str = "sdr") -> dict[str, str]:
+    """Project color settings for a delivery mode (written in PROJECT_SETTINGS_ORDER)."""
+    if deliver not in DELIVERIES:
+        raise ValueError(f"deliver must be one of {DELIVERIES}, got {deliver!r}")
+    return {**COLOR_SETTINGS, **(HDR_HLG_SETTINGS if deliver == "hdr-hlg" else {})}
+
+
+def hlg_cdl(deliver: str = "sdr", hlg_normalize: str = "cdl") -> dict | None:
+    """The node-1 CDL for HLG items, or None: only an SDR delivery with ``cdl`` gets it."""
+    if hlg_normalize not in HLG_NORMALIZE_MODES:
+        raise ValueError(f"hlg_normalize must be one of {HLG_NORMALIZE_MODES}, got {hlg_normalize!r}")
+    if deliver == "hdr-hlg" or hlg_normalize == "none":
+        return None
+    return HLG_NORMALIZE_CDL
+
+
 TRANSITION_TYPES = {"dissolve": "Cross Dissolve", "dip": "Dip To Color Dissolve"}
 # Shot markers by role; Blue is kept for downbeat markers, Cyan for the other beats.
 ROLE_MARKER_COLOR = {"hook": "Red", "build": "Green", "payoff": "Yellow", "loop": "Purple"}
@@ -274,6 +337,60 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
                 last.src_end = source_end(want, last.duration, last.clip_fps, fps)
                 last.src_end_after_speed = last.src_end
     return out, notes
+
+
+def overlay_specs(script: Script, shots: list[PlannedShot], fps: float, style_path: str | Path,
+                  canvas: str | None = None) -> dict[str, dict]:
+    """One ``overlays/render.mjs`` spec per shot overlay, keyed by shot id (file ``overlays/<id>.mov``).
+
+    ``duration_s`` is the overlay's planned length (its spanned shots) in whole timeline frames.
+    A ``line`` overlay on the first shot that carries the hook text renders as ``type: hook``.
+    The overlay's ``preset`` (else style.json ``typography.preset``), ``anchor`` (slot name or
+    explicit ``{anchor, x, y, align}`` in reference px), ``in_frames``/``out_frames`` and
+    ``canvas`` (the canvas spec, e.g. ``landscape``) are written only when set.
+    """
+    out: dict[str, dict] = {}
+    for i, (s, p) in enumerate(zip(script.shots, shots)):
+        o = s.overlay
+        if o is None:
+            continue
+        is_hook = i == 0 and script.hook.text is not None and o.text.strip() == script.hook.text.strip()
+        spec: dict[str, Any] = {"text": o.text, "type": "hook" if is_hook else o.type,
+                                "duration_s": round((p.overlay_frames or p.duration) / fps, 6),
+                                "style_path": str(style_path)}
+        for k in ("preset", "anchor", "in_frames", "out_frames"):
+            if getattr(o, k) is not None:
+                spec[k] = getattr(o, k)
+        if canvas:
+            spec["canvas"] = canvas
+        out[p.id] = spec
+    return out
+
+
+def write_overlay_specs(reel_dir: Path, walk_dir: Path, script_path: Path, canvas: str | None = None) -> int:
+    """``--overlay-specs``: write ``overlays/specs/<shot>.json`` and print the render commands."""
+    style = load_json(STYLE_PATH)
+    manifest = load_json(walk_dir / "clip_manifest.json")
+    script = load(script_path)
+    problems = validate(script, manifest, style)
+    if problems:
+        print("script.json does not validate:\n- " + "\n- ".join(problems), file=sys.stderr)
+        return 1
+    cuts_path = reel_dir / "cuts.json"
+    cuts = load_json(cuts_path) if cuts_path.exists() else None
+    cv = for_reel(style, script.canvas, canvas)
+    # Durations from the manifest fps; the build re-checks every overlay's frames against Resolve's plan.
+    shots, _ = plan_shots(script, manifest, 0, cv.fps, cuts)
+    specs = overlay_specs(script, shots, cv.fps, STYLE_PATH, spec_of(canvas, script.canvas))
+    spec_dir = reel_dir / "overlays" / "specs"
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    renderer = REPO_ROOT / "overlays" / "render.mjs"
+    for sid, spec in specs.items():
+        f = spec_dir / f"{sid}.json"
+        f.write_text(json.dumps(spec, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"node {renderer} --spec {f} --out {reel_dir / 'overlays' / f'{sid}.mov'}")
+    print(f"{len(specs)} spec(s) in {spec_dir}", file=sys.stderr)
+    return 0
 
 
 def loop_seam(shots: list[PlannedShot], fps: float = 30) -> dict:
@@ -658,6 +775,22 @@ def proxy_frame(proxy: Path, t: float) -> Any:
         return None
 
 
+def scaled_frame(src: Path, t: float, size: tuple[int, int]) -> Any:
+    """The frame of ``src`` at time ``t`` (ffmpeg, rotation applied), area-scaled to ``size``
+    = (w, h), as an RGB uint8 array, or None. Used for the Apple SDR mezzanine, on the proxy grid."""
+    import subprocess  # noqa: PLC0415
+
+    import numpy as np  # noqa: PLC0415
+
+    w, h = size
+    res = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.4f}", "-i", str(src), "-frames:v", "1",
+                          "-vf", f"scale={w}:{h}:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                         capture_output=True, check=False)
+    if res.returncode or len(res.stdout) != w * h * 3:
+        return None
+    return np.frombuffer(res.stdout, np.uint8).reshape(h, w, 3)
+
+
 def proxy_frame_stats(proxy: Path, t: float, frame: Any = None, crop: tuple[float, float] | None = None) -> dict | None:
     """Luma stats of the proxy frame at source time ``t`` (the proxies are the tone-map reference).
 
@@ -751,6 +884,7 @@ class Report:
     assets: dict = field(default_factory=dict)
     look: dict = field(default_factory=dict)
     stills: list[dict] = field(default_factory=list)
+    sources: dict = field(default_factory=dict)
     mismatches: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -760,6 +894,29 @@ class Report:
         if not ok:
             self.mismatches.append(f"{what}: expected {expected!r}, got {actual!r}")
         return ok
+
+
+def grade_drx_files(drx_dir: Path, shot_ids: list[str]) -> dict[str, Path]:
+    """Per-shot DRX files in ``drx_dir``: ``<id>.drx`` or ``<id>_*.drx`` (the ExportStills
+    name). Raises BuildError when a shot has none or more than one."""
+    found: dict[str, Path] = {}
+    bad = []
+    for sid in shot_ids:
+        hits = sorted({*drx_dir.glob(f"{sid}.drx"), *drx_dir.glob(f"{sid}_*.drx")})
+        if len(hits) == 1:
+            found[sid] = hits[0]
+        else:
+            bad.append(f"{sid}: {len(hits)} DRX files" + (f" ({', '.join(h.name for h in hits)})" if hits else ""))
+    if bad:
+        raise BuildError(f"--grade-drx {drx_dir}: " + "; ".join(bad))
+    return found
+
+
+def grade_build_differences(meta: dict, current: dict) -> list[str]:
+    """Build options in ``grade.json`` ``build`` that differ from this build's (pure)."""
+    want = meta.get("build") or {}
+    return [f"{k}: grade made on {v!r}, this build uses {current.get(k)!r}"
+            for k, v in want.items() if k in current and str(current.get(k)) != str(v)]
 
 
 def _jsonable(x: Any) -> Any:
@@ -778,9 +935,18 @@ class Builder:
                  look: str | None = None, stills_only: bool = False, stills_dir: Path | None = None,
                  script_path: Path | None = None, use_track: bool = True,
                  ambience_db: float | None = None, canvas: str | None = None, superscale: bool = True,
-                 footage_root: Path | None = None, db_path: Path | None = None, use_assets: bool = True):
+                 deliver: str = "sdr", hlg_normalize: str = "cdl",
+                 overlay_nits: float = hdr_mod.GRAPHICS_WHITE_NITS, grade_drx: Path | None = None,
+                 hdr_source: str | None = None, footage_root: Path | None = None,
+                 db_path: Path | None = None, use_assets: bool = True):
         self.reel_dir = reel_dir
         self.use_assets = use_assets
+        self.grade_drx_dir = grade_drx
+        self.deliver = deliver
+        self.overlay_nits = overlay_nits
+        self.hlg_normalize = hlg_normalize
+        self.color = color_settings(deliver)
+        self.cdl = hlg_cdl(deliver, hlg_normalize)
         self.superscale = superscale
         self.use_track = use_track
         self.ambience_db_override = ambience_db
@@ -794,6 +960,9 @@ class Builder:
         self.style = load_json(STYLE_PATH)
         self.manifest = load_json(walk_dir / "clip_manifest.json")
         self.walk = self.manifest.get("walk") or walk_dir.name
+        self.hdr_source_requested = hdr_source or mezz_mod.hdr_source_default(self.style)
+        self.hdr_source = mezz_mod.effective_hdr_source(self.hdr_source_requested, deliver)
+        self.sources: dict[str, dict] = {}
         self.script = load(script_path or reel_dir / "script.json")
         cuts_path = reel_dir / "cuts.json"
         self.cuts = load_json(cuts_path) if cuts_path.exists() else None
@@ -872,10 +1041,11 @@ class Builder:
     def project_settings(self) -> None:
         d, p = self.d, self.d.project
         wanted = {"timelineResolutionWidth": str(self.width), "timelineResolutionHeight": str(self.height),
-                  "timelineFrameRate": str(self.fps), **COLOR_SETTINGS}
+                  "timelineFrameRate": str(self.fps), **self.color}
         from cf.resolve_driver import same_value  # noqa: PLC0415
 
-        for key in PROJECT_SETTINGS_ORDER:
+        order = list(PROJECT_SETTINGS_ORDER) + [k for k in wanted if k not in PROJECT_SETTINGS_ORDER]
+        for key in order:
             value = wanted[key]
             before = (d.call(p.GetSettings) or {}).get(key)
             if same_value(value, before):
@@ -892,18 +1062,41 @@ class Builder:
                     self.r.mismatches.append(f"project setting {key}: wanted {value!r}, read {after!r}")
             self.r.settings.append(row)
 
+    def prepare_sources(self) -> None:
+        """The file Resolve imports per clip (``cf.mezz.plan_sources``); with ``apple-sdr`` the
+        HDR clips' mezzanines are made (or reused from the cache) here, before Resolve is touched."""
+        order = list(dict.fromkeys(s.clip for s in self.script.shots))
+        clips = manifest_clips(self.manifest)
+        raw = {c: str(self.walk_dir / "raw" / c) for c in order}
+        for c, pth in raw.items():
+            if not Path(pth).exists():
+                alt = clips[c].get("path")
+                if alt and Path(alt).exists():
+                    raw[c] = alt
+                else:
+                    raise BuildError(f"clip file not found: {pth}")
+        self.sources = mezz_mod.plan_sources(clips, self.walk_dir, raw, self.hdr_source)
+        rows = {}
+        for c, src in self.sources.items():
+            row = {"file": src["path"], "input_color_space": src["input_color_space"], "mezz": src["mezz"]}
+            if src["mezz"]:
+                try:
+                    meta = mezz_mod.make_mezz(Path(src["raw"]), Path(src["path"]))
+                except mezz_mod.MezzError as exc:
+                    raise BuildError(str(exc)) from exc
+                row.update(raw=src["raw"], action=meta["action"], seconds=meta.get("seconds"),
+                           method=meta.get("method"), frames=meta.get("frames"), audio=meta.get("audio"))
+            rows[c] = row
+        self.r.sources = {"hdr_source": self.hdr_source, "requested": self.hdr_source_requested, "clips": rows}
+        if self.hdr_source != self.hdr_source_requested:
+            self.r.notes.append(f"--deliver {self.deliver} reads HDR clips through Resolve "
+                                f"(hdr_source {self.hdr_source_requested!r} ignored)")
+
     def import_clips(self) -> dict[str, Any]:
         d = self.d
         order = list(dict.fromkeys(s.clip for s in self.script.shots))
         clips = manifest_clips(self.manifest)
-        paths = {c: str(self.walk_dir / "raw" / c) for c in order}
-        for c, pth in paths.items():
-            if not Path(pth).exists():
-                alt = clips[c].get("path")
-                if alt and Path(alt).exists():
-                    paths[c] = alt
-                else:
-                    raise BuildError(f"clip file not found: {pth}")
+        paths = {c: self.sources[c]["path"] for c in order}
         before = d.clip_index()
         items_list = d.import_media([paths[c] for c in order], bin_name=self.walk)
         after = d.clip_index()
@@ -911,12 +1104,12 @@ class Builder:
         for c in order:
             mpi = items[c]
             props = d.call(mpi.GetClipProperty) or {}
-            want_cs = clips[c].get("resolve_input_color_space")
+            want_cs = self.sources[c]["input_color_space"]
             got_cs = props.get("Input Color Space")
             if not want_cs:
                 raise BuildError(f"{c}: the manifest has no resolve_input_color_space")
             # Forced: Resolve auto-detects iPhone HLG as 'Rec.2100 HLG', which is not the
-            # transform the experiment chose.
+            # transform the experiment chose; a mezzanine is forced to 'Rec.709 Gamma 2.4'.
             action = "kept" if got_cs == want_cs else None
             if action is None:
                 try:
@@ -929,7 +1122,9 @@ class Builder:
             row = {"clip": c, "path": paths[c], "pool": "reused" if paths[c] in before else "imported",
                    "copies_in_pool": dup, "resolve_fps": float(props.get("FPS") or 0),
                    "manifest_fps": clips[c]["fps"], "resolve_frames": props.get("Frames"),
-                   "manifest_color_space": want_cs, "input_color_space": got_cs, "color_action": action}
+                   "manifest_color_space": clips[c].get("resolve_input_color_space"),
+                   "apple_sdr_mezz": self.sources[c]["mezz"], "resolution": props.get("Resolution"),
+                   "input_color_space": got_cs, "color_action": action}
             self.r.media.append(row)
             self.r.check(f"{c} single copy in media pool", 1, dup)
             if abs(row["resolve_fps"] - float(row["manifest_fps"])) > 1e-3:
@@ -1405,7 +1600,8 @@ class Builder:
 
     def overlays(self) -> None:
         d, r = self.d, self.r
-        placed, missing = [], []
+        placed, missing, converted = [], [], []
+        hdr = self.deliver == "hdr-hlg"
         for s in self.plan:
             if not s.overlay_text:
                 continue
@@ -1413,7 +1609,13 @@ class Builder:
             if not f.exists():
                 missing.append({"shot": s.id, "text": s.overlay_text, "expected_file": str(f)})
                 continue
-            (mpi,) = d.import_media([f], bin_name=f"{self.walk} overlays")
+            if hdr:
+                # SDR overlay -> HLG at graphics white (203 nits), cf.hdr; the inverse DRT
+                # would put SDR white at the 1000-nit peak.
+                f, info = hdr_mod.hlg_overlay(f, self.overlay_nits)
+                if info:
+                    converted.append(info)
+            (mpi,) = d.import_media([f], bin_name=f"{self.walk} overlays" + (" hlg" if hdr else ""))
             frames = int(float((d.call(mpi.GetClipProperty) or {}).get("Frames") or 0))
             on_disk = file_frames(f)
             # A re-rendered overlay keeps its path, and Resolve keeps the old pixels (and,
@@ -1428,6 +1630,12 @@ class Builder:
             elif not ok:
                 r.notes.append(f"{s.id}: ReplaceClip returned {ok}")
             r.check(f"{s.id} overlay pool frames = file frames", on_disk or frames, frames)
+            if hdr:
+                props = d.call(mpi.GetClipProperty) or {}
+                if props.get("Input Color Space") != hdr_mod.HLG_INPUT_COLOR_SPACE:
+                    d.set_clip_property_verified(mpi, "Input Color Space", hdr_mod.HLG_INPUT_COLOR_SPACE)
+                got_cs = (d.call(mpi.GetClipProperty) or {}).get("Input Color Space")
+                r.check(f"{s.id} HLG overlay Input Color Space", hdr_mod.HLG_INPUT_COLOR_SPACE, got_cs)
             res = (d.call(mpi.GetClipProperty) or {}).get("Resolution")
             if res and res != f"{self.width}x{self.height}":
                 r.notes.append(f"{s.id}: overlay is {res}, the canvas {self.width}x{self.height}; Resolve scales "
@@ -1444,6 +1652,9 @@ class Builder:
             r.check(f"{s.id} overlay on V2", [s.record_frame, s.record_frame + frames], got)
             placed.append({"shot": s.id, "file": str(f), "frames": frames, "start": got[0], "end": got[1]})
         r.overlays = {"placed": placed, "missing": missing}
+        if hdr:
+            r.overlays["hlg"] = {"white_nits": self.overlay_nits, "converted": converted,
+                                 "input_color_space": hdr_mod.HLG_INPUT_COLOR_SPACE}
         if missing:
             r.notes.append(f"{len(missing)} overlay file(s) missing, skipped: "
                            + ", ".join(m["shot"] for m in missing))
@@ -1465,7 +1676,12 @@ class Builder:
 
     def look_lut_path(self) -> Path | None:
         """The Look LUT to apply: ``--look`` wins over ``style.look.lut``; ``none`` means no LUT."""
-        rel = self.look_override if self.look_override is not None else (self.style.get("look") or {}).get("lut")
+        if self.look_override is not None:
+            rel = self.look_override
+        elif self.deliver == "hdr-hlg":
+            rel = None  # an HDR delivery keeps the source picture; --look still applies one
+        else:
+            rel = (self.style.get("look") or {}).get("lut")
         if not rel or str(rel).lower() == "none":
             return None
         path = Path(rel).expanduser()
@@ -1518,22 +1734,52 @@ class Builder:
         r.look["lut"] = {"path": str(src), "resolve_lut": rel, "group": LOOK_GROUP, "node": "post-clip 1",
                          "items": len(self.vids), "applied": True}
 
+    def apply_grade_drx(self) -> None:
+        """``--grade-drx``: ApplyGradeFromDRX(<shot>.drx, 0) on every V1 item, last of the color
+        steps. The API cannot read a grade back; check the stills against the saved ones."""
+        if self.grade_drx_dir is None:
+            return
+        d, r = self.d, self.r
+        files = grade_drx_files(self.grade_drx_dir, [s.id for s in self.plan])
+        meta_path = self.grade_drx_dir / "grade.json"
+        if meta_path.exists():
+            current = {"deliver": self.deliver, "hlg_normalize": self.hlg_normalize, "hdr_source": self.hdr_source,
+                       "look": "none" if self.look_lut_path() is None else str(self.look_lut_path())}
+            for diff in grade_build_differences(load_json(meta_path), current):
+                r.notes.append(f"--grade-drx: {diff}")
+        rows = []
+        for s, v in zip(self.plan, self.vids):
+            ok = d.call(d.call(v.GetNodeGraph).ApplyGradeFromDRX, str(files[s.id]), 0)
+            rows.append({"shot": s.id, "drx": str(files[s.id]), "returned": ok})
+            r.check(f"{s.id} grade DRX applied (returned value only; a grade cannot be read back)", True, bool(ok))
+        r.look["grade_drx"] = {"dir": str(self.grade_drx_dir), "items": rows}
+
     def normalize_hlg(self) -> None:
-        """Node-1 CDL (HLG_NORMALIZE_CDL) on every V1 item whose clip is tagged HLG.
+        """Node-1 CDL (``hlg_cdl``) on every V1 item whose clip is tagged HLG.
 
         Runs after the Look so ApplyGradeFromDRX cannot wipe it. The API has no GetCDL,
-        so the stills' luma (``stills``) is the read-back.
+        so the stills' luma (``stills``) is the read-back. With ``--hlg-normalize none`` or
+        ``--deliver hdr-hlg`` there is no CDL: the timeline is rebuilt, so node 1 starts empty.
         """
         d, r = self.d, self.r
+        r.timeline["deliver"] = self.deliver
+        if self.cdl is None:
+            r.timeline["hlg_normalize"] = {"cdl": None, "mode": self.hlg_normalize, "deliver": self.deliver,
+                                           "items": []}
+            return
         clips = manifest_clips(self.manifest)
-        rows = []
+        rows, mezz = [], []
         for s, v in zip(self.plan, self.vids):
             if "HLG" not in (clips[s.clip].get("resolve_input_color_space") or ""):
                 continue
-            ok = d.call(v.SetCDL, HLG_NORMALIZE_CDL)
+            if self.sources.get(s.clip, {}).get("mezz"):
+                mezz.append(s.id)  # an Apple SDR mezzanine is already SDR: no CDL
+                continue
+            ok = d.call(v.SetCDL, self.cdl)
             rows.append({"shot": s.id, "clip": s.clip, "returned": ok})
             r.check(f"{s.id} HLG normalize SetCDL (returned value only; no GetCDL)", True, bool(ok))
-        r.timeline["hlg_normalize"] = {"cdl": HLG_NORMALIZE_CDL, "items": rows}
+        r.timeline["hlg_normalize"] = {"cdl": self.cdl if rows else None, "mode": self.hlg_normalize, "items": rows,
+                                       "skipped_apple_sdr": mezz}
 
     def read_back(self) -> None:
         d, r, tl = self.d, self.r, self.tl
@@ -1567,7 +1813,10 @@ class Builder:
                     # offset gives the true in-point (cf.frames).
                     row["src_start_exact"] = frames.start_from_left_offset(float(row["left_offset"]), s.clip_fps,
                                                                            self.fps)
-                    row["ok"] = (row["name"] == s.clip and row["start"] == s.record_frame
+                    # The item is named after the imported file (the mezzanine, IMG_0477.mov, for an
+                    # Apple SDR source).
+                    row["ok"] = (row["name"] == Path(self.sources[s.clip]["path"]).name
+                                 and row["start"] == s.record_frame
                                  and row["end"] == s.record_end and row["duration"] == s.duration
                                  and row["src_start_exact"] == s.src_start
                                  and abs(float(row["src_end"]) - s.src_end_after_speed) <= 1.5)
@@ -1716,12 +1965,24 @@ class Builder:
                 src_t = (s.src_start + (s.duration // 2) * s.speed * s.clip_fps / self.fps) / s.clip_fps
                 proxy = self.walk_dir / "proxy" / (Path(s.clip).stem + ".mp4")
                 rp = (getattr(self, "reframe_plans", None) or {}).get(s.id)
+                # An Apple SDR mezzanine is what the still must show, so it is the luma reference
+                # (on the proxy grid); otherwise the proxy (its own tone map) is.
+                luma_frame = self._mezz_frame(s.clip, src_t, proxy)
                 if rp is not None:
-                    ref = self._reframe_still_checks(s, rp, f, proxy, src_t, row)
+                    ref = self._reframe_still_checks(s, rp, f, proxy, src_t, row, luma_frame)
+                elif luma_frame is not None:
+                    ref = proxy_frame_stats(proxy, src_t, luma_frame)
                 else:
                     ref = proxy_frame_stats(proxy, src_t) if proxy.exists() else None
                 row.update(still_stats(f, (ref["width"], ref["height"]) if ref else None))
-                if ref:
+                if ref and luma_frame is not None:
+                    ref["reference"] = "apple-sdr mezzanine"
+                    row["proxy"] = ref
+                    mine = row.get("at_proxy_size") or row
+                    r.check(f"{s.id} still mean luma = Apple SDR mezzanine frame (within {MEZZ_STILL_TOLERANCE:g}, "
+                            f"at {ref['width']}x{ref['height']})", ref["mean_luma"], mine["mean_luma"],
+                            ok=abs(mine["mean_luma"] - ref["mean_luma"]) <= MEZZ_STILL_TOLERANCE)
+                elif ref:
                     row["proxy"] = ref
                     # Compared on the proxy's grid: the still downscaled to the proxy size.
                     mine = row.get("at_proxy_size") or row
@@ -1744,15 +2005,28 @@ class Builder:
             r.check(f"{s.id} still at {tc}", True, bool(ok) and size > 0 and got_tc == tc)
         self.cue_stills()
 
+    def _mezz_frame(self, clip: str, src_t: float, proxy: Path) -> Any:
+        """The clip's Apple SDR mezzanine frame at ``src_t`` on the proxy grid, or None (no mezzanine)."""
+        src = self.sources.get(clip) or {}
+        if not src.get("mezz") or not Path(src["path"]).exists():
+            return None
+        size = (540, 960)
+        if proxy.exists():
+            frame = proxy_frame(proxy, src_t)
+            if frame is not None:
+                size = (frame.shape[1], frame.shape[0])
+        return scaled_frame(Path(src["path"]), src_t, size)
+
     def _reframe_still_checks(self, s: PlannedShot, rp: rf.ReframePlan, f: Path, proxy: Path, src_t: float,
-                              row: dict) -> dict | None:
+                              row: dict, luma_frame: Any = None) -> dict | None:
         """Read-back of a reframed shot from its stills.
 
         Window position: the mid still is template-matched on the proxy frame; for ``center``
         and ``pan`` the window's left edge must be where the plan puts it. For ``smart`` the
         found position is recorded, and 5 frames (first, quarters, last) are checked for a
         black band: Smart Reframe keeps the subject centred and can move past the source edge.
-        Returns the proxy luma stats of the window (the band the still shows), or None.
+        Returns the luma stats of the window (the band the still shows) in ``luma_frame`` (the
+        mezzanine frame on the proxy grid) or else the proxy frame, or None.
         """
         import cv2  # noqa: PLC0415
 
@@ -1772,7 +2046,8 @@ class Builder:
                     r.check(f"{s.id} reframe {rp.mode} window left edge in source px (still matched on the proxy, "
                             f"score {win['score']})", rp.window_x0, win["x0_src"],
                             ok=abs(win["x0_src"] - rp.window_x0) <= win["tolerance_src"] and win["score"] >= 0.5)
-            ref = proxy_frame_stats(proxy, src_t, frame, (x0 / src_w, rp.window_w / src_w))
+            ref = proxy_frame_stats(proxy, src_t, luma_frame if luma_frame is not None else frame,
+                                    (x0 / src_w, rp.window_w / src_w))
         if rp.mode != "smart":
             return ref
         bands = []
@@ -1825,7 +2100,7 @@ class Builder:
         clip_fps: dict[str, float] = {}
         index = d.clip_index()
         for c, info in manifest_clips(self.manifest).items():
-            path = str(self.walk_dir / "raw" / c)
+            path = (self.sources.get(c) or {}).get("path") or str(self.walk_dir / "raw" / c)
             items = index.get(path) or index.get(str(info.get("path"))) or []
             if items:
                 clip_fps[c] = float((d.call(items[0].GetClipProperty) or {}).get("FPS") or 0) or info["fps"]
@@ -1846,13 +2121,15 @@ class Builder:
             if not self.cue_plan:
                 r.notes.append(f"no cue plan in {built}: no cue stills (rebuild to get them)")
         for s, v in zip(self.plan, self.vids):
-            r.check(f"{s.id} V1 item start", [s.clip, s.record_frame], [d.call(v.GetName), int(d.call(v.GetStart))])
+            name = Path((self.sources.get(s.clip) or {}).get("path") or s.clip).name
+            r.check(f"{s.id} V1 item start", [name, s.record_frame], [d.call(v.GetName), int(d.call(v.GetStart))])
 
     def run(self) -> int:
         if self.stills_only:
             try:
                 self.validate()
                 self.follow_analysis()
+                self.prepare_sources()
                 self.connect()
                 self.attach_timeline()
                 self.look_lut()
@@ -1868,6 +2145,7 @@ class Builder:
             self.validate()
             self.cue_reference()
             self.follow_analysis()
+            self.prepare_sources()
             self.connect()
             self.project_settings()
             items = self.import_clips()
@@ -1876,6 +2154,7 @@ class Builder:
             self.look()
             self.normalize_hlg()
             self.look_lut()
+            self.apply_grade_drx()
             self.read_back()
             if self.want_stills:
                 self.stills()
@@ -1910,7 +2189,8 @@ class Builder:
         print("\nmedia:")
         for m in r.media:
             print(f"  {m['clip']:<14} {m['pool']:<8} copies={m['copies_in_pool']} fps={m['resolve_fps']:g} "
-                  f"(manifest {m['manifest_fps']:g})  {m['input_color_space']!r} [{m['color_action']}]")
+                  f"(manifest {m['manifest_fps']:g})  {m['input_color_space']!r} [{m['color_action']}]"
+                  + ("  Apple SDR mezzanine" if m.get("apple_sdr_mezz") else ""))
         if r.upscale:
             print("\nSuper Scale (read back; 2x and 2x Enhanced both read 2):")
             for u in r.upscale:
@@ -2039,6 +2319,23 @@ def main(argv: list[str] | None = None) -> int:
                                      "canvas and style.json canvas; e.g. 1080x1920 for a comparison build")
     ap.add_argument("--no-superscale", action="store_true",
                     help="Super Scale off (1) on every clip instead of style.json upscale on the low-res ones")
+    ap.add_argument("--deliver", choices=DELIVERIES, default="sdr",
+                    help="sdr (default): Rec.709 output; hdr-hlg: Rec.2100 HLG output for cf.render --hdr "
+                         "(no HLG CDL, no Look unless --look)")
+    ap.add_argument("--hlg-normalize", choices=HLG_NORMALIZE_MODES, default="cdl",
+                    help="SDR only: cdl (default) puts the -1.02 stop CDL on HLG items; none uses Resolve's own "
+                         "HLG -> 709 conversion (one stop brighter)")
+    ap.add_argument("--overlay-nits", type=float, default=hdr_mod.GRAPHICS_WHITE_NITS,
+                    help="hdr-hlg only: overlay white in nits (default 203 = BT.2408 graphics white, HLG 75 %%)")
+    ap.add_argument("--overlay-specs", action="store_true",
+                    help="no Resolve: write overlays/specs/<shot>.json for overlays/render.mjs and print the commands")
+    ap.add_argument("--hdr-source", choices=mezz_mod.HDR_SOURCES,
+                    help="HDR (HLG / Dolby Vision) clips: apple-sdr imports the Apple SDR mezzanine (QuickTime's "
+                         "tone mapping, cf.mezz), resolve imports the HLG file (default: style.json "
+                         "color.hdr_source, apple-sdr); --deliver hdr-hlg always uses resolve")
+    ap.add_argument("--grade-drx", metavar="DIR",
+                    help="after the build, ApplyGradeFromDRX each shot's <shot>.drx / <shot>_*.drx from DIR "
+                         "(a hand grade saved with ExportStills, e.g. reels/<reel>/author-grade)")
     ap.add_argument("--footage-root", help="footage root for the Library (default: the Video folder's, "
                                            "else CF_FOOTAGE_ROOT)")
     ap.add_argument("--db", help="factory.db for the Library (default: CF_FACTORY_DB, else <footage>/factory.db)")
@@ -2071,11 +2368,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.stills_only and args.no_stills:
         print("--stills-only and --no-stills contradict each other", file=sys.stderr)
         return 2
+    if args.overlay_specs:
+        return write_overlay_specs(reel_dir, walk_dir, script_path, args.canvas)
     stills_dir = Path(args.stills_dir).expanduser().resolve() if args.stills_dir else None
+    grade_drx = Path(args.grade_drx).expanduser().resolve() if args.grade_drx else None
+    if grade_drx is not None and not grade_drx.is_dir():
+        print(f"--grade-drx: no directory {grade_drx}", file=sys.stderr)
+        return 2
+    if grade_drx is not None and args.stills_only:
+        print("--grade-drx needs a full build (it is not applied with --stills-only)", file=sys.stderr)
+        return 2
     return Builder(reel_dir, walk_dir, args.project_name, stills=not args.no_stills, look=args.look,
                    stills_only=args.stills_only, stills_dir=stills_dir, script_path=script_path,
                    use_track=not args.no_track, ambience_db=args.ambience_db, canvas=args.canvas,
-                   superscale=not args.no_superscale,
+                   superscale=not args.no_superscale, deliver=args.deliver,
+                   hlg_normalize=args.hlg_normalize, overlay_nits=args.overlay_nits, grade_drx=grade_drx,
+                   hdr_source=args.hdr_source,
                    footage_root=Path(args.footage_root).expanduser() if args.footage_root else None,
                    db_path=Path(args.db).expanduser() if args.db else None, use_assets=not args.no_assets).run()
 

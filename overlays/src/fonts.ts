@@ -11,6 +11,7 @@ import { loadFont as loadGreatVibes } from "@remotion/google-fonts/GreatVibes";
 import { loadFont as loadInter } from "@remotion/google-fonts/Inter";
 import { loadFont as loadInterTight } from "@remotion/google-fonts/InterTight";
 import { loadFont as loadMontserrat } from "@remotion/google-fonts/Montserrat";
+import { loadFont as loadNunito } from "@remotion/google-fonts/Nunito";
 import { loadFont as loadPlayfair } from "@remotion/google-fonts/PlayfairDisplay";
 import { loadFont as loadSpaceGrotesk } from "@remotion/google-fonts/SpaceGrotesk";
 import { loadFont as loadSpecialElite } from "@remotion/google-fonts/SpecialElite";
@@ -31,6 +32,7 @@ const LOADERS: Record<string, AnyLoader> = {
   inter: loadInter as unknown as AnyLoader,
   "inter tight": loadInterTight as unknown as AnyLoader,
   montserrat: loadMontserrat as unknown as AnyLoader,
+  nunito: loadNunito as unknown as AnyLoader,
   "playfair display": loadPlayfair as unknown as AnyLoader,
   "space grotesk": loadSpaceGrotesk as unknown as AnyLoader,
   "special elite": loadSpecialElite as unknown as AnyLoader,

@@ -1,4 +1,5 @@
-"""Desk research contour: Watchlists, feed, Reference cards, summaries, Ideas, Briefs, taxonomy and quota.
+"""Desk research contour: Watchlists, feed, Reference cards, summaries, Ideas, Briefs, taxonomy, quota and the
+Author's own Instagram reels.
 
 Every endpoint calls `cf.research` modules directly (no subprocess, nothing on the network) and opens a
 Store per request through `cf.desk.storeuse`: reads never create, migrate or seed factory.db. Unknown
@@ -18,7 +19,8 @@ from pydantic import BaseModel
 from cf.desk import media, paths, storeuse
 from cf.desk.hashed import atomic_write, digest, stale
 from cf.desk.problems import Problem
-from cf.research import card, feed, ideas, outlier, quota, summary, taxonomy
+from cf.research import card, feed, ideas, outlier, own, quota, summary, taxonomy
+from cf.research.store import PLATFORMS
 from cf.research import watchlist as watchlists
 from cf.research.cli import USER_ERRORS
 from cf.research.kinds import KINDS as FEED_KINDS
@@ -135,12 +137,13 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
     @api.get("/watchlists/{name}/feed")
     def get_feed(name: str, days: float = feed.DEFAULT_LOOKBACK_DAYS, min_outlier: float | None = None,
                  min_views: int | None = None, kind: str | None = None, max_duration: float | None = None,
-                 limit: int = FEED_LIMIT) -> dict:
+                 limit: int = FEED_LIMIT, platform: str | None = None) -> dict:
         _one_of(kind, FEED_KINDS, "feed_kind_invalid", "kind")
+        _one_of(platform, PLATFORMS, "feed_platform_invalid", "platform")
         with store() as s:
             watchlist_of(s, name)
             rows = feed.feed(s, name, lookback_days=days, min_outlier=min_outlier, min_views=min_views,
-                             kind=kind or None, max_duration_s=max_duration, limit=limit)
+                             kind=kind or None, max_duration_s=max_duration, limit=limit, platform=platform or None)
             return {"watchlist": name, "days": days, "limit": limit, "rows": [_rounded(r) for r in rows]}
 
     @api.get("/cards/{video_id}")
@@ -238,6 +241,15 @@ def router(db_path: Path, footage_root: Path) -> APIRouter:
             if action == "approve":
                 return taxonomy.approve(s, kind, value, root=footage).to_dict()
             return taxonomy.reject(s, kind, value).to_dict()
+
+    @api.get("/own")
+    def get_own(days: float | None = None) -> dict:
+        with store() as s:
+            try:
+                return own.report(s, days=days).to_dict()
+            except own.OwnError as e:
+                command = "python -m cf.research own sync"
+                raise Problem(404, "own_missing", str(e), command=command) from None
 
     @api.get("/quota")
     def get_quota() -> dict:

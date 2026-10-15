@@ -2,7 +2,7 @@
   "schema": "cf-style/1",
   "name": "travel-walk-v1",
   "status": "draft: defaults from research, not yet reviewed by the author",
-  "audience": "one person planning a city break who wants to feel the place before going",
+  "audience": "a man (18–60+) scrolling Reels who stops for a pretty, self-ironic, flirty woman on a walk; women welcome but secondary",
   "_doc": "Pixel units: `canvas.width/height` are output pixels (2160x3840 by default, the author's preference since 2026-10-11). Every other pixel number in this file (safe_zone, overlay_positions, typography.*.size, animation.in.distance_px) and in overlays/src/presets.ts and slots.json is in a 1080-wide reference space (`canvas.reference_width`), so the numbers read as on a 1080x1920 frame. Canvas pixels = reference pixels x canvas.width / canvas.reference_width (x2 at 2160x3840). The overlay renderer (overlays/src/style.ts designScale) and cf.canvas (Python) apply that one factor. Named canvases: `canvases` holds one preset per orientation (portrait, landscape), each with its own size, reference_width and, where they differ from the top-level ones, safe_zone, overlay_positions and slots (all in that preset's reference space). `canvas` is the active default (portrait); a Script's top-level `canvas` ('landscape') picks a preset, and `--canvas landscape|portrait|WxH` on cf.build / cf.render / cf.render_check / overlays/render.mjs wins over both. `assets` holds the Library cue boxes, default positions, still lengths and the sound level rule (docs/script-schema.md, Assets).",
   "canvas": {
     "width": 2160,
@@ -253,10 +253,16 @@
     "scene_change": "dissolve",
     "dissolve_frames": 8
   },
+  "color": {
+    "hdr_source": "apple-sdr",
+    "rule": "original colour, as on the Mac (author, 2026-10-12): no grade, no levelling, no Look",
+    "note": "hdr_source 'apple-sdr': HDR clips (iPhone HLG / Dolby Vision) go into Resolve as their Apple SDR mezzanine (<walk>/mezz/<stem>.mov, cf.mezz / tools/apple-sdr: AVFoundation's own HDR -> SDR tone mapping, what QuickTime and Photos show), tagged Rec.709 Gamma 2.4, no HLG CDL. 'resolve' imports the HLG file and lets Resolve convert it (one stop brighter and flatter than the Mac shows it). cf.build --hdr-source overrides; --deliver hdr-hlg always uses 'resolve'. ADR 0011."
+  },
   "look": {
     "drx": null,
-    "lut": "looks/cinema-clean.cube",
-    "status": "author chose cinema-clean (2026-10-10)",
+    "lut": null,
+    "previous_lut": "looks/cinema-clean.cube",
+    "status": "no Look since 2026-10-12 (author: original colour, as on the Mac); before that cinema-clean (2026-10-10). cf.build --look <file.cube> still applies one on request",
     "brief": "rich, saturated, expensive cinematic travel-film image: deep but not crushed shadows, glowing highlights, warm/teal split, skin protected"
   },
   "audio": {

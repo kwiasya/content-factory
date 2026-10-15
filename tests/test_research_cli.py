@@ -101,7 +101,7 @@ class CliTest(unittest.TestCase):
     def test_quota(self):
         q = self.json_of("quota")
         self.assertEqual({b["bucket"]: (b["limit"], b["used"]) for b in q["buckets"]},
-                         {"default": (10_000, 0), "search": (100, 0)})
+                         {"default": (10_000, 0), "search": (100, 0), "instagram": (100, 0)})
 
     def test_runs_as_a_module(self):
         r = subprocess.run([sys.executable, "-m", "cf.research", "quota", "--json", "--db", self.db],

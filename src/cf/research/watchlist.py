@@ -4,6 +4,12 @@ A Reference channel is added by handle or URL: ``parse_channel_ref`` turns what
 the Author pasted into a handle, channel id or legacy username; a channel the
 store already knows is reused, otherwise ``channels.list`` is called through
 ``youtube`` (quota-charged) and its payload ingested by ``ingest``.
+
+A Watchlist holds channels of both Platforms. An Instagram account is given as
+``ig:<username>`` or an ``instagram.com/<username>`` link and resolved through
+Business Discovery (``instagram``, one call of the hourly bucket), which sees
+public business and creator accounts only (ADR 0010). Search queries are
+YouTube's: Instagram has no search API.
 """
 
 from __future__ import annotations
@@ -14,7 +20,7 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from urllib.parse import unquote
 
-from cf.research import formats, ingest, youtube
+from cf.research import env, formats, ingest, instagram, youtube
 from cf.research.store import Store, dumps, now_iso
 
 
@@ -26,14 +32,19 @@ class WatchlistError(Exception):
 class ChannelRef:
     """What the Author pointed at: ``kind`` is ``handle`` (``@name``, lowercase),
     ``id`` (``UC…``), ``username`` (legacy ``/user/`` URLs) or ``custom`` (legacy
-    ``/c/`` URLs, resolved as a handle first, then as a username)."""
+    ``/c/`` URLs, resolved as a handle first, then as a username). ``platform`` is
+    ``instagram`` for an Instagram account (kind ``handle``, ``@username`` lowercase)."""
     kind: str
     value: str
+    platform: str = "youtube"
 
 
 # patterns are used with fullmatch: ``$`` would let a trailing newline in
 CHANNEL_ID_RE = re.compile(r"UC[\w-]{22}")
 HANDLE_RE = re.compile(r"[\w.-]{3,100}")
+IG_HANDLE_RE = re.compile(r"[A-Za-z0-9._]{1,30}")
+IG_PREFIXES = ("ig:", "instagram:")
+IG_NOT_ACCOUNT_PATHS = {"explore", "stories", "accounts", "direct", "about", "legal", "developer"}
 VIDEO_PATHS = {"watch", "shorts", "live", "embed", "v"}
 NOT_CHANNEL_PATHS = {"playlist", "results", "feed", "hashtag", "post", "channel", "user", "c"}
 
@@ -45,11 +56,42 @@ def _handle(name: str, text: str) -> ChannelRef:
     return ChannelRef("handle", "@" + name.lower())
 
 
+def _ig_handle(name: str, text: str) -> ChannelRef:
+    name = unquote(name).strip().lstrip("@")
+    if not IG_HANDLE_RE.fullmatch(name):
+        raise WatchlistError(f"not an Instagram username: {text!r} (expected ig:<username> or instagram.com/<username>)")
+    return ChannelRef("handle", "@" + name.lower(), "instagram")
+
+
+def parse_instagram_ref(text: str) -> ChannelRef | None:
+    """``ig:<username>``, ``instagram:<username>`` or an ``instagram.com/<username>[/reels]`` link as an
+    Instagram ``ChannelRef``; None when ``text`` is neither; WatchlistError for a media or other link."""
+    t = (text or "").strip()
+    for prefix in IG_PREFIXES:
+        if t.lower().startswith(prefix):
+            return _ig_handle(t[len(prefix):], text)
+    segs = ingest.instagram_segments(t) if ("/" in t or "instagram.com" in t.lower()) else None
+    if segs is None:
+        return None
+    if not segs:
+        raise WatchlistError(f"{text!r} has no Instagram account in it")
+    if segs[0] in ingest.IG_MEDIA_PATHS or ingest.instagram_shortcode(t):
+        raise WatchlistError(f"{text!r} is a reel or post link, not an account; add it with "
+                             f"`watchlist add-reference`")
+    if segs[0] in IG_NOT_ACCOUNT_PATHS:
+        raise WatchlistError(f"{text!r} has no Instagram account in it")
+    return _ig_handle(segs[0], text)
+
+
 def parse_channel_ref(text: str) -> ChannelRef:
-    """Turn a handle, channel id or YouTube channel URL into a ``ChannelRef``."""
+    """Turn a handle, channel id or YouTube channel URL, or an Instagram account (``ig:<username>``,
+    ``instagram.com/<username>``), into a ``ChannelRef``."""
     t = (text or "").strip()
     if not t:
         raise WatchlistError("empty channel reference")
+    ig = parse_instagram_ref(t)
+    if ig is not None:
+        return ig
     if CHANNEL_ID_RE.fullmatch(t):
         return ChannelRef("id", t)
     looks_like_url = "/" in t or "://" in t
@@ -232,29 +274,62 @@ def find_channel(store: Store, ref: ChannelRef) -> tuple[int, ReferenceChannel] 
     """The stored channel a reference points at (handle or id), or None. Usernames are never stored."""
     if ref.kind == "id":
         where, value = "external_id = ?", ref.value
+    elif ref.platform == "instagram":
+        where, value = "handle = ?", ref.value
     elif ref.kind in ("handle", "custom"):
         where, value = "handle = ?", _handle(ref.value, ref.value).value
     else:
         return None
-    found = store.one(f"SELECT id, {_CHANNEL_COLS} FROM channel WHERE platform = 'youtube' AND {where}", (value,))
+    found = store.one(f"SELECT id, {_CHANNEL_COLS} FROM channel WHERE platform = ? AND {where}",
+                      (ref.platform, value))
     if found is None:
         return None
     cid = found.pop("id")
     return cid, _channel(found)
 
 
+def resolve_instagram(store: Store, username: str, *, own: bool | None = None, media_limit: int = 0,
+                      transport: instagram.Transport | None = None) -> tuple[int, dict]:
+    """Business Discovery of ``@username``: ingest the account (and, with ``media_limit``, its newest
+    reels with a snapshot each); return its store id and the payload's ``business_discovery`` object."""
+    user_id = env.ig_user_id()
+    if not user_id:
+        raise instagram.InstagramError(env.IG_HELP)
+    handle = username.lstrip("@")
+    try:
+        p = instagram.business_discovery(store, user_id, handle, media_limit=media_limit, transport=transport)
+    except instagram.InstagramError as exc:
+        if exc.subcode in instagram.NOT_FOUND_SUBCODES or exc.code == 110:
+            raise WatchlistError(f"@{handle}: Business Discovery found no public business or creator account "
+                                 f"(a personal or private account is invisible to the API; ADR 0010)") from None
+        raise
+    bd = p.get("business_discovery") or {}
+    if not bd.get("id"):
+        raise WatchlistError(f"@{handle}: Business Discovery answered without an account")
+    cid = ingest.ingest_ig_account(store, bd, own=own)
+    items = (bd.get("media") or {}).get("data") or []
+    if items:
+        ingest.ingest_ig_media(store, cid, items)
+    return cid, bd
+
+
 def add_channel(store: Store, name: str, ref: str, *, own: bool = False, refresh: bool = False,
-                transport: youtube.Transport | None = None) -> ReferenceChannel:
-    """Add a Reference channel to a Watchlist by handle, channel id or URL.
+                transport: youtube.Transport | None = None,
+                ig_transport: instagram.Transport | None = None) -> ReferenceChannel:
+    """Add a Reference channel to a Watchlist by handle, channel id or URL, or an Instagram account.
 
     A channel the store already knows is reused without an API call unless
-    ``refresh``; otherwise ``channels.list`` is called (1 quota unit) and ingested.
+    ``refresh``; otherwise ``channels.list`` is called (1 quota unit) and ingested,
+    or for Instagram Business Discovery (1 call of the hourly bucket; followers
+    and media count, no media yet: ``scout`` reads those).
     ``own`` marks the channel as the Author's. Adding twice is harmless.
     """
     wid = row(store, name)["id"]
     parsed = parse_channel_ref(ref)
     found = None if refresh else find_channel(store, parsed)
-    if found is None:
+    if found is None and parsed.platform == "instagram":
+        cid = resolve_instagram(store, parsed.value, own=True if own else None, transport=ig_transport)[0]
+    elif found is None:
         if parsed.kind == "id":
             attempts = [{"ids": [parsed.value]}]
         elif parsed.kind == "handle":
@@ -272,7 +347,7 @@ def add_channel(store: Store, name: str, ref: str, *, own: bool = False, refresh
         if not ids:
             raise WatchlistError(f"no YouTube channel for {parsed.value!r} ({ref!r})")
         cid = ids[0]
-    else:
+    else:  # a channel the store already has
         cid = found[0]
     with store.transaction() as c:
         if own:

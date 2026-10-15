@@ -55,6 +55,15 @@ class StoreUseTest(unittest.TestCase):
         with sqlite3.connect(self.db) as conn:
             self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 0)
 
+    def test_a_store_newer_than_the_code_asks_for_a_restart(self):
+        self.db.parent.mkdir(parents=True)
+        with sqlite3.connect(self.db) as conn:
+            conn.execute(f"PRAGMA user_version = {st.SCHEMA_VERSION + 1}")
+        r = self.client.get("/api/contour/watchlists")
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(r.json()["code"], "db_schema_newer")
+        self.assertIn("restart Desk", r.json()["detail"])
+
     def test_a_note_written_without_a_store_creates_it_unseeded(self):
         r = self.client.post("/api/notes", json={"kind": "general", "key": "", "text": "x"})
         self.assertEqual(r.status_code, 201, r.text)

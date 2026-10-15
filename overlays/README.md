@@ -2,7 +2,9 @@
 
 Remotion project that renders one text overlay for a Reel as a transparent
 ProRes 4444 `.mov` (canvas from style.json, 2160×3840 by default, timeline fps,
-alpha). `build-reel` step 2 calls it once per shot that has an overlay; the files go
+alpha). `build-reel` step 2 calls it once per shot that has an overlay, with the spec
+`python -m cf.build <reel> --overlay-specs` writes from the Script (`overlays/specs/<shot>.json`;
+the Script overlay's `preset`, `anchor` and `in_frames`/`out_frames` pass through); the files go
 on V2/V3 in Resolve.
 
 ## Canvas and scale
@@ -64,6 +66,8 @@ npx --no-install remotion render src/index.ts Overlay <out> --props=<tmp> \
 | `style_path` | Path to the Style profile; a relative path resolves against the spec file's folder. |
 | `preset` | Optional. Overlay preset name (see Presets); defaults to `typography.preset` in style.json, then `legacy`. An unknown name exits 2 and lists the known ones. |
 | `anchor` | Optional. A named slot from `src/slots.json` (`lower-left`, `lower-center`, `mid-left`, `mid-center`, `high-left`, `high-center`, `upper-left`, `upper-center`) that replaces the preset role's placement, for example the calmest, darkest area of this shot that is clear of the face. Unknown → exit 2. |
+| `anchor` (explicit) | Or an explicit placement in reference px: `{"anchor": "top-left"\|"top-right"\|"top-center"\|"middle-left"\|"center"\|"bottom-left"\|"bottom-center", "x": n, "y": n, "align"?: "left"\|"center"\|"right"}` (top-right: x is the right edge), e.g. from a picker that keeps text off the person. |
+| `arrow_to` | Optional `[x, y]` (reference px): where a preset with an arrow (`handwritten-arrow`) points. |
 | `scrim` | Optional, 0..1. Overrides the preset role's scrim strength. |
 | `in_frames`, `out_frames` | Optional ints ≥ 0. Replace `animation.in/out.frames` for this overlay; 0 = no fade on that side (a list item that cuts on with its shot, a header that must not blink at the cut). |
 | `canvas` | Optional. A style.json `canvases` name (`portrait`, `landscape`) or `WxH`; `--canvas` on the command line wins. The preset's size, `reference_width`, `safe_zone`, `overlay_positions` and `slots` replace the top-level ones. On `landscape` (3840×2160, reference 1920×1080) every overlay preset keeps its type system and takes its placement from `canvases.landscape.overlay_positions`, and `anchor` names resolve against `canvases.landscape.slots`; `designScale` is 2 on both 4K canvases, so text is the same size relative to the frame's short side. |
@@ -115,6 +119,16 @@ readable on bright footage (reel-01 measurements are in
   as a faint grey haze.
 - `layers` (prop only, for measurement): `background` renders only the scrim and
   boxes; `glyphs` renders only the glyph fill.
+
+**List presets** (walk-2026-09-13 "my type" board): `notes-checklist` (iOS Notes card;
+a plain line is the title, `[x] item` ticked, `[ ] item` open), `clean-list` (Inter Tight
+lowercase, no box), `handwritten-arrow` (Caveat + arrow to `arrow_to`), `imessage` (chat
+bubbles: plain line = grey received, `> line` = blue sent), `tiktok-hype-small`
+(tiktok-hype boxes at 70 %). Each `\n` line is one list entry.
+
+**Legibility preset** (same walk, "therapy" rewrite): `bold-outline`, Nunito Black 64 px
+in white with a 5 px dark outline and a tight + soft drop shadow, no box or scrim; the
+author's pick for text that must read at feed size on a white-grey sky. `\n` breaks lines.
 
 With a non-legacy preset, the preset replaces `typography.display/body`,
 `colors.text/text_shadow/backdrop` and `overlay_positions`. Still read from
@@ -172,7 +186,8 @@ leaves. Among the valid splits it picks the most balanced one, measured with
 the real font. If no split up to `max_lines` fits, it shrinks the font, to no
 less than 60%, and warns `FONT_SHRUNK`. If the text has more words than
 `max_words_per_line × max_lines`, the extra words go on the last line with a
-`TEXT_OVERFLOW` warning. For example, "POV: Potsdam at golden hour" fits the
+`TEXT_OVERFLOW` warning. A `\n` line is laid out on its own, so the limits (and the
+warning) apply per line. For example, "POV: Potsdam at golden hour" fits the
 5-word limit but is about 950 px wide at 72 px, so it breaks into two lines.
 
 **Safe-zone assertion.** On the first fully faded-in frame, the composition

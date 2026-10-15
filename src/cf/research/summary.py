@@ -145,7 +145,7 @@ def _analyses(store: Store, external_ids: list[str]) -> dict[str, dict]:
         return {}
     marks = ",".join("?" * len(external_ids))
     rows = store.query(f"SELECT v.external_id, c.measured, c.analysis FROM card c JOIN video v ON v.id = c.video_id "
-                       f"WHERE v.platform = 'youtube' AND v.external_id IN ({marks})", tuple(external_ids))
+                       f"WHERE v.external_id IN ({marks})", tuple(external_ids))
     return {r["external_id"]: {"measured": json.loads(r["measured"] or "{}"),
                                "analysis": None if r["analysis"] is None else json.loads(r["analysis"])}
             for r in rows}

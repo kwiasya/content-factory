@@ -1,7 +1,7 @@
 """Verify a rendered Reel file for Instagram: color tags, format, frame rate, loudness.
 
     python -m cf.render_check <file.mp4> [--target-lufs -14] [--target-tp -1]
-                              [--expect-duration S] [--fix-loudness] [--canvas WxH]
+                              [--expect-duration S] [--fix-loudness] [--canvas WxH] [--hdr]
 
 Checks (docs/research/03-color-iphone-osmo/result-a.md Section D, and
 docs/research/05-music-and-sound/result-a.md for loudness): ffprobe says
@@ -11,6 +11,10 @@ bt709/bt709/bt709, color_range tv, yuv420p, the canvas size and fps (``--canvas`
 AAC 48 kHz audio; ffmpeg ``loudnorm`` (print mode) gives integrated loudness within
 ``--lufs-tolerance`` LU of the target and true peak at or below the target.
 Prints a PASS/FAIL table and exits 1 on any FAIL.
+
+``--hdr`` checks a Rec.2100 HLG render (``cf.render --hdr``) instead: hevc Main 10 with the
+``hvc1`` tag (iOS and Instagram need it), ``yuv420p10le``, bt2020 / arib-std-b67 / bt2020nc,
+limited range; the other rows are the same. The SDR default is unchanged.
 
 ``--fix-loudness`` runs the two-pass ``loudnorm`` into ``<name>.normalized.mp4`` with the
 video stream copied (``-c:v copy``), repeating the second pass on its own output (at most
@@ -56,15 +60,26 @@ BASE_EXPECTED = {
     "audio_codec": "aac",
     "sample_rate": 48000,
 }
+# Rec.2100 HLG delivery (cf.render --hdr): what differs from BASE_EXPECTED.
+HDR_EXPECTED = {
+    "pix_fmt": "yuv420p10le",
+    "color_primaries": "bt2020",
+    "color_transfer": "arib-std-b67",
+    "color_space": "bt2020nc",
+    "video_codec": "hevc",
+    "profile": "Main 10",
+    "codec_tag": "hvc1",
+}
 NORMALIZED_SUFFIX = ".normalized"
 AUDIO_BITRATE = "256k"
 TP_MARGIN = 0.5  # dB of true-peak headroom kept for the AAC encode
 MAX_ROUNDS = 3
 
 
-def expected_for(canvas: Canvas) -> dict:
-    """The checked facts for a file rendered at ``canvas``."""
-    return {"width": canvas.width, "height": canvas.height, "fps": float(canvas.fps), **BASE_EXPECTED}
+def expected_for(canvas: Canvas, hdr: bool = False) -> dict:
+    """The checked facts for a file rendered at ``canvas`` (``hdr``: Rec.2100 HLG HEVC)."""
+    return {"width": canvas.width, "height": canvas.height, "fps": float(canvas.fps), **BASE_EXPECTED,
+            **(HDR_EXPECTED if hdr else {})}
 
 
 def style_canvas(override: str | None = None, script_canvas: str | None = None) -> Canvas:
@@ -122,6 +137,7 @@ def parse_probe(j: dict) -> dict:
     fmt = j.get("format") or {}
     return {
         "video_codec": v.get("codec_name"),
+        "codec_tag": v.get("codec_tag_string"),
         "profile": v.get("profile"),
         "width": v.get("width"),
         "height": v.get("height"),
@@ -175,6 +191,10 @@ def evaluate(facts: dict, loud: dict | None, target_lufs: float = TARGET_LUFS, t
         rows.append(Check(name, exp[key], facts.get(key), facts.get(key) == exp[key]))
 
     eq("video codec", "video_codec")
+    if "profile" in exp:
+        eq("video profile", "profile")
+    if "codec_tag" in exp:
+        eq("codec tag", "codec_tag")
     rows.append(Check("resolution", f"{exp['width']}x{exp['height']}",
                       f"{facts.get('width')}x{facts.get('height')}",
                       (facts.get("width"), facts.get("height")) == (exp["width"], exp["height"])))
@@ -307,11 +327,22 @@ def fix_loudness(path: Path, measured: dict, target_lufs: float = TARGET_LUFS, t
             if abs(meas["input_i"] - target_lufs) <= lufs_tolerance / 2 and meas["input_tp"] <= tp + 0.1:
                 break
         res = subprocess.run([FFMPEG, "-v", "error", "-y", "-i", str(path), "-i", str(cur), "-map", "0:v:0",
-                              "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", AUDIO_BITRATE, "-ar", "48000",
-                              "-movflags", "+faststart", str(out)], capture_output=True, text=True)
+                              "-map", "1:a:0", "-c:v", "copy", *video_tag_args(path), "-c:a", "aac",
+                              "-b:a", AUDIO_BITRATE, "-ar", "48000", "-movflags", "+faststart", str(out)],
+                             capture_output=True, text=True)
         if res.returncode:
             raise RuntimeError(f"ffmpeg mux failed: {res.stderr[-800:]}")
     return out, rounds
+
+
+def tag_args_for(video_codec: str | None) -> list[str]:
+    """Extra mux arguments for a stream copy: ffmpeg's mp4 muxer tags copied HEVC ``hev1``,
+    which iOS Photos and Instagram do not play; ``hvc1`` keeps the HLG file playable."""
+    return ["-tag:v", "hvc1"] if video_codec == "hevc" else []
+
+
+def video_tag_args(path: Path) -> list[str]:
+    return tag_args_for(parse_probe(ffprobe(path)).get("video_codec"))
 
 
 def check_file(path: Path, target_lufs: float = TARGET_LUFS, target_tp: float = TARGET_TP,
@@ -368,10 +399,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--report", help="also write the results as JSON here")
     ap.add_argument("--canvas", help="expected canvas: preset (portrait, landscape) or WxH; default the Script's "
                                      "canvas (<reel>/script.json next to out/), else style.json canvas")
+    ap.add_argument("--hdr", action="store_true",
+                    help="expect a Rec.2100 HLG render: hevc Main 10 hvc1, yuv420p10le, bt2020/arib-std-b67/bt2020nc")
     args = ap.parse_args(argv)
     path = Path(args.file).expanduser().resolve()
     try:
-        expected = expected_for(style_canvas(args.canvas, script_canvas_for(path)))
+        expected = expected_for(style_canvas(args.canvas, script_canvas_for(path)), hdr=args.hdr)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 2

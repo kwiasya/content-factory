@@ -14,9 +14,9 @@
 // "bottom-*" anchors put the box's bottom edge at y at rest; the slide-in starts
 // `animation.in.distance_px` lower, so bottom anchors sit at y ≤ 1248 - 24 = 1224.
 import slotsJson from "./slots.json";
-import { Anchor, fontRoleFor, FontSpec, OverlayType, Style } from "./style";
+import { Anchor, AnchorSpec, fontRoleFor, FontSpec, OverlayType, Style } from "./style";
 
-export type Slot = { anchor: Anchor; x?: number; y: number; align: "left" | "center" };
+export type Slot = { anchor: Anchor; x?: number; y: number; align: "left" | "center" | "right" };
 const slotTable = (raw: Record<string, unknown>): Record<string, Slot> =>
   Object.fromEntries(Object.entries(raw).filter(([k]) => !k.startsWith("_"))) as Record<string, Slot>;
 /** The portrait slots (src/slots.json). */
@@ -33,6 +33,24 @@ export type Ornament = {
   /** CSS colour, or "accent" for colors.accent. */
   color: string;
   side: "before" | "after" | "both";
+};
+
+export type ListStyle = {
+  mode: "checklist" | "bubbles";
+  /** Gap between entries, px. */
+  gap: number;
+  /** Checklist titles: weight and size relative to role.size. */
+  titleWeight?: number;
+  titleScale?: number;
+  /** Checklist tick circle: filled colour when ticked, ring colour when open. */
+  tickOn?: string;
+  tickOff?: string;
+  /** Bubble colours and geometry. */
+  recv?: { bg: string; color: string };
+  sent?: { bg: string; color: string };
+  bubblePadX?: number;
+  bubblePadY?: number;
+  bubbleRadius?: number;
 };
 
 export type RoleStyle = {
@@ -58,13 +76,13 @@ export type RoleStyle = {
   /** CSS filter on the text, e.g. drop-shadow glows that also work with gradients. */
   filter?: string;
   /** Rounded box behind the whole text block, or null. */
-  backdrop: { color: string; padX: number; padY: number; radius: number } | null;
+  backdrop: { color: string; padX: number; padY: number; radius: number; shadow?: string } | null;
   /** Box behind each line separately (CapCut "background", marker highlight). */
   lineBox?: { color: string; padX: number; padY: number; radius: number; gap?: number } | null;
   anchor: Anchor;
   x?: number;
   y: number;
-  align: "left" | "center";
+  align: "left" | "center" | "right";
   /** Cap on the box width in px (the safe zone also limits it). */
   maxWidth?: number;
   maxLines?: number;
@@ -87,6 +105,13 @@ export type RoleStyle = {
   bar?: { width: number; gap: number; color: string } | null;
   /** Small glyph(s) beside the text block. */
   ornament?: Ornament | null;
+  /** List rendering: each "\n" line is one entry.
+   * - checklist: plain lines are titles; "[x] item" is ticked, "[ ] item" is open.
+   * - bubbles: chat bubbles; plain lines are received (grey, left), "> line" is sent
+   *   (blue, right). */
+  list?: ListStyle | null;
+  /** Hand-drawn arrow from the text box towards OverlayProps.arrowTo (when given). */
+  arrow?: { color: string; thickness: number } | null;
 };
 
 export type Preset = {
@@ -121,6 +146,9 @@ const PINK_LIGHT = "#FCDDE7";
 const Y2K_GRADIENT = "linear-gradient(180deg, #FFF4FB 0%, #FFC2E6 45%, #DCC8FF 100%)";
 const Y2K_GLOW =
   "drop-shadow(0 1px 1px rgba(70,10,90,0.8)) drop-shadow(0 0 5px rgba(255,120,205,0.55)) drop-shadow(0 4px 12px rgba(40,0,60,0.4))";
+
+/** One role for every overlay type (list presets look the same whatever the type). */
+const listRoles = (r: RoleStyle): Record<OverlayType, RoleStyle> => ({ hook: r, place: r, fact: r, line: r });
 
 const bottomLeft = { anchor: "bottom-left" as const, x: LEFT_X, y: BOTTOM_Y, align: "left" as const };
 const topLeft = { anchor: "top-left" as const, x: LEFT_X, y: 300, align: "left" as const };
@@ -387,6 +415,80 @@ export const PRESETS: Record<string, Preset> = {
       },
     },
   },
+
+  // ---- list presets (walk-2026-09-13 reel-01 "my type:" board) ----
+
+  "notes-checklist": {
+    label: "A Notes checklist",
+    note: "iOS Notes look: a white 90% rounded card, bold title, items with yellow tick circles ('[x] item', '[ ] item').",
+    roles: listRoles({
+      family: "Inter", weight: 500, size: 32, case: "sentence", lineHeight: 1.22,
+      color: "#1C1C1E", shadow: null,
+      backdrop: { color: "rgba(255,255,255,0.9)", padX: 28, padY: 22, radius: 26, shadow: "0 8px 28px rgba(0,0,0,0.22)" },
+      ...topLeft, maxWidth: 520, maxWordsPerLine: 3, maxLines: 3,
+      list: { mode: "checklist", gap: 12, titleWeight: 700, titleScale: 1.25, tickOn: "#F2B300", tickOff: "#C7C7CC" },
+    }),
+  },
+
+  "clean-list": {
+    label: "B Clean caption",
+    note: "Inter Tight SemiBold lowercase, white, layered shadow and soft scrim, small stacked list, no box.",
+    roles: listRoles({
+      family: "Inter Tight", weight: 600, size: 50, case: "lower", tracking: -0.01, lineHeight: 1.1,
+      shadow: LEGIBLE, scrim: 0.6, ...NO_BOX, ...topLeft, maxWidth: 560, maxWordsPerLine: 3,
+      maxLines: 3, punctuationBreaks: true,
+    }),
+  },
+
+  "handwritten-arrow": {
+    label: "C Handwritten note",
+    note: "Caveat Bold, white, dark outline, slight tilt; a hand-drawn arrow points at her when the spec gives arrow_to.",
+    roles: listRoles({
+      family: "Caveat", weight: 700, size: 70, case: "sentence", lineHeight: 0.98,
+      shadow: LEGIBLE, stroke: THIN_STROKE, scrim: 0.5, ...NO_BOX, ...topLeft, maxWidth: 560,
+      maxWordsPerLine: 3, maxLines: 3, rotate: -3, punctuationBreaks: true,
+      arrow: { color: "#FFFFFF", thickness: 6 },
+    }),
+  },
+
+  "imessage": {
+    label: "D iMessage bubbles",
+    note: "Chat bubbles stacking top-right: grey received lines, '> line' as the blue sent bubble.",
+    roles: listRoles({
+      family: "Inter", weight: 500, size: 36, case: "sentence", lineHeight: 1.2, shadow: null,
+      ...NO_BOX, anchor: "top-right", x: 1010, y: 300, align: "right", maxWidth: 600,
+      maxWordsPerLine: 3, maxLines: 3,
+      list: {
+        mode: "bubbles", gap: 8, recv: { bg: "#E9E9EB", color: "#000000" },
+        sent: { bg: "#0A84FF", color: "#FFFFFF" }, bubblePadX: 24, bubblePadY: 13, bubbleRadius: 34,
+      },
+    }),
+  },
+
+  "tiktok-hype-small": {
+    label: "E TikTok hype, smaller",
+    note: "tiktok-hype's black-on-white per-line boxes at 70% size, for the top band.",
+    roles: listRoles({
+      family: "Montserrat", weight: 800, size: 39, case: "upper", tracking: -0.01,
+      lineHeight: 1.22, color: "#111111", shadow: null, ...NO_BOX,
+      lineBox: { color: "#FFFFFF", padX: 14, padY: 3, radius: 8 },
+      anchor: "top-center", y: 300, align: "center", maxWidth: 600, rotate: -3,
+      maxWordsPerLine: 3, maxLines: 3, punctuationBreaks: true,
+    }),
+  },
+
+  // ---- legibility preset (walk-2026-09-13 reel-01 "therapy" rewrite, author pick A) ----
+
+  "bold-outline": {
+    label: "A Bold rounded outline",
+    note: "Nunito Black, white with a crisp 5-px dark outline and a tight + soft drop shadow, no box or scrim; reads at feed size on a white-grey sky.",
+    roles: listRoles({
+      family: "Nunito", weight: 900, size: 64, case: "sentence", tracking: -0.005, lineHeight: 1.04,
+      color: "#FFFFFF", shadow: "0 3px 2px rgba(0,0,0,0.55), 0 6px 18px rgba(0,0,0,0.45)",
+      stroke: { width: 5, color: "rgba(12,10,10,0.88)" }, ...NO_BOX, ...topLeft, maxWidth: 820,
+      maxWordsPerLine: 4, maxLines: 3, punctuationBreaks: true,
+    }),
+  },
 };
 
 export const PRESET_NAMES = ["legacy", ...Object.keys(PRESETS)];
@@ -416,7 +518,7 @@ export const resolveRole = (
   style: Style,
   type: OverlayType,
   presetName: string | undefined,
-  override: { anchor?: string; scrim?: number } = {},
+  override: { anchor?: string | AnchorSpec; scrim?: number } = {},
 ): RoleStyle => {
   const base = baseRole(style, type, presetName);
   let out = base;
@@ -432,7 +534,12 @@ export const resolveRole = (
       align: pos.anchor === "center" || pos.anchor.endsWith("-center") ? "center" : "left",
     };
   }
-  if (override.anchor) {
+  if (override.anchor && typeof override.anchor === "object") {
+    const a = override.anchor;
+    const align =
+      a.align ?? (a.anchor === "top-right" ? "right" : a.anchor === "center" || a.anchor.endsWith("-center") ? "center" : "left");
+    out = { ...out, anchor: a.anchor, x: a.x, y: a.y, align };
+  } else if (override.anchor) {
     const slots = slotsFor(style);
     const slot = slots[override.anchor];
     if (!slot)

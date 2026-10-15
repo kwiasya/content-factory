@@ -92,8 +92,8 @@ class MigrationTest(unittest.TestCase):
                              {"watchlist_id": 1, "channel_id": 1})
 
 
-class V6Test(unittest.TestCase):
-    def test_v6_adds_pack_and_asset_tables_to_a_v5_database(self):
+class V7Test(unittest.TestCase):
+    def test_v7_adds_pack_and_asset_tables_to_a_v5_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "v5.db"
             conn = sqlite3.connect(path)
@@ -109,18 +109,18 @@ class V6Test(unittest.TestCase):
                                  {"kind": "skill", "key": "reel", "text": "keep"})
 
 
-class V7Test(unittest.TestCase):
-    def test_v7_adds_idea_video_to_a_v6_database(self):
+class V8Test(unittest.TestCase):
+    def test_v8_adds_idea_video_to_a_v7_database(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "v6.db"
+            path = Path(tmp) / "v7.db"
             conn = sqlite3.connect(path)
-            for v, script in enumerate(st.MIGRATIONS[:6]):
+            for v, script in enumerate(st.MIGRATIONS[:7]):
                 conn.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {v + 1};\nCOMMIT;")
             conn.execute("INSERT INTO pack (id, root, config, created_at) VALUES ('p', '/x', '{}', 'x')")
             conn.commit()
             conn.close()
             with st.open_store(path, seed=False) as s:
-                self.assertEqual(s.schema_version(), 7)
+                self.assertEqual(s.schema_version(), 8)
                 self.assertIn("idea_video", s.tables())
                 self.assertEqual(s.one("SELECT id, root FROM pack"), {"id": "p", "root": "/x"})
                 cols = [r["name"] for r in s.query("PRAGMA table_info(idea_video)")]

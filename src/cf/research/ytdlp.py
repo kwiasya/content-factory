@@ -4,7 +4,8 @@
 vertical Short comes as 720x1280 and a landscape video as 1280x720; H.264 and
 AAC are preferred so ffmpeg/VideoToolbox decode it. YouTube needs a JS runtime
 (deno, default) and the ``yt-dlp-ejs`` scripts (``yt-dlp[default]``). Sign-in
-walls are reported, never worked around with browser cookies.
+walls are reported, never worked around with browser cookies. The same holds for
+Instagram (ADR 0010): no cookies, no login; a refusal makes the card caption-only.
 """
 
 from __future__ import annotations
@@ -42,6 +43,28 @@ def extract(url: str) -> dict:
         raise FetchError(f"yt-dlp: {exc}".replace("\n", " ")) from exc
     _check(info)
     return info
+
+
+class _Silent:
+    """A yt-dlp logger that drops everything: the error comes back as ``FetchError``."""
+
+    def debug(self, msg: str) -> None:
+        pass
+
+    warning = error = info = debug
+
+
+def metadata(url: str) -> dict:
+    """Metadata only (no format choice, no download, no cookies, no login): what an Instagram owner
+    lookup needs (``channel`` is the owner's username, ``description`` the caption, counts)."""
+    from yt_dlp import YoutubeDL
+    from yt_dlp.utils import DownloadError, ExtractorError
+
+    try:
+        with YoutubeDL(_base() | {"skip_download": True, "logger": _Silent()}) as ydl:
+            return ydl.sanitize_info(ydl.extract_info(url, download=False, process=False))
+    except (DownloadError, ExtractorError) as exc:
+        raise FetchError(f"yt-dlp: {exc}".replace("\n", " ")) from exc
 
 
 def download(url: str, ref_dir: Path, video_id: str) -> dict:

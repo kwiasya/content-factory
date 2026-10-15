@@ -26,6 +26,13 @@ any ``references/*/``, whatever Watchlist is given now (nothing moves or doubles
 
 Adapters (yt-dlp, stable-ts, proxy, Shot log, OCR, Data API transport) come
 in through ``Adapters`` so tests replace them; the logic here is pure.
+
+An Instagram reel (a reel or post link, or ``ig:<shortcode>``; ADR 0010) is
+fetched from what the store already has from the Graph API (scout, snapshot,
+``watchlist add-reference``): counts, caption, owner. yt-dlp then tries the
+media without login or cookies; when Instagram refuses, the card is
+caption-only (no transcript, Shot log or OCR) and its ``notes.media`` says why.
+The Reference folder is named by the shortcode.
 """
 
 from __future__ import annotations
@@ -321,8 +328,11 @@ def fetch(store: Store, ref: str, *, watchlist: str | None = None, force: bool =
     Result: ``video_id`` (YouTube id), ``video`` (store id), ``dir``, ``channel_source``,
     ``language`` and ``language_source`` (``info``, ``whisper``, ``watchlist`` or ``default``),
     ``steps`` (per artifact: made, kept, downloaded, FAILED: …), ``captions`` (``.vtt`` file
-    names in ``dir``), ``card``.
+    names in ``dir``), ``card``. An Instagram link goes to ``fetch_instagram``.
     """
+    code = instagram_ref(ref)
+    if code is not None:
+        return fetch_instagram(store, code, watchlist=watchlist, force=force, adapters=adapters, root=root)
     vid = parse_video_ref(ref)
     a = adapters or default_adapters()
     hint = DEFAULT_LANGUAGE
@@ -406,7 +416,39 @@ def fetch(store: Store, ref: str, *, watchlist: str | None = None, force: bool =
     captions = sorted(p.name for p in d.glob(f"{vid}.*.vtt"))
 
     rec = record_info(store, info, transport=a.transport, media=True, transcript=True)
+    shotlog, frames = _shotlog_ocr(a, d, media, transcript, force, redo, steps)
 
+    measured = measure.measure(info, transcript, shotlog, frames) | {"language": language, "language_source": source}
+    saved = card.save(store, rec["video_id"], measured, path=d / "card.json")
+    if saved.get("analysis") is None:
+        steps["analysis"] = "none yet"
+    elif made:
+        problem = card.spoken_hook_problem(saved, transcript)
+        steps["analysis"] = (f"kept; stale: hook.spoken_hook {problem} — re-run analyze-reference"
+                             if problem else "kept; hook.spoken_hook found in the new transcript")
+    else:
+        steps["analysis"] = "kept"
+    return {"video_id": vid, "video": rec["video_id"], "title": info.get("title"), "dir": str(d),
+            "watchlist": watchlist, "language": language, "language_source": source,
+            "channel_source": rec["channel_source"],
+            "steps": steps, "captions": captions, "card": saved}
+
+
+def _transcript(a: Adapters, d: Path, media: Path, language: str, force: bool, steps: dict) -> dict:
+    tr_path = d / "transcript.json"
+    if force or not tr_path.exists():
+        transcript = a.transcribe(media, language)
+        _write(tr_path, transcript)
+        steps["transcript"] = "made"
+    else:
+        transcript = _read(tr_path)
+        steps["transcript"] = "kept"
+    return transcript
+
+
+def _shotlog_ocr(a: Adapters, d: Path, media: Path, transcript: dict, force: bool, redo: bool,
+                 steps: dict) -> tuple[dict | None, list | None]:
+    """Proxy, Shot log and OCR of the media in ``d``, each kept unless ``force`` (the Shot log also on ``redo``)."""
     shotlog = None
     sl_path = d / "shotlog.json"
     px = a.proxy(media, d / "proxy.mp4", force)
@@ -432,18 +474,85 @@ def fetch(store: Store, ref: str, *, watchlist: str | None = None, force: bool =
     else:
         frames = _read(ocr_path)
         steps["ocr"] = "kept"
+    return shotlog, frames
 
-    measured = measure.measure(info, transcript, shotlog, frames) | {"language": language, "language_source": source}
-    saved = card.save(store, rec["video_id"], measured, path=d / "card.json")
-    if saved.get("analysis") is None:
-        steps["analysis"] = "none yet"
-    elif made:
-        problem = card.spoken_hook_problem(saved, transcript)
-        steps["analysis"] = (f"kept; stale: hook.spoken_hook {problem} — re-run analyze-reference"
-                             if problem else "kept; hook.spoken_hook found in the new transcript")
+
+# --- Instagram ------------------------------------------------------------------
+
+CAPTION_ONLY = ("caption-only: yt-dlp could not get the video without login ({why}); no transcript, Shot log "
+                "or OCR. Cookies and login are never used (ADR 0010)")
+
+
+def instagram_ref(text: str) -> str | None:
+    """The shortcode of an Instagram reel or post link or of ``ig:<shortcode>``; None for anything else."""
+    t = (text or "").strip()
+    if t.lower().startswith("ig:") and ingest.SHORTCODE_RE.fullmatch(t[3:].strip()):
+        return t[3:].strip()
+    if ingest.instagram_segments(t) is None:
+        return None
+    code = ingest.instagram_shortcode(t)
+    if code is None:
+        raise FetchError(f"not an Instagram reel or post link: {text!r}")
+    return code
+
+
+def fetch_instagram(store: Store, code: str, *, watchlist: str | None = None, force: bool = False,
+                    adapters: Adapters | None = None, root: Path | None = None) -> dict:
+    """Deep fetch of one Instagram Reference the store has (see the module docstring)."""
+    row = store.one("SELECT v.*, c.handle FROM video v LEFT JOIN channel c ON c.id = v.channel_id "
+                    "WHERE v.platform = 'instagram' AND v.external_id = ?", (code,))
+    if row is None:
+        raise FetchError(f"Instagram Reference {code} is not in the store: scout its account, or add the link with "
+                         f"`watchlist add-reference <watchlist> <link>`")
+    language = DEFAULT_LANGUAGE
+    if watchlist is not None:
+        language = watchlists.get(store, watchlist).language or DEFAULT_LANGUAGE
+    a = adapters or default_adapters()
+    d = folder_for(code, watchlist, root)
+    d.mkdir(parents=True, exist_ok=True)
+    media = d / f"{code}.mp4"
+    url = row["url"] or ingest.instagram_url(code)
+    snap = store.one("SELECT taken_at, views, likes, comments FROM snapshot WHERE video_id = ? "
+                     "ORDER BY views IS NULL, taken_at DESC LIMIT 1", (row["id"],)) or {}
+    info = {"id": code, "title": row["title"], "description": row["description"], "webpage_url": url,
+            "uploader_id": row["handle"], "view_count": snap.get("views"), "like_count": snap.get("likes"),
+            "comment_count": snap.get("comments")}
+    steps: dict[str, str] = {}
+    why = None
+    if force or not media.exists():
+        try:
+            got = a.download(url, d, code)
+            steps["media"] = "downloaded"
+            info["duration"] = got.get("duration")
+        except FetchError as exc:
+            why = str(exc)
+            steps["media"] = f"unavailable: {why}"
     else:
-        steps["analysis"] = "kept"
-    return {"video_id": vid, "video": rec["video_id"], "title": info.get("title"), "dir": str(d),
-            "watchlist": watchlist, "language": language, "language_source": source,
-            "channel_source": rec["channel_source"],
-            "steps": steps, "captions": captions, "card": saved}
+        steps["media"] = "kept"
+        old = d / "info.json"
+        if old.exists():
+            info["duration"] = _read(old).get("duration")
+    has_media = media.exists()
+    _write(d / "info.json", info)
+    steps["captions"] = "none on Instagram"
+    transcript = shotlog = frames = None
+    if has_media:
+        transcript = _transcript(a, d, media, language, force, steps)
+        shotlog, frames = _shotlog_ocr(a, d, media, transcript, force, force, steps)
+    else:
+        for step in ("transcript", "proxy", "shotlog", "ocr"):
+            steps[step] = "skipped (caption-only)"
+    measured = measure.measure(info, transcript, shotlog, frames)
+    measured["kind"] = measured["kind"] or row["kind"]
+    measured["platform"] = "instagram"
+    measured["caption"] = row["description"]
+    measured["counts"] = {k: snap.get(k) for k in ("taken_at", "views", "likes", "comments")}
+    if not has_media:
+        measured["notes"]["media"] = CAPTION_ONLY.format(why=why or "no media file")
+    with store.transaction() as c:
+        c.execute("UPDATE video SET has_media = ?, has_transcript = ?, duration_s = COALESCE(?, duration_s) "
+                  "WHERE id = ?", (int(has_media), int(transcript is not None), measured["duration_s"], row["id"]))
+    saved = card.save(store, row["id"], measured, path=d / "card.json")
+    return {"video_id": code, "video": row["id"], "title": row["title"], "dir": str(d), "watchlist": watchlist,
+            "language": language, "channel_source": f"store ({row['handle'] or 'owner unknown'})",
+            "platform": "instagram", "steps": steps, "captions": [], "card": saved}
