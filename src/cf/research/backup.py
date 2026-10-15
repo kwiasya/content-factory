@@ -20,8 +20,7 @@ from cf.research.store import StoreError, Store
 
 KEEP_DAILY = 14
 KEEP_BULK = 10
-BULK_LABELS = frozenset({"pre-scout", "pre-snapshot", "pre-fetch", "pre-index", "pre-pack-remove", "pre-own",
-                         "pre-ig"})
+BULK_LABELS = frozenset({"pre-scout", "pre-snapshot", "pre-fetch", "pre-index", "pre-pack-remove", "pre-own"})
 NAME = re.compile(r"^factory-(\d{8})-(\d{4})-([a-z0-9][a-z0-9-]*)\.db$")
 LABEL = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
