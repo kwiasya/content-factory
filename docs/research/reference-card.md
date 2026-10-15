@@ -1,6 +1,6 @@
 # Reference card schema
 
-A Reference card is the deep analysis of one Reference, schema `cf-reference-card/1`. It lives in the research store (table `card`, the source of truth) and as a copy in `~/Movies/content-factory/references/<watchlist>/<video_id>/card.json`. Terms: `GLOSSARY.md` (section Исследование). The fields follow the Sandcastles Video Detail page one to one (`docs/research/sandcastles-map.md`, "Поля deep analysis"). Code: `cf.research.card`.
+A Reference card is the deep analysis of one Reference, schema `cf-reference-card/1`. It lives in the research store (table `card`, the source of truth) and as a copy in `<shared root>/references/<watchlist>/<video_id>/card.json` (`/Users/Shared/content-factory`, ADR 0013). Terms: `GLOSSARY.md` (section Исследование). The fields follow the Sandcastles Video Detail page one to one (`docs/research/sandcastles-map.md`, "Поля deep analysis"). Code: `cf.research.card`.
 
 ```json
 {"schema": "cf-reference-card/1", "measured": {…}, "analysis": {…} | null}

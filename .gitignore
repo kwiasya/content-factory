@@ -12,8 +12,9 @@ overlays/out/
 # Author context: personal, lives on this Mac only (/author-setup creates it)
 author/
 
-# Secrets (YouTube Data API key, Instagram token); see .env.example
+# Personal settings (CF_PERSON, roots); the API keys live in <shared root>/secrets.env, see .env.example
 .env
+secrets.env
 
 # Desk frontend
 web/node_modules

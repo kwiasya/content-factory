@@ -10,5 +10,5 @@ Sandcastles (watchlist → outlier score → deep analysis → идеи и сц�
 ## Consequences
 
 - Квота Data API: общий бакет 10 000 единиц в сутки (чтение статистики 1 единица на 50 видео) и с 2026-06-01 отдельный бакет на 100 вызовов `search.list` в сутки. Снимки дешёвые, поиск ограничен числом вызовов.
-- Скачивание чужих видео через yt-dlp это серая зона условий YouTube; файлы живут только в `~/Movies/content-factory/references/`, в репо не попадают.
+- Скачивание чужих видео через yt-dlp это серая зона условий YouTube; файлы живут только в `~/Movies/content-factory/references/`, в репо не попадают. (Путь в этом пункте заменён ADR 0013: `references/` лежит в общем корне.)
 - Нет похожих каналов из коробки: Data API больше не отдаёт related channels, поиск новых Reference channel идёт через текстовый поиск и featured channels.
