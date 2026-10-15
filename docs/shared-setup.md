@@ -60,23 +60,32 @@ Expected on the 2026-10-15 copies: 3 watchlists, 495 channels, 8 110 videos, 16 
 
 **Checkpoint: the author confirms the move and the merge.**
 
-A2. Backups: `mkdir -p /Users/madvil2/Shared/content-factory/backups`; `python -m cf.research db backup --label pre-shared`; `cp /Users/madvil2/Shared/content-factory/factory.db /Users/madvil2/Shared/content-factory/backups/factory-<ts>-nastya-pre-merge.db`.
+A2. Backups, in the terminal that also runs A3 and A4 (`TS` names this move's files):
+
+```sh
+TS=$(date +%Y%m%d-%H%M); echo "TS=$TS"
+mkdir -p /Users/madvil2/Shared/content-factory/backups
+python -m cf.research db backup --label pre-shared
+cp /Users/madvil2/Shared/content-factory/factory.db "/Users/madvil2/Shared/content-factory/backups/factory-$TS-nastya-pre-merge.db"
+```
 
 A3. Re-run `pgrep -fl "cf\.|uvicorn|DaVinci"` (empty) and Nastya confirms nothing of hers runs. The merge for real (A1 without `--dry-run`); the report says PASS; `python -m cf.research db check --db /Users/madvil2/Shared/content-factory/merge/factory.db`.
 
-A4. Re-run the `pgrep` check (empty). Move the shared parts and place the merged store (renames on one volume). The block stops at the first failure and refuses to run once anything has moved; after a partial run, finish the remaining lines by hand:
+A4. Re-run the `pgrep` check (empty). Move the shared parts and place the merged store (renames on one volume). Paste the whole block into the A2 terminal (it needs `TS`): it runs in a child `bash -e`, so a failure stops the block without closing the terminal; it refuses to start unless A3 left `merge/factory.db` and nothing has moved yet. After a partial run, finish the remaining lines by hand:
 
 ```sh
-set -e
+TS="$TS" bash -e <<'EOF'
 S=/Users/madvil2/Shared/content-factory
+[ -n "$TS" ] || { echo "TS is not set: run the A2 block in this terminal first"; exit 1; }
+[ -f "$S/merge/factory.db" ] || { echo "no $S/merge/factory.db: run A3 first"; exit 1; }
 [ ! -e "$S/references" ] && [ ! -e "$S/library" ] && [ ! -e /Users/Shared/content-factory ] || { echo "already moved, stop"; exit 1; }
 mkdir -p $S/packs $S/backups
 mv ~/Movies/content-factory/references $S/references
 mv ~/Movies/content-factory/library    $S/library
 mv ~/Movies/content-factory/backups/*  $S/backups/
-mv ~/Movies/content-factory/factory.db $S/backups/factory-<ts>-author-pre-merge.db
+mv ~/Movies/content-factory/factory.db "$S/backups/factory-$TS-author-pre-merge.db"
 mv ~/Movies/content-factory/factory.db.bak-pre-v7-20261014-2355 $S/backups/factory-20261014-2355-pre-v7.db
-mv $S/factory.db $S/backups/factory-<ts>-nastya-copy.db
+mv $S/factory.db "$S/backups/factory-$TS-nastya-copy.db"
 mv $S/merge/factory.db $S/factory.db && mv $S/merge/factory.db.merge-report.json $S/backups/ && rmdir $S/merge
 mv "/Users/madvil2/Movies/Videos/davinci templates" "$S/packs/davinci templates"
 ln -s /Users/madvil2/Shared/content-factory /Users/Shared/content-factory
@@ -84,6 +93,8 @@ ln -s /Users/Shared/content-factory/factory.db  ~/Movies/content-factory/factory
 ln -s /Users/Shared/content-factory/references  ~/Movies/content-factory/references
 ln -s /Users/Shared/content-factory/library     ~/Movies/content-factory/library
 ln -s "/Users/Shared/content-factory/packs/davinci templates" "/Users/madvil2/Movies/Videos/davinci templates"
+echo "A4 done"
+EOF
 ```
 
 The symlinks under `~/Movies` are for habits only; `cf.*` never uses them.
@@ -100,13 +111,13 @@ A7. Rewrite the absolute paths the old fetches left in the Reference JSON files 
 
 A8. **[author]** File Sharing exports `Shared`; give `nastaglusenko` Read & Write; turn guest access off for `Shared` (System Settings, or `sudo sharing -e Shared -g 000`). The Mac's name for the URL: `scutil --get LocalHostName`.
 
-A9. Verify: `db check` (path `/Users/Shared/content-factory/factory.db` resolved to `/Users/madvil2/Shared/...`, current version, `delete`, `ok`); `watchlist list` shows 3 Watchlists; `feed me-walks` shows Instagram rows; `card show <ig code>` and `card show <yt id>`; `notes list --all` shows the 20 Notes; `cf.library pack list` shows the new root; `cf.library query --category face` returns Assets; Desk: `#/agent` shows both roots and the person, `#/library` tiles and previews load, `#/contour` lists three Watchlists, `#/videos` unchanged. **[author]** Resolve opens a project that uses a template through the old path with media online.
+A9. Verify: `db check` (path `/Users/Shared/content-factory/factory.db` resolved to `/Users/madvil2/Shared/...`, current version, `delete`, `ok`); `watchlist list` shows 3 Watchlists; `feed me-walks` shows Instagram rows; `card show Dctv4nEslv4` (Instagram) and `card show 9ND_kN7ecHQ` (YouTube); `notes list --all` shows the 20 Notes; `cf.library pack list` shows the new root; `cf.library query --category face` returns Assets; Desk: `#/agent` shows both roots and the person, `#/library` tiles and previews load, `#/contour` lists three Watchlists, `#/videos` unchanged. **[author]** Resolve opens a project that uses a template through the old path with media online.
 
 A10. Commit the repo changes (the Pack config root) when the author asks. Nothing under the share is ever committed.
 
 ## Nastya's Mac (N)
 
-N1. **[Nastya]** Finder → Connect to Server → `smb://<author-mac>.local/Shared` as `nastaglusenko` (not guest); it mounts at `/Volumes/Shared` (if `/Volumes/Shared-1` appears, eject the other volume first); add it to Login Items.
+N1. **[Nastya]** Finder → Connect to Server → `smb://NAME.local/Shared`, where NAME is what `scutil --get LocalHostName` printed on the author's Mac in A8, as `nastaglusenko` (not guest); it mounts at `/Volumes/Shared` (if `/Volumes/Shared-1` appears, eject the other volume first); add it to Login Items.
 
 N2. `[ ! -e /Users/Shared/content-factory ] && ln -s /Volumes/Shared/content-factory /Users/Shared/content-factory` (nothing happens when it is already there; `ls -l /Users/Shared/content-factory` must point at `/Volumes/Shared/content-factory`).
 
@@ -114,28 +125,37 @@ N3. `git pull` (the checkout must have store V10), `uv pip install --python .ven
 
 N4. Copy her References to the share once (no name clash with the author's Watchlists): `rsync -a ~/Movies/content-factory/references/ /Users/Shared/content-factory/references/`. Her `library/` cache is not copied; `index` rebuilds it after N7. Then `python -m cf.research references relativize` (as in A7) rewrites the `/Users/anastasiiahlushchenko/...` paths in her Reference JSON files.
 
-N5. `python -m cf.research db check`; `watchlist list` (3 rows); `feed me-walks` shows her picks; `card show <ig code>`; `notes list --all` shows her 20 Notes. ACLs both ways: she runs `touch /Users/Shared/content-factory/.nastya-test` and the author deletes it; she deletes a file the author made. One write: `notes add general "Nastya connected"`, the author resolves it. Her local store stays in place until N5a passes.
+N5. `python -m cf.research db check`; `watchlist list` (3 rows); `feed me-walks` shows her picks; `card show Dctv4nEslv4`; `notes list --all` shows her 20 Notes. ACLs both ways: she runs `touch /Users/Shared/content-factory/.nastya-test` and the author deletes it; she deletes a file the author made. One write: `python -m cf.research notes add general "" "Nastya connected"`, the author resolves it with `python -m cf.research notes resolve` and the id it printed. Her local store stays in place until N5a passes.
 
 N5a. Lock test, the go-live gate; run it after her first CLI command of the day (so the `daily` backup does not skew the timing).
 1. The author holds the write lock for 40 s:
    ```sh
    .venv/bin/python -c "import sqlite3,time; c=sqlite3.connect('/Users/Shared/content-factory/factory.db', timeout=10); c.execute('BEGIN IMMEDIATE'); print('holding 40 s'); time.sleep(40); c.rollback(); print('released')"
    ```
-   Within those 40 s Nastya runs `python -m cf.research notes add general "lock test"`: it must end after about 10 s with the busy error and exit 1. After `released` she runs it again: it succeeds and the author sees the Note in `notes list`.
-2. The reverse: Nastya holds the lock with the same one-liner, the author's `notes add` must wait about 10 s and fail, then succeed after `released`.
+   Within those 40 s Nastya runs `python -m cf.research notes add general "" "lock test"`: it must end after about 10 s with the busy error and exit 1. After `released` she runs it again: it succeeds and the author sees the Note in `notes list`.
+2. The reverse: Nastya holds the lock with the same one-liner, the author's `python -m cf.research notes add general "" "lock test back"` must wait about 10 s and fail, then succeed after `released`.
 3. Freshness: the author adds a Note; her Desk shows it on refresh.
 
 Outcome. All three pass: her local store is renamed `~/Movies/content-factory/factory.db.local-pre-shared` (kept, unused). If a write succeeds while the other Mac holds the lock, locks are not shared across the two Macs: do not retire her local store; adopt "one writer at a time" (never scout, snapshot, fetch, index or own sync on both Macs at once; Desk writes only while the other Mac is idle) and open the network-store item of ADR 0013.
 
 N6. `python -m cf.desk` → `#/agent` shows both roots, her name and no "not mounted" line; `#/contour` shows `me-walks`; `#/library` lists the author's Pack and plays a preview; `#/videos` lists her Videos.
 
-N7. Her Packs: move `memes` into `/Users/Shared/content-factory/packs/memes/` and copy the iCloud `Мемы` folder to `packs/memes-inbox/` (iCloud cannot be shared in place); set each config's `root` to the canonical path in `.claude/skills/index-pack/packs/`, then `python -m cf.library pack add --config <config>` and `index <id>` for each. The 4 Author rows of `memes` kept by the merge attach again because the id stays `memes`. Until then the Library shows only `davinci-templates`.
+N7. Her Packs: move `memes` into `/Users/Shared/content-factory/packs/memes/` and copy the iCloud `Мемы` folder to `packs/memes-inbox/` (iCloud cannot be shared in place); set each config's `root` to the canonical path in `.claude/skills/index-pack/packs/`, then for each Pack:
+
+```sh
+python -m cf.library pack add --config .claude/skills/index-pack/packs/memes.json
+python -m cf.library index memes
+python -m cf.library pack add --config .claude/skills/index-pack/packs/memes-inbox.json
+python -m cf.library index memes-inbox
+```
+
+ The 4 Author rows of `memes` kept by the merge attach again because the id stays `memes`. Until then the Library shows only `davinci-templates`.
 
 N8. Unmount test: eject the volume; `python -m cf.research watchlist list` exits 1 with the mount hint; nothing appears under `/Volumes`, `/Users/Shared` or her local root; Desk `#/videos` still works; remount.
 
 ## Rollback and restore
 
-Before A8, or later with everyone stopped: move the folders back, remove the five symlinks, put `backups/factory-<ts>-author-pre-merge.db` back as `~/Movies/content-factory/factory.db` (already renumbered; `backups/factory-*-pre-renumber.db` restores the old numbering if an old checkout must read it), restore the Pack `root` and `pack add`, put `CF_SHARED_ROOT` back in `.env`. Nastya keeps her local store until N5a passes, so her side rolls back by pointing `CF_SHARED_ROOT` at her local root.
+Before A8, or later with everyone stopped: move the folders back, remove the five symlinks, put `backups/factory-$TS-author-pre-merge.db` (the `TS` of A2) back as `~/Movies/content-factory/factory.db` (already renumbered; `backups/factory-*-pre-renumber.db` restores the old numbering if an old checkout must read it), restore the Pack `root` and `pack add`, put `CF_SHARED_ROOT` back in `.env`. Nastya keeps her local store until N5a passes, so her side rolls back by pointing `CF_SHARED_ROOT` at her local root.
 
 Hot journal: a `factory.db-journal` left by a crashed writer is rolled back by the next read-write opener (any `cf.research` or `cf.library` command); read-only openers (Desk reads, `db check`, the Notes hook) cannot roll it back and fail with a read-only error until one does. Never delete the journal while any process might run: it holds the pages that undo the half-written transaction.
 
