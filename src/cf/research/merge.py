@@ -321,8 +321,8 @@ class _Import:
             refs = [a for a in aliases if a["asset_id"] in ids]
             event = {"event": "pack_skipped", "id": p["id"], "root": p["root"], "author_rows": len(mine),
                      "aliases": len(refs),
-                     "command": f"python -m cf.library pack add --config <config of {p['id']}> "
-                                f"--root /Users/Shared/content-factory/packs/<folder>"}
+                     "command": f"python -m cf.library pack add --config .claude/skills/index-pack/packs/{p['id']}.json "
+                                f"--root /Users/Shared/content-factory/packs/{p['id']}"}
             taken |= ids
             if self.one("SELECT 1 AS x FROM pack WHERE id = ?", (p["id"],)):
                 self.skipped["pack"] += 1
