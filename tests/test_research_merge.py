@@ -69,14 +69,20 @@ class MergeTest(unittest.TestCase):
         self.out = self.dir / "merged" / "factory.db"
         make_old_store(self.base)
         with sqlite3.connect(self.base) as conn:
-            conn.execute("INSERT INTO note (kind, key, text, created_at) VALUES ('card', 'DAbc', 'nice', 'x')")
+            conn.executescript("""
+                INSERT INTO note (kind, key, text, created_at) VALUES ('card', 'DAbc', 'nice', 'x');
+                INSERT INTO idea (watchlist_id, source_video_ids, title, status, brief_path, created_at, updated_at)
+                    VALUES (1, '[1]', 'base idea', 'brief', '/Users/author/briefs/1.md', 'x', 'x');
+                INSERT INTO idea_video (idea_id, video_slug, linked_at) VALUES (1, 'base-walk', 'x');
+                INSERT INTO note (kind, key, text, created_at) VALUES ('video', 'base-walk', 'louder', 'y');
+            """)
         st.open_store(self.other, seed=False, create=True).close()
         with sqlite3.connect(self.other) as conn:
             conn.executescript(OTHER_SQL)
         self.sums = (merge.sha256(self.base), merge.sha256(self.other))
 
     def merged(self, **kw) -> dict:
-        return merge.merge(self.base, self.other, self.out, other_person="nastya", **kw)
+        return merge.merge(self.base, self.other, self.out, base_person="author", other_person="nastya", **kw)
 
     def q(self, sql: str, params: tuple = ()) -> list[dict]:
         conn = st.connect(self.out, readonly=True)
@@ -119,15 +125,18 @@ class MergeTest(unittest.TestCase):
         self.assertEqual(self.q("SELECT watchlist_id, video_id FROM watchlist_pick"),
                          [{"watchlist_id": walks, "video_id": pick}])
 
-        idea = self.q("SELECT * FROM idea")[0]
+        base_idea, idea = self.q("SELECT * FROM idea ORDER BY id")
+        self.assertEqual(base_idea["brief_owner"], "author")
         self.assertEqual((idea["watchlist_id"], json.loads(idea["source_video_ids"]), idea["brief_owner"]),
                          (walks, [reel["id"], pick], "nastya"))
-        self.assertEqual(self.q("SELECT idea_id, owner, video_slug FROM idea_video"),
-                         [{"idea_id": idea["id"], "owner": "nastya", "video_slug": "reel-a"}])
+        self.assertEqual(self.q("SELECT idea_id, owner, video_slug FROM idea_video ORDER BY idea_id"),
+                         [{"idea_id": base_idea["id"], "owner": "author", "video_slug": "base-walk"},
+                          {"idea_id": idea["id"], "owner": "nastya", "video_slug": "reel-a"}])
         self.assertEqual(self.q("SELECT source_video_id FROM hook"), [{"source_video_id": reel["id"]}])
 
         self.assertEqual(self.q("SELECT kind, key, owner FROM note ORDER BY id"),
-                         [{"kind": "card", "key": "DAbc", "owner": ""}, {"kind": "video", "key": "reel-a", "owner": "nastya"},
+                         [{"kind": "card", "key": "DAbc", "owner": ""}, {"kind": "video", "key": "base-walk", "owner": "author"},
+                          {"kind": "video", "key": "reel-a", "owner": "nastya"},
                           {"kind": "channel", "key": "instagram:@kwi", "owner": ""}])
         self.assertEqual(self.q("SELECT day, calls, units FROM quota ORDER BY day"),
                          [{"day": "2026-10-01", "calls": 5, "units": 5}, {"day": "2026-10-02", "calls": 1, "units": 100}])
@@ -157,6 +166,12 @@ class MergeTest(unittest.TestCase):
         self.merged(is_dir=lambda p: p == "/nonexistent/memes")
         self.assertEqual({p["id"] for p in self.q("SELECT id FROM pack")}, {"tpl", "memes"})
 
+    def test_the_two_people_must_be_named_and_differ(self):
+        for base_person, other_person in (("", "nastya"), ("author", " "), ("same", "same")):
+            with self.assertRaises(merge.MergeError):
+                merge.merge(self.base, self.other, self.out, base_person=base_person, other_person=other_person)
+        self.assertFalse(self.out.exists())
+
     def test_a_dry_run_leaves_no_file(self):
         r = self.merged(dry_run=True)
         self.assertTrue(r["ok"])
@@ -175,7 +190,7 @@ class MergeTest(unittest.TestCase):
         bad = [{"check": "forced", "ok": False, "detail": None}]
         with mock.patch.object(merge, "_spot_checks", return_value=bad):
             code, out = run(["db", "merge", "--base", str(self.base), "--other", str(self.other), "--out",
-                             str(self.out), "--other-person", "nastya", "--json"])
+                             str(self.out), "--base-person", "author", "--other-person", "nastya", "--json"])
         self.assertEqual(code, 1)
         self.assertFalse(json.loads(out)["ok"])
         self.assertFalse(self.out.exists())
@@ -183,14 +198,14 @@ class MergeTest(unittest.TestCase):
 
     def test_cli_merge_prints_the_report(self):
         code, out = run(["db", "merge", "--base", str(self.base), "--other", str(self.other), "--out",
-                         str(self.out), "--other-person", "nastya", "--dry-run"])
+                         str(self.out), "--base-person", "author", "--other-person", "nastya", "--dry-run"])
         self.assertEqual(code, 0, out)
         self.assertIn("PASS", out)
         self.assertIn("memes", out)
 
     def test_the_merged_store_merges_again_as_a_no_op_other(self):
         self.merged()
-        again = merge.merge(self.out, self.other, self.dir / "twice.db", other_person="nastya", dry_run=True)
+        again = merge.merge(self.out, self.other, self.dir / "twice.db", base_person="author", other_person="nastya", dry_run=True)
         self.assertTrue(again["ok"], json.dumps(again, indent=1))
         counts = {t["table"]: (t["merged"], t["base"]) for t in again["tables"]}
         for table in ("channel", "video", "snapshot", "card", "note", "watchlist_pick"):

@@ -366,7 +366,8 @@ UPDATE note SET key = '.claude/skills/ingest-footage/' || substr(key, 28)
 """
 
 # Version 10 (ADR 0013): two people share the store; rows naming something under a person's local root carry
-# its owner (CF_PERSON): the Idea's Brief, a Video Note, the Idea <-> Video link. '' = the author's, from before.
+# its owner (CF_PERSON): the Idea's Brief, a Video Note, the Idea <-> Video link. '' = the single person of a store
+# never merged; db merge writes every owner.
 V10 = """
 ALTER TABLE idea ADD COLUMN brief_owner TEXT;
 ALTER TABLE note ADD COLUMN owner TEXT NOT NULL DEFAULT '';

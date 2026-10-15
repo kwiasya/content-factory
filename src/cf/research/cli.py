@@ -1127,8 +1127,8 @@ def _merge_human(r: dict) -> str:
 
 
 def cmd_db_merge(args) -> int:
-    r = merge.merge(args.base, args.other, args.out, other_person=args.other_person, packs=args.packs,
-                    dry_run=args.dry_run)
+    r = merge.merge(args.base, args.other, args.out, base_person=args.base_person,
+                    other_person=args.other_person, packs=args.packs, dry_run=args.dry_run)
     emit(args, r, lambda: _merge_human(r))
     return 0 if r["ok"] else 1
 
@@ -1153,6 +1153,8 @@ def register_db(sub, common) -> None:
     p.add_argument("--base", required=True, help="the store whose rows win on a conflict (the author's)")
     p.add_argument("--other", required=True, help="the store imported into it")
     p.add_argument("--out", required=True, help="the merged store to write; must not exist")
+    p.add_argument("--base-person", required=True, dest="base_person",
+                   help="CF_PERSON of the base store's owner: owner of its Briefs, Video links and video Notes")
     p.add_argument("--other-person", required=True, dest="other_person",
                    help="CF_PERSON of the other store's owner: owner of its Briefs, Video links and video Notes")
     p.add_argument("--packs", choices=merge.PACK_MODES, default="skip",

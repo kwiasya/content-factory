@@ -11,8 +11,11 @@ channels, videos and Ideas:
 - ``watchlist`` by name (queries united), ``channel`` and ``video`` by (platform, external_id) (flags
   ORed, tags and marks united, the later scout marks kept), ``snapshot``/``insight`` by (video, taken_at),
   ``card`` by video (the newer ``written_at`` wins, reported), the link tables by their keys;
-- ``hook`` and ``idea`` are added with remapped ids (``source_video_ids`` too); the other's Briefs,
-  Video links and video Notes get ``other_person`` as owner where they have none;
+- every row of an owner column (``idea.brief_owner`` of an Idea with a Brief, ``note.owner`` of a video
+  Note, ``idea_video.owner``) gets an explicit owner: ``base_person`` on the base rows, ``other_person`` on
+  the other's, where they have none; a merged store has no empty owner, which on a store never merged
+  means "this single person's own rows" (ADR 0013);
+- ``hook`` and ``idea`` are added with remapped ids (``source_video_ids`` too);
 - ``note`` is added unless the same (kind, key, text, created_at) is there;
 - ``quota`` sums calls and units per (day, method), ``rate`` keeps base per (minute, method),
   ``rate_pressure`` keeps the later reading per bucket;
@@ -83,6 +86,10 @@ def _rows(conn: sqlite3.Connection, table: str) -> list[dict]:
     return [dict(r) for r in conn.execute(f'SELECT * FROM "{table}" ORDER BY rowid')]
 
 
+def _count_where(conn: sqlite3.Connection, table: str, where: str) -> int:
+    return int(conn.execute(f'SELECT count(*) FROM "{table}" WHERE {where}').fetchone()[0])
+
+
 def _count(conn: sqlite3.Connection, table: str) -> int:
     return int(conn.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0])
 
@@ -129,6 +136,17 @@ class _Import:
         if got is None:
             self.failures.append(f"{where}: {table} id {other_id} of the other store has no row to map to")
         return got
+
+    def base_owners(self, person: str) -> None:
+        c = self.out
+        n = c.execute("UPDATE idea SET brief_owner = ? WHERE brief_path IS NOT NULL AND brief_path != '' "
+                      "AND (brief_owner IS NULL OR brief_owner = '')", (person,)).rowcount
+        n += c.execute("UPDATE note SET owner = ? WHERE kind = 'video' AND owner = ''", (person,)).rowcount
+        n += c.execute("UPDATE OR IGNORE idea_video SET owner = ? WHERE owner = ''", (person,)).rowcount
+        dup = c.execute("DELETE FROM idea_video WHERE owner = ''").rowcount
+        self.matched["idea_video"] += dup
+        if n or dup:
+            self.events.append({"event": "base_owners_set", "person": person, "rows": n, "duplicates_dropped": dup})
 
     def run(self) -> None:
         for step in (self.taxonomy, self.watchlists, self.channels, self.videos, self.measures, self.cards,
@@ -384,14 +402,18 @@ def _spot_checks(out: sqlite3.Connection, other: sqlite3.Connection, imp: _Impor
     return checks
 
 
-def merge(base: str | Path, other: str | Path, out: str | Path, *, other_person: str, packs: str = "skip",
+def merge(base: str | Path, other: str | Path, out: str | Path, *, base_person: str, other_person: str,
+          packs: str = "skip",
           dry_run: bool = False, is_dir: Callable[[str], bool] = lambda p: Path(p).is_dir()) -> dict:
     """Merge ``base`` and ``other`` into the new file ``out``; return the report (see the module docstring)."""
     base, other, out = Path(base).expanduser(), Path(other).expanduser(), Path(out).expanduser()
     if packs not in PACK_MODES:
         raise MergeError(f"--packs must be one of {', '.join(PACK_MODES)}")
-    if not other_person.strip():
-        raise MergeError("--other-person names whose local rows the other store holds; it cannot be empty")
+    if not base_person.strip() or not other_person.strip():
+        raise MergeError("--base-person and --other-person name whose local rows each store holds; "
+                         "neither can be empty")
+    if base_person == other_person:
+        raise MergeError("--base-person and --other-person must be two different people")
     for p in (base, other):
         if not p.is_file():
             raise MergeError(f"no store at {p}")
@@ -403,18 +425,19 @@ def merge(base: str | Path, other: str | Path, out: str | Path, *, other_person:
     out.parent.mkdir(parents=True, exist_ok=True)
     sums = {"base": [sha256(base)], "other": [sha256(other)]}
     report: dict[str, Any] = {"base": str(base), "other": str(other), "out": str(out), "dry_run": dry_run,
-                              "other_person": other_person, "packs": packs}
+                              "base_person": base_person, "other_person": other_person, "packs": packs}
     conn = oconn = None
     try:
         _copy(base, out)
         _copy(other, tmp)
         conn, oconn = _prepare(out), _prepare(tmp)
+        imp = _Import(conn, oconn, other_person, packs, is_dir)
         base_counts = {t: _count(conn, t) for t in TABLES}
         other_counts = {t: _count(oconn, t) for t in TABLES}
         library_before = {t: _rows(conn, t) for t in ("asset_author", "asset_alias")}
-        imp = _Import(conn, oconn, other_person, packs, is_dir)
         conn.execute("BEGIN IMMEDIATE")
         try:
+            imp.base_owners(base_person)
             imp.run()
         except BaseException:
             conn.rollback()
@@ -431,7 +454,12 @@ def merge(base: str | Path, other: str | Path, out: str | Path, *, other_person:
         integrity = "\n".join(str(r[0]) for r in conn.execute("PRAGMA integrity_check"))
         version = int(conn.execute("PRAGMA user_version").fetchone()[0])
         changed_library = [t for t, rows in library_before.items() if _changed(conn, t, rows)]
+        empty = (_count_where(conn, "idea", "brief_path IS NOT NULL AND brief_path != '' "
+                                           "AND (brief_owner IS NULL OR brief_owner = '')")
+                 + _count_where(conn, "note", "kind = 'video' AND owner = ''")
+                 + _count_where(conn, "idea_video", "owner = ''"))
         checks = [_check("import met only mappable rows", not imp.failures, imp.failures[:20]),
+                  _check("every owner column names a person", empty == 0, empty),
                   _check("foreign_key_check empty", not fk, fk[:20]),
                   _check("integrity_check ok", integrity == "ok", integrity.splitlines()[:5]),
                   _check(f"schema version {st.SCHEMA_VERSION}", version == st.SCHEMA_VERSION, version),

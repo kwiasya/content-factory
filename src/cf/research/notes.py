@@ -5,8 +5,8 @@ A Note has a ``kind`` (``KINDS``) and a ``key``: a repo-relative path for a
 ``idea``, ``<platform>:@handle`` for a ``channel`` (a Reference channel, e.g.
 ``instagram:@lyuba_bich``). A ``general`` Note has an empty key and applies to every skill. A Note
 is open until it is resolved; ``list`` shows open Notes unless asked for all. A ``video`` Note names a
-Video under one person's local root, so it carries that ``owner`` (``CF_PERSON``; ``''`` from before the
-store was shared) and ``list`` shows only this Mac's person's ones unless ``all_owners`` (ADR 0013); every
+Video under one person's local root, so it carries that ``owner`` (``CF_PERSON``; ``''`` only in a store
+never merged, meaning its single person) and ``list`` shows only this Mac's person's ones unless ``all_owners`` (ADR 0013); every
 other kind is shared and has no owner.
 """
 

@@ -39,7 +39,7 @@ Order: the shell wins over `.env`, which wins over `secrets.env`. `CF_ENV_FILE` 
 | `db backup [--label L]` | copies the store into `backups/` (label `manual` by default) |
 | `db migrate` | migrates to this checkout's schema version after a `git pull` (any CLI command does it too, with a `pre-v<N>` backup first; Desk never migrates) |
 | `db renumber [--db P]` | repairs a store migrated by the pre-merge checkout (Library as V6, idea_video as V7; every command on it fails with this hint), backup `pre-renumber` first, then migrates; idempotent |
-| `db merge --base A --other N --out OUT --other-person NAME [--packs skip\|import] [--dry-run]` | merges two stores into a new file; inputs are only read; prints and saves `<OUT>.merge-report.json`; deletes `OUT` on any FAIL and on `--dry-run` |
+| `db merge --base A --other N --out OUT --base-person NAME --other-person NAME [--packs skip\|import] [--dry-run]` | merges two stores into a new file; inputs are only read; every Brief, Video link and video Note gets its owner written out (an empty owner only exists in a store that was never merged and means its single person); prints and saves `<OUT>.merge-report.json`; deletes `OUT` on any FAIL and on `--dry-run` |
 
 Backups: `daily` at the first CLI command of the day (after a passing `quick_check`; a failing one stops the command and never overwrites good backups), `pre-scout`, `pre-snapshot`, `pre-fetch`, `pre-own`, `pre-index`, `pre-pack-remove` before those commands (the newest 10 kept), the newest 14 `daily`; `pre-v<N>`, `pre-renumber`, `manual` and any other label are kept until removed by hand.
 
@@ -52,7 +52,8 @@ A1. Dry runs. `du -sh ~/Movies/content-factory/{factory.db,references,library} "
 ```sh
 python -m cf.research db merge --base ~/Movies/content-factory/factory.db \
   --other /Users/madvil2/Shared/content-factory/factory.db \
-  --out /Users/madvil2/Shared/content-factory/merge/factory.db --other-person anastasiiahlushchenko --dry-run
+  --out /Users/madvil2/Shared/content-factory/merge/factory.db \
+  --base-person madvil2 --other-person anastasiiahlushchenko --dry-run
 ```
 
 Expected on the 2026-10-15 copies: 3 watchlists, 495 channels, 8 110 videos, 16 cards, 15 335 snapshots, 100 insights, 21 picks, 37 watchlist_channel, 701 search_hit, 80 taxonomy (2 proposed kept, 3 approved from Nastya), 20 notes, 8 quota, 13 rate, 1 pack, 97 asset_author (the author's 93 untouched, and 4 of Nastya's `memes` Pack kept for its re-add in N7), 85 aliases; Packs `memes` and `memes-inbox` reported as skipped with the re-add command; every check PASS.
