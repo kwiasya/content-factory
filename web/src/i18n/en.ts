@@ -450,6 +450,7 @@ export const en = {
   "ideas.sources": "Sources",
   "ideas.videos": "Videos",
   "ideas.videoElsewhere": "{slug} ({owner}, on their Mac)",
+  "ideas.briefElsewhere": "The Brief is on {owner}'s Mac; open it there.",
   "ideas.noVideos": "No video made from it yet.",
   "ideas.notes": "Idea notes",
   "ideas.noNotes": "No notes yet.",

@@ -6,7 +6,7 @@ import { useDeskData, useReloadOnMount } from "../shell/DeskData";
 import { NEW_VIDEO_HASH } from "../shell/routes";
 import { VIDEOS_PREFIX, videoHref } from "./routes";
 import { videosApi } from "./videosApi";
-import { isMine, usePerson } from "../person";
+import { isForeign, usePerson } from "../person";
 
 const NEW_CHANNEL = "\u0000new";
 
@@ -44,7 +44,7 @@ function NewVideoPage() {
   const person = usePerson();
   const videoTitle = (slug: string) => data.videos?.find((v) => v.slug === slug)?.title || slug;
   const picked = ideas.find((i) => String(i.id) === ideaId);
-  const pickedVideos = (picked?.videos ?? []).filter((v) => isMine(v.owner, person)).map((v) => v.slug);
+  const pickedVideos = (picked?.videos ?? []).filter((v) => !isForeign(v.owner, person)).map((v) => v.slug);
 
   const newChannel = channel === NEW_CHANNEL;
   const channelValue = newChannel ? channelName.trim() : channel;
@@ -154,13 +154,13 @@ function NewVideoPage() {
           >
             <option value="">{t("newVideo.noBrief")}</option>
             {ideas.map((i) => (
-              <option key={i.id} value={String(i.id)} disabled={!isMine(i.brief_owner, person)}>
+              <option key={i.id} value={String(i.id)} disabled={isForeign(i.brief_owner, person)}>
                 #{i.id} {i.title} ({i.watchlist})
-                {isMine(i.brief_owner, person) ? "" : ` — ${t("newVideo.briefElsewhere", { owner: i.brief_owner ?? "" })}`}
+                {isForeign(i.brief_owner, person) ? ` — ${t("newVideo.briefElsewhere", { owner: i.brief_owner ?? "" })}` : ""}
                 {i.videos?.length
                   ? ` — ${t("newVideo.briefHasVideo", {
                       videos: i.videos
-                        .map((v) => (isMine(v.owner, person) ? videoTitle(v.slug) : `${v.slug} (${v.owner})`))
+                        .map((v) => (isForeign(v.owner, person) ? `${v.slug} (${v.owner})` : videoTitle(v.slug)))
                         .join(", "),
                     })}`
                   : ""}

@@ -10,7 +10,7 @@ import { ErrorLine } from "../ErrorLine";
 import { formatTime } from "../format";
 import { useDeskData } from "../shell/DeskData";
 import { videoHref } from "../videos/routes";
-import { isMine, usePerson } from "../person";
+import { isForeign, usePerson } from "../person";
 
 const ACTIONS: Record<string, IdeaAction[]> = {
   inbox: ["shortlist", "discard"],
@@ -215,10 +215,10 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
             ) : (
               (idea.videos ?? []).map(({ slug, owner }) => (
                 <div key={`${owner}/${slug}`}>
-                  {isMine(owner, person) ? (
-                    <a href={videoHref(slug)}>{videos?.find((v) => v.slug === slug)?.title || slug}</a>
-                  ) : (
+                  {isForeign(owner, person) ? (
                     <span>{t("ideas.videoElsewhere", { slug, owner })}</span>
+                  ) : (
+                    <a href={videoHref(slug)}>{videos?.find((v) => v.slug === slug)?.title || slug}</a>
                   )}
                 </div>
               ))
@@ -248,7 +248,11 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
       <ErrorLine error={error} />
 
       <h2 className="section">{t("ideas.brief")}</h2>
-      {idea.status === "brief" ? (
+      {idea.status === "brief" && isForeign(idea.brief_owner, person) ? (
+        <p className="muted">{t("ideas.briefElsewhere", { owner: idea.brief_owner ?? "" })}</p>
+      ) : idea.status === "brief" && idea.brief_owner && person.state === "loading" ? (
+        <p className="muted">{t("common.loading")}</p>
+      ) : idea.status === "brief" ? (
         <BriefEditor ideaId={idea.id} />
       ) : idea.status === "shortlisted" ? (
         <p className="muted">

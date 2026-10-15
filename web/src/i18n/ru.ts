@@ -450,6 +450,7 @@ export const ru: Dict = {
   "ideas.sources": "Источники",
   "ideas.videos": "Видео",
   "ideas.videoElsewhere": "{slug} ({owner}, на её или его Маке)",
+  "ideas.briefElsewhere": "Бриф лежит на Маке {owner}; открой его там.",
   "ideas.noVideos": "Видео по этой идее ещё нет.",
   "ideas.notes": "Заметки к Идее",
   "ideas.noNotes": "Заметок пока нет.",
