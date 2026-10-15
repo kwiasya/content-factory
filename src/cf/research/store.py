@@ -311,9 +311,16 @@ CREATE INDEX idea_video_slug ON idea_video (video_slug);
 ALTER TABLE asset_author ADD COLUMN hidden_agent_tags TEXT NOT NULL DEFAULT '[]';
 """
 
+# Version 9: the Walk is now Footage (ADR 0012); Notes keyed by the renamed skill ingest-footage follow it.
+V9 = """
+UPDATE note SET key = 'ingest-footage' WHERE kind = 'skill' AND key = 'ingest-walk';
+UPDATE note SET key = '.claude/skills/ingest-footage/' || substr(key, 28)
+ WHERE kind = 'document' AND substr(key, 1, 27) = '.claude/skills/ingest-walk/';
+"""
+
 PLATFORMS = ("youtube", "instagram")
 
-MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8]  # MIGRATIONS[i] takes the store from version i to i + 1
+MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9]  # MIGRATIONS[i] takes the store from version i to i + 1
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

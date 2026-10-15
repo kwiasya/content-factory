@@ -122,13 +122,39 @@ class V8Test(unittest.TestCase):
             conn.commit()
             conn.close()
             with st.open_store(path, seed=False) as s:
-                self.assertEqual(s.schema_version(), 8)
+                self.assertEqual(s.schema_version(), st.SCHEMA_VERSION)
                 self.assertIn("idea_video", s.tables())
                 self.assertEqual(s.one("SELECT id, root FROM pack"), {"id": "p", "root": "/x"})
                 cols = [r["name"] for r in s.query("PRAGMA table_info(idea_video)")]
                 self.assertEqual(cols, ["idea_id", "video_slug", "linked_at"])
                 author_cols = [r["name"] for r in s.query("PRAGMA table_info(asset_author)")]
                 self.assertEqual(author_cols[-1], "hidden_agent_tags")
+
+
+class V9Test(unittest.TestCase):
+    def test_schema_version_is_9(self):
+        self.assertEqual(st.SCHEMA_VERSION, 9)
+
+    def test_v9_moves_the_notes_of_ingest_walk_to_ingest_footage_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "v8.db"
+            conn = sqlite3.connect(path)
+            for v, script in enumerate(st.MIGRATIONS[:8]):
+                conn.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {v + 1};\nCOMMIT;")
+            for kind, key in (("skill", "ingest-walk"), ("document", ".claude/skills/ingest-walk/SKILL.md"),
+                              ("skill", "reel"), ("video", "x~y"), ("document", ".claude/skills/ingest-walker/a.md"),
+                              ("general", "ingest-walk")):
+                conn.execute("INSERT INTO note (kind, key, text, created_at) VALUES (?, ?, 't', 'x')", (kind, key))
+            conn.commit()
+            conn.close()
+            want = [("skill", "ingest-footage"), ("document", ".claude/skills/ingest-footage/SKILL.md"),
+                    ("skill", "reel"), ("video", "x~y"), ("document", ".claude/skills/ingest-walker/a.md"),
+                    ("general", "ingest-walk")]
+            for _ in range(2):
+                with st.open_store(path, seed=False) as s:
+                    self.assertEqual(s.schema_version(), 9)
+                    self.assertEqual([(r["kind"], r["key"]) for r in s.query("SELECT kind, key FROM note ORDER BY id")],
+                                     want)
 
 
 class ConcurrentOpenTest(unittest.TestCase):
