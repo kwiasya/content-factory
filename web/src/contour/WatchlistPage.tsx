@@ -1,5 +1,13 @@
 import { useCallback, useState, type FormEvent } from "react";
-import { contourApi, DEFAULT_FILTERS, type FeedFilters, type FeedRow } from "./api";
+import {
+  channelUrl,
+  contourApi,
+  DEFAULT_FILTERS,
+  platformName,
+  type FeedFilters,
+  type FeedRow,
+} from "./api";
+import { PlatformBadge } from "./PlatformBadge";
 import { Cmd, ContourShell, Status } from "./ContourShell";
 import { outlierText, seconds, viewsText } from "./format";
 import { CONTOUR_PREFIX, cardHref, ideasHref, summaryHref } from "./routes";
@@ -9,11 +17,23 @@ import { ErrorLine } from "../ErrorLine";
 import { formatDate, formatNumber } from "../format";
 import { kindText } from "./CardPage";
 
-const FIELDS: { key: keyof FeedFilters; label: Key; placeholder: string | null }[] = [
+const FIELDS: {
+  key: keyof FeedFilters;
+  label: Key;
+  placeholder: string | null;
+}[] = [
   { key: "days", label: "watchlist.filter.days", placeholder: "30" },
-  { key: "min_outlier", label: "watchlist.filter.minOutlier", placeholder: null },
+  {
+    key: "min_outlier",
+    label: "watchlist.filter.minOutlier",
+    placeholder: null,
+  },
   { key: "min_views", label: "watchlist.filter.minViews", placeholder: null },
-  { key: "max_duration", label: "watchlist.filter.maxDuration", placeholder: null },
+  {
+    key: "max_duration",
+    label: "watchlist.filter.maxDuration",
+    placeholder: null,
+  },
   { key: "limit", label: "watchlist.filter.limit", placeholder: "20" },
 ];
 
@@ -23,7 +43,10 @@ export function WatchlistPage({ name }: { name: string }) {
   const watchlist = useLoad(loadWatchlist);
   const [draft, setDraft] = useState<FeedFilters>(DEFAULT_FILTERS);
   const [applied, setApplied] = useState<FeedFilters>(DEFAULT_FILTERS);
-  const loadFeed = useCallback(() => contourApi.feed(name, applied), [name, applied]);
+  const loadFeed = useCallback(
+    () => contourApi.feed(name, applied),
+    [name, applied],
+  );
   const feed = useLoad(loadFeed);
 
   const apply = (e: FormEvent) => {
@@ -56,11 +79,16 @@ export function WatchlistPage({ name }: { name: string }) {
           <h1>{name}</h1>
           {w && (
             <span className="muted">
-              {t.rich("watchlist.format", { format: <code>{w.format_id}</code> })}
+              {t.rich("watchlist.format", {
+                format: <code>{w.format_id}</code>,
+              })}
               {w.author_channel && (
                 <>
                   {" "}
-                  · {t.rich("watchlist.channel", { channel: <code>{w.author_channel}</code> })}
+                  ·{" "}
+                  {t.rich("watchlist.channel", {
+                    channel: <code>{w.author_channel}</code>,
+                  })}
                 </>
               )}{" "}
               · {w.language}
@@ -79,7 +107,9 @@ export function WatchlistPage({ name }: { name: string }) {
       {watchlist.data && channels.length === 0 && (
         <p className="muted">
           {t.rich("watchlist.noChannels", {
-            cmd: <Cmd>{`python -m cf.research watchlist add-channel ${name} <handle>`}</Cmd>,
+            cmd: (
+              <Cmd>{`python -m cf.research watchlist add-channel ${name} <handle>`}</Cmd>
+            ),
           })}
         </p>
       )}
@@ -98,14 +128,21 @@ export function WatchlistPage({ name }: { name: string }) {
             {channels.map((c) => (
               <tr key={c.external_id}>
                 <td>
-                  <a href={`https://www.youtube.com/channel/${c.external_id}`} target="_blank" rel="noreferrer">
+                  <PlatformBadge platform={c.platform} />
+                  <a href={channelUrl(c)} target="_blank" rel="noreferrer">
                     {c.handle ?? c.external_id}
                   </a>
                 </td>
                 <td>{c.title ?? "—"}</td>
                 <td className="num">{viewsText(c.subscriber_count, t)}</td>
-                <td className="num">{c.video_count === null ? "—" : formatNumber(c.video_count, t)}</td>
-                <td>{c.own && <span className="badge">{t("watchlist.own")}</span>}</td>
+                <td className="num">
+                  {c.video_count === null
+                    ? "—"
+                    : formatNumber(c.video_count, t)}
+                </td>
+                <td>
+                  {c.own && <span className="badge">{t("watchlist.own")}</span>}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -113,7 +150,9 @@ export function WatchlistPage({ name }: { name: string }) {
       )}
 
       <h2 className="section">{t("watchlist.queries")}</h2>
-      {w && w.queries.length === 0 && <p className="muted">{t("watchlist.noQueries")}</p>}
+      {w && w.queries.length === 0 && (
+        <p className="muted">{t("watchlist.noQueries")}</p>
+      )}
       {w && w.queries.length > 0 && (
         <ul className="queries">
           {w.queries.map((q) => (
@@ -141,7 +180,10 @@ export function WatchlistPage({ name }: { name: string }) {
         ))}
         <label>
           {t("watchlist.filter.kind")}
-          <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })}>
+          <select
+            value={draft.kind}
+            onChange={(e) => setDraft({ ...draft, kind: e.target.value })}
+          >
             <option value="">{t("common.any")}</option>
             <option value="short">{t("card.kind.short")}</option>
             <option value="long">{t("card.kind.long")}</option>
@@ -155,12 +197,26 @@ export function WatchlistPage({ name }: { name: string }) {
         </button>
       </form>
       <Status error={feed.error} loading={feed.data === null} />
-      {feed.data && <FeedTable name={name} rows={feed.data} days={applied.days || DEFAULT_FILTERS.days} />}
+      {feed.data && (
+        <FeedTable
+          name={name}
+          rows={feed.data}
+          days={applied.days || DEFAULT_FILTERS.days}
+        />
+      )}
     </ContourShell>
   );
 }
 
-function FeedTable({ name, rows, days }: { name: string; rows: FeedRow[]; days: string }) {
+function FeedTable({
+  name,
+  rows,
+  days,
+}: {
+  name: string;
+  rows: FeedRow[];
+  days: string;
+}) {
   const t = useT();
   if (rows.length === 0) {
     return (
@@ -202,28 +258,40 @@ function FeedTable({ name, rows, days }: { name: string; rows: FeedRow[]; days: 
               <td className="num muted">{i + 1}</td>
               <td className="num">
                 <strong>{outlierText(r.outlier, t)}</strong>
+                {r.outlier_basis === "likes" && r.outlier !== null && (
+                  <div className="muted small">{t("watchlist.byLikes")}</div>
+                )}
               </td>
               <td className="num">{viewsText(r.views, t)}</td>
               <td className="when">{formatDate(r.date, t)}</td>
               <td>
-                <a href={cardHref(r.external_id)}>{r.title || t("watchlist.untitled")}</a>
+                <a href={cardHref(r.external_id)}>
+                  {r.title || t("watchlist.untitled")}
+                </a>
                 <div className="muted small">
                   {kindText(r.kind, t)} · {seconds(r.duration_s)}
                 </div>
               </td>
-              <td>{r.handle ?? r.channel_title ?? "—"}</td>
+              <td>
+                <PlatformBadge platform={r.platform} />
+                {r.handle ?? r.channel_title ?? "—"}
+              </td>
               <td>
                 {r.url ? (
                   <a href={r.url} target="_blank" rel="noreferrer">
-                    YouTube
+                    {platformName(r.platform)}
                   </a>
                 ) : (
                   "—"
                 )}
               </td>
               <td className="feed-flags">
-                {!r.analyzed && <span className="flag pending">{t("card.notAnalyzed")}</span>}
-                {r.candidate && <span className="flag candidate">{t("card.candidate")}</span>}
+                {!r.analyzed && (
+                  <span className="flag pending">{t("card.notAnalyzed")}</span>
+                )}
+                {r.candidate && (
+                  <span className="flag candidate">{t("card.candidate")}</span>
+                )}
               </td>
             </tr>
           ))}

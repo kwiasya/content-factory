@@ -1,6 +1,6 @@
 import { useCallback, useRef, type ReactNode } from "react";
 import { mediaUrl } from "../api";
-import { contourApi, type Measured } from "./api";
+import { contourApi, platformName, type Measured } from "./api";
 import { Cmd, ContourShell, Status } from "./ContourShell";
 import { plain, seconds, secondsText, outlierText, viewsText } from "./format";
 import { useT, type T } from "../i18n";
@@ -31,7 +31,10 @@ function measuredRows(m: Measured, t: T): [string, ReactNode][] {
       t("card.firstText"),
       m.first_text ? (
         <>
-          «{m.first_text}» <span className="muted">{t("card.at", { s: secondsText(m.first_text_s, t) })}</span>
+          «{m.first_text}»{" "}
+          <span className="muted">
+            {t("card.at", { s: secondsText(m.first_text_s, t) })}
+          </span>
         </>
       ) : (
         "—"
@@ -69,7 +72,8 @@ function AnalysisValue({ value }: { value: unknown }) {
   if (typeof value === "string" && value.startsWith(PROPOSED)) {
     return (
       <>
-        <code>{value.slice(PROPOSED.length)}</code> <span className="flag pending">{t("card.proposed")}</span>
+        <code>{value.slice(PROPOSED.length)}</code>{" "}
+        <span className="flag pending">{t("card.proposed")}</span>
       </>
     );
   }
@@ -95,7 +99,9 @@ export function CardPage({ id }: { id: string }) {
         <a href={CONTOUR_PREFIX}>{t("contour.back")}</a>
         <Status error={error} loading={!error} />
         {error && (
-          <p className="muted">{t.rich("card.hint", { cmd: <Cmd>/analyze-reference</Cmd> })}</p>
+          <p className="muted">
+            {t.rich("card.hint", { cmd: <Cmd>/analyze-reference</Cmd> })}
+          </p>
         )}
       </ContourShell>
     );
@@ -118,26 +124,40 @@ export function CardPage({ id }: { id: string }) {
             {ref && (
               <>
                 {" "}
-                · {ref.handle ?? ref.channel_title ?? "—"} · {formatDate(ref.date, t)} ·{" "}
-                {t("card.views", { views: viewsText(ref.views, t) })} · <strong>{outlierText(ref.outlier, t)}</strong>
+                · {ref.handle ?? ref.channel_title ?? "—"} ·{" "}
+                {formatDate(ref.date, t)} ·{" "}
+                {t("card.views", { views: viewsText(ref.views, t) })} ·{" "}
+                <strong>{outlierText(ref.outlier, t)}</strong>
               </>
             )}
           </span>
         </div>
         <div className="doc-badges">
           {ref?.url && (
-            <a href={ref.url} target="_blank" rel="noreferrer">
-              YouTube
+            <a
+              href={ref.url}
+              target="_blank"
+              rel="noreferrer"
+              className={`badge platform platform-${ref.platform ?? "youtube"}`}
+            >
+              {platformName(ref.platform)}
             </a>
           )}
-          {card.analysis === null && <span className="flag pending">{t("card.notAnalyzed")}</span>}
+          {card.analysis === null && (
+            <span className="flag pending">{t("card.notAnalyzed")}</span>
+          )}
         </div>
       </div>
 
       <div className={media ? "card-grid" : ""}>
         {media && (
           <figure className="player card-player">
-            <video ref={video} src={mediaUrl(media)} controls preload="metadata" />
+            <video
+              ref={video}
+              src={mediaUrl(media)}
+              controls
+              preload="metadata"
+            />
             <figcaption className="muted">
               <code>{media}</code>
             </figcaption>
@@ -156,7 +176,12 @@ export function CardPage({ id }: { id: string }) {
 
           <h2 className="section">{t("card.peaks")}</h2>
           {peaks.length > 0 && duration ? (
-            <Heatmap duration={duration} peaks={peaks} chapters={chapters} onSeek={media ? seek : undefined} />
+            <Heatmap
+              duration={duration}
+              peaks={peaks}
+              chapters={chapters}
+              onSeek={media ? seek : undefined}
+            />
           ) : (
             <p className="muted">{t("card.noHeatmap")}</p>
           )}
@@ -168,7 +193,11 @@ export function CardPage({ id }: { id: string }) {
             <ol className="sections">
               {sections.map((s) => (
                 <li key={s.start_s}>
-                  <button className="link time" disabled={!media} onClick={() => seek(s.start_s)}>
+                  <button
+                    className="link time"
+                    disabled={!media}
+                    onClick={() => seek(s.start_s)}
+                  >
                     {seconds(s.start_s)}
                   </button>{" "}
                   {s.text}
@@ -184,7 +213,11 @@ export function CardPage({ id }: { id: string }) {
             <ol className="sections">
               {chapters.map((c) => (
                 <li key={c.start_s}>
-                  <button className="link time" disabled={!media} onClick={() => seek(c.start_s)}>
+                  <button
+                    className="link time"
+                    disabled={!media}
+                    onClick={() => seek(c.start_s)}
+                  >
                     {seconds(c.start_s)}
                   </button>{" "}
                   {c.title}
@@ -211,7 +244,10 @@ export function CardPage({ id }: { id: string }) {
       <h2 className="section">{t("card.analysis")}</h2>
       {card.analysis === null ? (
         <p className="muted">
-          {t.rich("card.notAnalyzedYet", { cmd: <Cmd>/analyze-reference</Cmd>, id: <code>{data.external_id}</code> })}
+          {t.rich("card.notAnalyzedYet", {
+            cmd: <Cmd>/analyze-reference</Cmd>,
+            id: <code>{data.external_id}</code>,
+          })}
         </p>
       ) : (
         <AnalysisValue value={card.analysis} />

@@ -20,21 +20,22 @@ export function BriefEditor({ ideaId }: { ideaId: number }) {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(() => {
-    contourApi.brief(ideaId).then(
-      (b) => {
-        setBrief(b);
-        setDraft(b.text);
-        setConflict(null);
-        setError(null);
-      },
-      setError,
-    );
+    contourApi.brief(ideaId).then((b) => {
+      setBrief(b);
+      setDraft(b.text);
+      setConflict(null);
+      setError(null);
+    }, setError);
   }, [ideaId]);
 
   useEffect(load, [load]);
 
   if (!brief) {
-    return error ? <ErrorLine error={error} /> : <p className="muted">{t("common.loading")}</p>;
+    return error ? (
+      <ErrorLine error={error} />
+    ) : (
+      <p className="muted">{t("common.loading")}</p>
+    );
   }
 
   const dirty = draft !== brief.text;
@@ -71,18 +72,32 @@ export function BriefEditor({ ideaId }: { ideaId: number }) {
         </section>
         <section className="pane editor">
           <div className="toolbar">
-            <button className="primary" disabled={!dirty || saving} onClick={() => save(brief.hash)}>
+            <button
+              className="primary"
+              disabled={!dirty || saving}
+              onClick={() => save(brief.hash)}
+            >
               {saving ? t("common.saving") : t("common.save")}
             </button>
-            <button disabled={!dirty || saving} onClick={() => setDraft(brief.text)}>
+            <button
+              disabled={!dirty || saving}
+              onClick={() => setDraft(brief.text)}
+            >
               {t("common.revert")}
             </button>
             <code className="path brief-path" title={brief.path}>
               {brief.path}
             </code>
-            <span className="muted">{dirty ? t("common.unsaved") : t("common.saved")}</span>
+            <span className="muted">
+              {dirty ? t("common.unsaved") : t("common.saved")}
+            </span>
           </div>
-          <CodeEditor value={draft} kind="markdown" readOnly={false} onChange={setDraft} />
+          <CodeEditor
+            value={draft}
+            kind="markdown"
+            readOnly={false}
+            onChange={setDraft}
+          />
         </section>
       </div>
     </div>

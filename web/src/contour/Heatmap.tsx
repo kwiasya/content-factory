@@ -27,7 +27,14 @@ export function Heatmap({ duration, peaks, chapters, onSeek }: Props) {
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t("heatmap.aria")}>
         <rect x={0} y={0} width={W} height={plot} className="heatmap-bg" />
         {chapters.map((c) => (
-          <line key={`c${c.start_s}`} x1={x(c.start_s)} x2={x(c.start_s)} y1={0} y2={plot} className="heatmap-chapter">
+          <line
+            key={`c${c.start_s}`}
+            x1={x(c.start_s)}
+            x2={x(c.start_s)}
+            y1={0}
+            y2={plot}
+            className="heatmap-chapter"
+          >
             <title>{`${seconds(c.start_s)} ${c.title}`}</title>
           </line>
         ))}
@@ -57,7 +64,9 @@ export function Heatmap({ duration, peaks, chapters, onSeek }: Props) {
             x={x(t)}
             y={H - 4}
             className="heatmap-tick"
-            textAnchor={i === 0 ? "start" : i === ticks.length - 1 ? "end" : "middle"}
+            textAnchor={
+              i === 0 ? "start" : i === ticks.length - 1 ? "end" : "middle"
+            }
           >
             {seconds(t)}
           </text>
