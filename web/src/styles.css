@@ -183,6 +183,21 @@ pre {
   white-space: nowrap;
 }
 
+.badge.platform {
+  margin-right: 6px;
+  font-weight: 600;
+}
+
+.badge.platform-instagram {
+  color: #d62976;
+  border-color: #d62976;
+}
+
+.badge.platform-youtube {
+  color: #e02d2d;
+  border-color: #e02d2d;
+}
+
 .git-modified,
 .git-added,
 .git-renamed,

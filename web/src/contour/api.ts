@@ -1,5 +1,25 @@
 import { getJson, saveText, sendOrThrow } from "../api";
 
+export type Platform = "youtube" | "instagram";
+
+export function platformName(platform: Platform | undefined): string {
+  return platform === "instagram" ? "Instagram" : "YouTube";
+}
+
+export function platformShort(platform: Platform | undefined): string {
+  return platform === "instagram" ? "IG" : "YT";
+}
+
+export function channelUrl(c: {
+  external_id: string;
+  handle: string | null;
+  platform?: Platform;
+}): string {
+  return c.platform === "instagram" && c.handle
+    ? `https://www.instagram.com/${c.handle.replace(/^@/, "")}/`
+    : `https://www.youtube.com/channel/${c.external_id}`;
+}
+
 export interface Watchlist {
   name: string;
   format_id: string;
@@ -9,6 +29,7 @@ export interface Watchlist {
   queries: string[];
   channel_count: number;
   created_at: string;
+  platforms?: Partial<Record<Platform, number>>;
 }
 
 export interface ReferenceChannel {
@@ -19,6 +40,7 @@ export interface ReferenceChannel {
   video_count: number | null;
   view_count: number | null;
   own: boolean;
+  platform?: Platform;
   fetched_at: string | null;
 }
 
@@ -39,6 +61,8 @@ export interface FeedRow {
   comments: number | null;
   own: boolean;
   candidate: boolean;
+  platform?: Platform;
+  outlier_basis?: "views" | "likes";
 }
 
 export interface FeedFilters {
@@ -167,7 +191,12 @@ export interface Idea {
   title: string;
   status: IdeaStatus;
   fields: Record<string, unknown>;
-  sources: { id: number; external_id: string; title: string | null; url: string | null }[];
+  sources: {
+    id: number;
+    external_id: string;
+    title: string | null;
+    url: string | null;
+  }[];
   notes: { at: string; text: string }[];
   brief_path: string | null;
   created_at: string;
@@ -217,19 +246,31 @@ function query(params: Record<string, string>): string {
 }
 
 export const contourApi = {
-  watchlists: () => getJson<{ watchlists: Watchlist[] }>(`${BASE}/watchlists`).then((r) => r.watchlists),
-  watchlist: (name: string) => getJson<{ watchlist: Watchlist; channels: ReferenceChannel[] }>(wl(name)),
+  watchlists: () =>
+    getJson<{ watchlists: Watchlist[] }>(`${BASE}/watchlists`).then(
+      (r) => r.watchlists,
+    ),
+  watchlist: (name: string) =>
+    getJson<{ watchlist: Watchlist; channels: ReferenceChannel[] }>(wl(name)),
   feed: (name: string, filters: FeedFilters) =>
-    getJson<{ rows: FeedRow[] }>(`${wl(name)}/feed${query({ ...filters })}`).then((r) => r.rows),
-  card: (id: string) => getJson<CardDetail>(`${BASE}/cards/${encodeURIComponent(id)}`),
+    getJson<{ rows: FeedRow[] }>(
+      `${wl(name)}/feed${query({ ...filters })}`,
+    ).then((r) => r.rows),
+  card: (id: string) =>
+    getJson<CardDetail>(`${BASE}/cards/${encodeURIComponent(id)}`),
   summary: (name: string, what: SummaryKind, days: string) =>
     getJson<Summary>(`${wl(name)}/summary/${what}${query({ days })}`),
   ideas: (watchlist: string, status: string) =>
-    getJson<{ ideas: Idea[]; statuses: IdeaStatus[] }>(`${BASE}/ideas${query({ watchlist, status })}`),
-  move: (id: number, action: IdeaAction) => sendOrThrow<Idea>(`${BASE}/ideas/${id}/${action}`, "POST"),
-  note: (id: number, text: string) => sendOrThrow<Idea>(`${BASE}/ideas/${id}/notes`, "PUT", { text }),
+    getJson<{ ideas: Idea[]; statuses: IdeaStatus[] }>(
+      `${BASE}/ideas${query({ watchlist, status })}`,
+    ),
+  move: (id: number, action: IdeaAction) =>
+    sendOrThrow<Idea>(`${BASE}/ideas/${id}/${action}`, "POST"),
+  note: (id: number, text: string) =>
+    sendOrThrow<Idea>(`${BASE}/ideas/${id}/notes`, "PUT", { text }),
   brief: (id: number) => getJson<Brief>(`${BASE}/ideas/${id}/brief`),
-  saveBrief: (id: number, text: string, hash: string) => saveText(`${BASE}/ideas/${id}/brief`, "PUT", { text, hash }),
+  saveBrief: (id: number, text: string, hash: string) =>
+    saveText(`${BASE}/ideas/${id}/brief`, "PUT", { text, hash }),
   taxonomy: (kind: string, status: string) =>
     getJson<{ values: TaxonomyValue[]; kinds: string[]; statuses: string[] }>(
       `${BASE}/taxonomy${query({ kind, status })}`,

@@ -1,4 +1,5 @@
-import { contourApi } from "./api";
+import { contourApi, type Platform } from "./api";
+import { PlatformBadge } from "./PlatformBadge";
 import { Cmd, ContourShell, Status } from "./ContourShell";
 import { ideasHref, summaryHref, watchlistHref } from "./routes";
 import { useLoad } from "./useLoad";
@@ -18,7 +19,12 @@ export function ContourHome() {
         <p className="muted">
           {t.rich("contour.home.empty", {
             a: <Cmd>/research-watchlist</Cmd>,
-            b: <Cmd>python -m cf.research watchlist add &lt;name&gt; --format &lt;format&gt;</Cmd>,
+            b: (
+              <Cmd>
+                python -m cf.research watchlist add &lt;name&gt; --format
+                &lt;format&gt;
+              </Cmd>
+            ),
             c: <Cmd>/scout-references</Cmd>,
           })}
         </p>
@@ -48,10 +54,16 @@ export function ContourHome() {
                   {w.language}
                   {w.region ? ` / ${w.region}` : ""}
                 </td>
-                <td className="num">{w.channel_count}</td>
+                <td className="num">
+                  {Object.entries(w.platforms ?? {}).map(([p, n]) => (
+                    <PlatformBadge key={p} platform={p as Platform} count={n} />
+                  ))}
+                  {!w.platforms && w.channel_count}
+                </td>
                 <td className="num">{w.queries.length}</td>
                 <td className="links">
-                  <a href={summaryHref(w.name)}>{t("contour.summaries")}</a> · <a href={ideasHref()}>{t("contour.ideas")}</a>
+                  <a href={summaryHref(w.name)}>{t("contour.summaries")}</a> ·{" "}
+                  <a href={ideasHref()}>{t("contour.ideas")}</a>
                 </td>
               </tr>
             ))}
@@ -63,7 +75,9 @@ export function ContourHome() {
       <Status error={quota.error} loading={quota.data === null} />
       {quota.data && (
         <>
-          <p className="muted">{t("contour.quota.day", { day: formatDate(quota.data.day, t) })}</p>
+          <p className="muted">
+            {t("contour.quota.day", { day: formatDate(quota.data.day, t) })}
+          </p>
           <table className="contour-table narrow">
             <thead>
               <tr>

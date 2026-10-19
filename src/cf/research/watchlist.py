@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from urllib.parse import unquote
 
 from cf.research import env, formats, ingest, instagram, youtube
@@ -140,6 +140,7 @@ class Watchlist:
     queries: list[str]
     channel_count: int
     created_at: str
+    platforms: dict[str, int] = field(default_factory=dict)  # Reference channels per Platform
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -182,9 +183,11 @@ def row(store: Store, name: str) -> dict:
 
 
 def _watchlist(store: Store, r: dict) -> Watchlist:
-    n = store.one("SELECT COUNT(*) AS n FROM watchlist_channel WHERE watchlist_id = ?", (r["id"],))["n"]
+    per = {p["platform"]: int(p["n"]) for p in store.query(
+        "SELECT c.platform, COUNT(*) AS n FROM watchlist_channel wc JOIN channel c ON c.id = wc.channel_id "
+        "WHERE wc.watchlist_id = ? GROUP BY c.platform ORDER BY c.platform", (r["id"],))}
     return Watchlist(r["name"], r["format_id"], r["author_channel"], r["language"], r["region"],
-                     json.loads(r["queries"]), int(n), r["created_at"])
+                     json.loads(r["queries"]), sum(per.values()), r["created_at"], per)
 
 
 def create(store: Store, name: str, *, format_id: str, author_channel: str | None = None,

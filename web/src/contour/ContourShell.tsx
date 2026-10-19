@@ -5,7 +5,13 @@ import { ErrorLine } from "../ErrorLine";
 
 type Section = "home" | "ideas" | "taxonomy" | null;
 
-export function ContourShell({ active, children }: { active: Section; children: ReactNode }) {
+export function ContourShell({
+  active,
+  children,
+}: {
+  active: Section;
+  children: ReactNode;
+}) {
   const t = useT();
   const link = (href: string, id: Section, label: Key) => (
     <a href={href} className={active === id ? "active" : ""}>
@@ -24,7 +30,13 @@ export function ContourShell({ active, children }: { active: Section; children: 
   );
 }
 
-export function Status({ error, loading }: { error: Problem | null; loading: boolean }) {
+export function Status({
+  error,
+  loading,
+}: {
+  error: Problem | null;
+  loading: boolean;
+}) {
   const t = useT();
   if (error) {
     return <ErrorLine error={error} />;

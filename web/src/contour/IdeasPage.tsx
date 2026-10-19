@@ -22,7 +22,10 @@ export function IdeasPage({ selected }: { selected: number | null }) {
   const [status, setStatus] = useState("");
   const [actionError, setActionError] = useState<Problem | null>(null);
   const watchlists = useLoad(contourApi.watchlists);
-  const loader = useCallback(() => contourApi.ideas(watchlist, status), [watchlist, status]);
+  const loader = useCallback(
+    () => contourApi.ideas(watchlist, status),
+    [watchlist, status],
+  );
   const { data, error, reload } = useLoad(loader);
 
   const act = (id: number, action: IdeaAction) => {
@@ -39,7 +42,10 @@ export function IdeasPage({ selected }: { selected: number | null }) {
       <form className="filters" onSubmit={(e) => e.preventDefault()}>
         <label>
           {t("ideas.watchlist")}
-          <select value={watchlist} onChange={(e) => setWatchlist(e.target.value)}>
+          <select
+            value={watchlist}
+            onChange={(e) => setWatchlist(e.target.value)}
+          >
             <option value="">{t("common.all")}</option>
             {(watchlists.data ?? []).map((w) => (
               <option key={w.name} value={w.name}>
@@ -52,7 +58,9 @@ export function IdeasPage({ selected }: { selected: number | null }) {
           {t("ideas.status")}
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">{t("common.all")}</option>
-            {(data?.statuses ?? ["inbox", "shortlisted", "discarded", "brief"]).map((s) => (
+            {(
+              data?.statuses ?? ["inbox", "shortlisted", "discarded", "brief"]
+            ).map((s) => (
               <option key={s} value={s}>
                 {t.or(`ideas.status.${s}`, s)}
               </option>
@@ -93,7 +101,9 @@ export function IdeasPage({ selected }: { selected: number | null }) {
                 </td>
                 <td>{i.watchlist}</td>
                 <td>
-                  <span className={`status-pill idea-${i.status}`}>{t.or(`ideas.status.${i.status}`, i.status)}</span>
+                  <span className={`status-pill idea-${i.status}`}>
+                    {t.or(`ideas.status.${i.status}`, i.status)}
+                  </span>
                 </td>
                 <td className="num">{i.notes.length}</td>
                 <td>
@@ -113,7 +123,9 @@ export function IdeasPage({ selected }: { selected: number | null }) {
       {selected !== null && data && !current && (
         <p className="muted">{t("ideas.notInList", { id: selected })}</p>
       )}
-      {current && <IdeaDetail key={current.id} idea={current} onChanged={reload} />}
+      {current && (
+        <IdeaDetail key={current.id} idea={current} onChanged={reload} />
+      )}
     </ContourShell>
   );
 }
@@ -122,7 +134,13 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) {
+function IdeaDetail({
+  idea,
+  onChanged,
+}: {
+  idea: Idea;
+  onChanged: () => void;
+}) {
   const { videos } = useDeskData();
   const t = useT();
   const [note, setNote] = useState("");
@@ -130,8 +148,11 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
   const [saving, setSaving] = useState(false);
   const f = idea.fields;
   const format = (f.storytelling_format ?? {}) as Record<string, unknown>;
-  const contrast = f.contrast_mechanism as Record<string, unknown> | null | undefined;
-  const personalizations = Array.isArray(f.personalizations) ? (f.personalizations as unknown[]) : [];
+  const contrast = f.contrast_mechanism as
+    Record<string, unknown> | null | undefined;
+  const personalizations = Array.isArray(f.personalizations)
+    ? (f.personalizations as unknown[])
+    : [];
 
   const addNote = () => {
     setSaving(true);
@@ -153,7 +174,9 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
     <section className="idea-detail">
       <h2>
         {idea.title}{" "}
-        <span className={`status-pill idea-${idea.status}`}>{t.or(`ideas.status.${idea.status}`, idea.status)}</span>
+        <span className={`status-pill idea-${idea.status}`}>
+          {t.or(`ideas.status.${idea.status}`, idea.status)}
+        </span>
       </h2>
       <dl className="facts">
         <div>
@@ -213,7 +236,9 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
             ) : (
               (idea.videos ?? []).map((slug) => (
                 <div key={slug}>
-                  <a href={videoHref(slug)}>{videos?.find((v) => v.slug === slug)?.title || slug}</a>
+                  <a href={videoHref(slug)}>
+                    {videos?.find((v) => v.slug === slug)?.title || slug}
+                  </a>
                 </div>
               ))
             )}
@@ -234,8 +259,17 @@ function IdeaDetail({ idea, onChanged }: { idea: Idea; onChanged: () => void }) 
         </ul>
       )}
       <div className="note-add">
-        <textarea value={note} rows={2} placeholder={t("ideas.notePlaceholder")} onChange={(e) => setNote(e.target.value)} />
-        <button className="primary" disabled={!note.trim() || saving} onClick={addNote}>
+        <textarea
+          value={note}
+          rows={2}
+          placeholder={t("ideas.notePlaceholder")}
+          onChange={(e) => setNote(e.target.value)}
+        />
+        <button
+          className="primary"
+          disabled={!note.trim() || saving}
+          onClick={addNote}
+        >
           {saving ? t("ideas.adding") : t("ideas.addNote")}
         </button>
       </div>

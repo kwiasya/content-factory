@@ -6,7 +6,12 @@ import { useLoad } from "./useLoad";
 import { useT, type Problem } from "../i18n";
 import { ErrorLine } from "../ErrorLine";
 
-const KINDS = ["hook_category", "storytelling_format", "editing_style", "visual_layout"];
+const KINDS = [
+  "hook_category",
+  "storytelling_format",
+  "editing_style",
+  "visual_layout",
+];
 
 export function TaxonomyPage() {
   const t = useT();
@@ -14,18 +19,18 @@ export function TaxonomyPage() {
   const [status, setStatus] = useState("proposed");
   const [result, setResult] = useState<TaxonomyChange | null>(null);
   const [actionError, setActionError] = useState<Problem | null>(null);
-  const loader = useCallback(() => contourApi.taxonomy(kind, status), [kind, status]);
+  const loader = useCallback(
+    () => contourApi.taxonomy(kind, status),
+    [kind, status],
+  );
   const { data, error, reload } = useLoad(loader);
 
   const judge = (k: string, value: string, action: "approve" | "reject") => {
     setActionError(null);
-    contourApi.judge(k, value, action).then(
-      (change) => {
-        setResult(change);
-        reload();
-      },
-      setActionError,
-    );
+    contourApi.judge(k, value, action).then((change) => {
+      setResult(change);
+      reload();
+    }, setActionError);
   };
 
   const values = data?.values ?? [];
@@ -37,7 +42,9 @@ export function TaxonomyPage() {
   return (
     <ContourShell active="taxonomy">
       <h1>{t("taxonomy.title")}</h1>
-      <p className="muted">{t.rich("taxonomy.intro", { prefix: <code>proposed:</code> })}</p>
+      <p className="muted">
+        {t.rich("taxonomy.intro", { prefix: <code>proposed:</code> })}
+      </p>
       <form className="filters" onSubmit={(e) => e.preventDefault()}>
         <label>
           {t("taxonomy.kind")}
@@ -54,11 +61,13 @@ export function TaxonomyPage() {
           {t("taxonomy.status")}
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">{t("common.all")}</option>
-            {(data?.statuses ?? ["approved", "proposed", "rejected"]).map((s) => (
-              <option key={s} value={s}>
-                {t.or(`taxonomy.status.${s}`, s)}
-              </option>
-            ))}
+            {(data?.statuses ?? ["approved", "proposed", "rejected"]).map(
+              (s) => (
+                <option key={s} value={s}>
+                  {t.or(`taxonomy.status.${s}`, s)}
+                </option>
+              ),
+            )}
           </select>
         </label>
       </form>
@@ -75,7 +84,11 @@ export function TaxonomyPage() {
           {result.cards.length > 0 && (
             <>
               {" "}
-              {t(result.status === "approved" ? "taxonomy.prefixDropped" : "taxonomy.nowFail")}
+              {t(
+                result.status === "approved"
+                  ? "taxonomy.prefixDropped"
+                  : "taxonomy.nowFail",
+              )}
               {result.cards.map((c) => (
                 <a key={c} href={cardHref(c)} className="card-ref">
                   {c}
@@ -89,7 +102,11 @@ export function TaxonomyPage() {
       <Status error={error} loading={data === null && !error} />
       {data && groups.length === 0 && (
         <p className="muted">
-          {t(status === "proposed" ? "taxonomy.nothingProposed" : "taxonomy.noValues")}
+          {t(
+            status === "proposed"
+              ? "taxonomy.nothingProposed"
+              : "taxonomy.noValues",
+          )}
         </p>
       )}
       {groups.map((g) => (
@@ -114,7 +131,9 @@ export function TaxonomyPage() {
                   </td>
                   <td>{t.taxonomyLabel(v.kind, v.value, v.label) ?? "—"}</td>
                   <td>
-                    <span className={`status-pill tax-${v.status}`}>{t(`taxonomy.status.${v.status}`)}</span>
+                    <span className={`status-pill tax-${v.status}`}>
+                      {t(`taxonomy.status.${v.status}`)}
+                    </span>
                   </td>
                   <td className="small">
                     {v.source.startsWith("card:") ? (
@@ -127,10 +146,18 @@ export function TaxonomyPage() {
                   <td>
                     <div className="row-actions">
                       {v.status !== "approved" && (
-                        <button onClick={() => judge(v.kind, v.value, "approve")}>{t("taxonomy.approve")}</button>
+                        <button
+                          onClick={() => judge(v.kind, v.value, "approve")}
+                        >
+                          {t("taxonomy.approve")}
+                        </button>
                       )}
                       {v.status !== "rejected" && (
-                        <button onClick={() => judge(v.kind, v.value, "reject")}>{t("taxonomy.reject")}</button>
+                        <button
+                          onClick={() => judge(v.kind, v.value, "reject")}
+                        >
+                          {t("taxonomy.reject")}
+                        </button>
                       )}
                     </div>
                   </td>
@@ -142,7 +169,12 @@ export function TaxonomyPage() {
       ))}
       <p className="muted small">
         {t.rich("taxonomy.cli", {
-          cmd: <Cmd>python -m cf.research taxonomy approve|reject &lt;kind&gt; &lt;value&gt;</Cmd>,
+          cmd: (
+            <Cmd>
+              python -m cf.research taxonomy approve|reject &lt;kind&gt;
+              &lt;value&gt;
+            </Cmd>
+          ),
         })}
       </p>
     </ContourShell>
