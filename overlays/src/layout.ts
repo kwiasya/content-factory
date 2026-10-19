@@ -124,3 +124,62 @@ export const layoutText = (opts: {
     shrunk: true,
   };
 };
+
+/** A run of text in one colour; `c` undefined = the role's fill. */
+export type Run = { t: string; c?: string };
+
+/** Inline key-word mark: "{words}" or "{words|colour}". */
+export const MARK_RE = /\{([^{}|]*)(?:\|([^{}]*))?\}/g;
+
+/** Key-word marks in an overlay text. `colour` is a name in `palette`
+ * (style.colors.key_words) or a CSS colour such as #FF4FA3; a bare mark takes
+ * `fallback`. A mark may span a "\n". Returns the text without the marks (what layout
+ * measures) and, per whitespace-separated word in order, its coloured runs: layoutText
+ * keeps words and their order, so line k's words are the next ones in `words`. */
+export const parseMarks = (
+  raw: string,
+  palette: Record<string, string> = {},
+  fallback?: string,
+): { text: string; words: Run[][]; marked: boolean } => {
+  const chars: { ch: string; c?: string }[] = [];
+  let last = 0;
+  let marked = false;
+  for (const m of raw.matchAll(MARK_RE)) {
+    for (const ch of raw.slice(last, m.index)) chars.push({ ch });
+    const name = (m[2] ?? "").trim();
+    const c = name ? (palette[name] ?? name) : fallback;
+    for (const ch of m[1]) chars.push({ ch, c });
+    marked = true;
+    last = (m.index ?? 0) + m[0].length;
+  }
+  for (const ch of raw.slice(last)) chars.push({ ch });
+  const words: Run[][] = [];
+  let cur: Run[] = [];
+  for (const { ch, c } of chars) {
+    if (/\s/.test(ch)) {
+      if (cur.length) words.push(cur);
+      cur = [];
+      continue;
+    }
+    const tail = cur[cur.length - 1];
+    if (tail && tail.c === c) tail.t += ch;
+    else cur.push({ t: ch, c });
+  }
+  if (cur.length) words.push(cur);
+  return { text: chars.map((x) => x.ch).join(""), words, marked };
+};
+
+/** The coloured runs of each laid-out line (see parseMarks), `cased` per run. */
+export const lineRuns = (lines: string[], words: Run[][], cased: (t: string) => string): Run[][] => {
+  let i = 0;
+  return lines.map((line) => {
+    const n = line.split(" ").filter(Boolean).length;
+    const out: Run[] = [];
+    for (const w of words.slice(i, i + n)) {
+      if (out.length) out.push({ t: " " });
+      for (const r of w) out.push({ t: cased(r.t), c: r.c });
+    }
+    i += n;
+    return out;
+  });
+};

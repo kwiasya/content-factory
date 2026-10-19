@@ -68,6 +68,8 @@ export type Style = {
     text_shadow?: string;
     accent?: string;
     backdrop: string;
+    /** Named key-word colours for inline marks "{words|name}" (layout.ts parseMarks). */
+    key_words?: Record<string, string>;
   };
   overlay_positions: Record<OverlayType, OverlayPosition>;
   animation: {
@@ -91,6 +93,8 @@ export type OverlayProps = {
   arrowTo?: [number, number];
   /** Overrides the role's scrim strength (0..1). */
   scrim?: number;
+  /** Overrides the role's font size, reference px. */
+  size?: number;
   /** Measurement only: "background" hides the glyphs (keeps scrim and boxes),
    * "glyphs" shows only the glyph fill. Default "all". */
   layers?: "all" | "background" | "glyphs";

@@ -321,6 +321,19 @@ class TextFileTest(VideosTestCase):
                 self.assertTrue(any("cf-script/1" in v for v in r.json()["violations"]), r.text)
                 self.assertEqual(path.read_bytes(), before)
 
+    def test_a_meme_cut_script_is_checked_by_its_own_schema(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from test_memecut import script as meme_script
+        doc = self.ok(self.read("w1~short-01", "script.draft.json"))
+        self.ok(self.save("w1~short-01", "script.draft.json", json.dumps(meme_script()), doc["hash"]))
+        doc = self.ok(self.read("w1~short-01", "script.draft.json"))
+        bad = meme_script()
+        bad["inserts"] = bad["inserts"][:3]
+        r = self.save("w1~short-01", "script.draft.json", json.dumps(bad), doc["hash"])
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertTrue(any("inserts" in v for v in r.json()["violations"]), r.text)
+
     def test_a_stale_hash_is_409_before_the_json_is_checked(self):
         doc = self.ok(self.read("w1~short-01", "script.draft.json"))
         self.ok(self.save("w1~short-01", "script.draft.json", doc["text"], doc["hash"]))

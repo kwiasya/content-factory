@@ -5,7 +5,7 @@ description: Index the Author's editing Pack (sounds, memes, emoji, face sticker
 
 # Index a Pack
 
-A Pack is read in place and never written (`GLOSSARY.md`: Library, Pack, Asset, Asset ref; `docs/adr/0007-packs-read-in-place-cache-derived-author-in-store.md`). Everything derived goes to `<footage root>/library/<pack>/`; the Author's fields live in `factory.db`. CLI: `.venv/bin/python -m cf.library --help`. Every rule (categories, refs, keying, loudness, import) lives in the CLI; this skill only runs it in order. The first Pack's config is `.claude/skills/index-pack/packs/davinci-templates.json` (folder → category mapping; the Author edits it in Desk).
+A Pack is read in place and never written (`GLOSSARY.md`: Library, Pack, Asset, Asset ref; `docs/adr/0007-packs-read-in-place-cache-derived-author-in-store.md`). Everything derived goes to `<footage root>/library/<pack>/`; the Author's fields live in `factory.db`. CLI: `.venv/bin/python -m cf.library --help`. Every rule (categories, refs, keying, loudness, import) lives in the CLI; this skill only runs it in order. The first Pack's config is `.claude/skills/index-pack/packs/davinci-templates.json` (folder → category mapping; the Author edits it in Desk). The meme Packs for the Meme cut are `packs/memes.json` (`memes/clips/`) and `packs/memes-inbox.json` (her iCloud `Мемы/`; `"."` in `include` and `folders` is the Pack root itself); for them steps 0 and 3 do not apply, and their tags also name the situation a meme shows (`свидание`, `монтаж`, `работа`, `переезд`), which the Meme cut's match rule reads.
 
 ## Steps
 

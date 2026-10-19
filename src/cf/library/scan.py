@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from cf.library.packs import Folder, PackConfig
+from cf.library.packs import ROOT, Folder, PackConfig
 
 AUDIO = frozenset({"mp3", "wav", "m4a", "aac", "ogg", "flac", "aif", "aiff"})
 VIDEO = frozenset({"mp4", "mov", "m4v", "webm", "mkv"})
@@ -51,11 +51,11 @@ class ScanResult:
 
 
 def _under(rel: str, prefixes: tuple[str, ...]) -> bool:
-    return any(rel == p or rel.startswith(p + "/") for p in prefixes)
+    return any(p == ROOT or rel == p or rel.startswith(p + "/") for p in prefixes)
 
 
 def _above(rel: str, prefixes: tuple[str, ...]) -> bool:
-    return any(p.startswith(rel + "/") for p in prefixes)
+    return any(p != ROOT and p.startswith(rel + "/") for p in prefixes)
 
 
 def scan(cfg: PackConfig, only: tuple[str, ...] = ()) -> ScanResult:

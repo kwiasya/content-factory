@@ -1,0 +1,275 @@
+{
+  "schema": "cf-style/1",
+  "name": "meme-cut-v3",
+  "status": "v3 (2026-10-19): text in the tiktok-caption style (TikTok Sans Medium 64, soft shadow, centred), approved by the author after the text-style research (\"ну вот щас мне нравится\"); v2 from the author's corrections of 2026-10-19 on \"Потсдам — effortless\": the cut ends on the last Meme insert (no finale), coloured key words, text inside the safe zone; v1 was the first published Meme cut (\"Свидание — мой мозг\", 2026-10-15) and Kostya's critique of it",
+  "audience": "a man (18–60+) scrolling Reels who stops for a pretty, self-ironic woman; the joke is relatable and gets sent to friends",
+  "_doc": "Style profile of the Meme cut Format (ADR 0009): one full profile, nothing inherited from the root style.json. Readers: cf.memecut (pacing, text, inserts, render, audio, ending, colors.key_words), overlays/render.mjs through the overlay specs cf.memecut writes (canvas, safe_zone, typography, colors incl. key_words, overlay_positions, animation) and cf.render_check (canvas, audio.music false = a silent track passes). Pixel numbers except canvas.width/height are 1080-wide reference px (x2 at 2160x3840), as in the Walk Reel profile. Durations are seconds and are checked in frames at canvas.fps (round(s x fps)).",
+  "canvas": {
+    "width": 2160,
+    "height": 3840,
+    "fps": 30,
+    "reference_width": 1080
+  },
+  "canvases": {
+    "portrait": {
+      "width": 2160,
+      "height": 3840,
+      "fps": 30,
+      "reference_width": 1080,
+      "note": "the only canvas: a Meme cut is vertical"
+    }
+  },
+  "safe_zone": {
+    "top": 269,
+    "bottom": 672,
+    "left": 130,
+    "right": 130,
+    "right_rail": {
+      "width": 230,
+      "from_y": 1150
+    },
+    "source": "Meta Ads Guide 14% top / 35% bottom; sides 130 px, not Meta's 6% (65 px): Instagram on a tall phone (iPhone 19.5:9; her screenshot is 920x2000) shows a 9:16 Reel full-screen by height and crops (1 - (920/2000)/(9/16))/2 = 9.1% off each side, about 98 px at 1080; 98 px crop + 32 px margin = 130. Found on her post \"Офис — нишевые слова для парня\" (2026-10-19): the left edge of the list was cut off ('niche' lost its n, the numbers 1)-9) were cut) (same as the Walk Reel profile)",
+    "units": "reference px (canvas.reference_width = 1080); x2 at 2160x3840"
+  },
+  "typography": {
+    "preset": "tiktok-caption",
+    "preset_note": "TikTok Sans Medium 500, 64 px (reference), line height 1.2, white, shadow 0 3px 10px rgba(0,0,0,.75), no outline, no box, centred, at most 820 px wide (overlays/src/presets.ts). The native TikTok caption look; replaces bold-outline-wide (Nunito Black with outline and heavy shadow, which looked like a meme generator; author 2026-10-19). Research: ~/Movies/content-factory/research/text-style-2026-10.md",
+    "font": null,
+    "family": "TikTok Sans",
+    "weight": 500,
+    "size": 64,
+    "line_height": 1.2,
+    "shadow": "0 3px 10px rgba(0,0,0,0.75)",
+    "stroke": null,
+    "max_width": 820,
+    "variants": {
+      "stroke": {
+        "preset": "tiktok-caption-stroke",
+        "stroke_px": 2,
+        "stroke_color": "#000000",
+        "shadow": null,
+        "note": "a 2-px black outline in place of the shadow, for a line over a bright or white background; a Script picks it per text with \"style\": \"stroke\""
+      }
+    },
+    "display": {
+      "family": "TikTok Sans",
+      "weight": 500,
+      "size": 64,
+      "case": "lower",
+      "file": null
+    },
+    "body": {
+      "family": "TikTok Sans",
+      "weight": 500,
+      "size": 64,
+      "case": "lower",
+      "file": null
+    },
+    "max_words_per_line": 12,
+    "max_lines": 3
+  },
+  "text": {
+    "language": "en",
+    "case": "lower",
+    "tone": "deadpan: no exclamation marks; an emoji only when it fits the video or the text",
+    "emoji_max": 1,
+    "emoji_note": "emoji on screen in the whole cut (setup and punch together)",
+    "setup_max_words": 10,
+    "punch_max_words": 6,
+    "size": {
+      "setup": 64,
+      "punch": 64,
+      "min": 60,
+      "max": 72,
+      "note": "font size in reference px (1080 wide), 60–72 (tiktok-caption): outside it is a problem. A line too wide for 820 px is broken with \\n, not set smaller"
+    },
+    "setup_anchor": {
+      "anchor": "top-center",
+      "y": 480,
+      "align": "center"
+    },
+    "punch_anchor": {
+      "anchor": "bottom-center",
+      "y": 520,
+      "align": "center",
+      "above_meme_px": 28,
+      "note": "centred in the blurred band above the meme: the text box's bottom edge sits above_meme_px (24–40) over the top edge of the highest blur-fill insert (cf.memecut computes y per cut); y is the fallback when every insert fills the frame"
+    },
+    "anchor_note": "Centred text, at most 820 px wide, so it stays 130 px from both sides (Instagram crops ~98 px a side on a tall phone). The setup sits at 24–35 % of the height over her footage, off her face and body: a Script picks setup.anchor off the frames whenever the default would touch her (the text box stays at least body_clear_px from her body; cf.memecut checks it against the person detector). The punch sits in the blurred band 24–40 px above the meme's top edge.",
+    "body_clear_px": 20,
+    "key_word": {
+      "per_text": 1,
+      "default_color": {
+        "setup": "pink",
+        "punch": "yellow"
+      },
+      "note": "each text (setup, punch) marks exactly one key word or phrase in the whole text: {words} or {words|<colour>}, a colour name from colors.key_words; a bare mark takes default_color (setup pink, punch yellow). None is a warning, more than one a problem"
+    },
+    "setup_band": {
+      "from": 0.24,
+      "to": 0.35,
+      "note": "the setup text's top edge sits at 24–35 % of the height (y 461–672 reference), off her face; outside it is a warning"
+    },
+    "style": {
+      "default": null,
+      "values": [
+        "stroke"
+      ],
+      "note": "setup.style / punch.style: \"stroke\" takes typography.variants.stroke (a 2-px outline) for a line over a bright background; omitted = the soft shadow"
+    }
+  },
+  "colors": {
+    "text": "#FFFFFF",
+    "text_shadow": "rgba(0,0,0,0.75)",
+    "accent": "#F2C14E",
+    "backdrop": "rgba(0,0,0,0)",
+    "key_words": {
+      "pink": "#FF4FA3",
+      "yellow": "#FFD60A",
+      "cyan": "#3DDCFF",
+      "lime": "#7CFF4F",
+      "orange": "#FF8A3D"
+    },
+    "key_words_note": "the key word's fill; the shadow (or the stroke variant's outline) stays the base text's"
+  },
+  "overlay_positions": {
+    "_units": "reference px (canvas.reference_width); render.mjs needs every role, the Meme cut uses only 'line'",
+    "hook": {
+      "anchor": "top-center",
+      "x": 540,
+      "y": 480
+    },
+    "place": {
+      "anchor": "top-center",
+      "x": 540,
+      "y": 480
+    },
+    "fact": {
+      "anchor": "bottom-center",
+      "x": 540,
+      "y": 520
+    },
+    "line": {
+      "anchor": "top-center",
+      "x": 540,
+      "y": 480
+    }
+  },
+  "animation": {
+    "in": {
+      "type": "cut",
+      "frames": 0,
+      "ease": "linear",
+      "distance_px": 0
+    },
+    "out": {
+      "type": "cut",
+      "frames": 0,
+      "ease": "linear"
+    },
+    "min_hold_s": 2.0,
+    "note": "text is on from frame 0 of its part and cuts with it; no fades"
+  },
+  "pacing": {
+    "setup_s": {
+      "min": 2.3,
+      "max": 3.0,
+      "default": 2.5
+    },
+    "insert_s": {
+      "min": 0.8,
+      "max": 1.2,
+      "default": 1.0
+    },
+    "last_insert_s": {
+      "min": 1.0,
+      "max": 1.5,
+      "default": 1.5,
+      "note": "the last Meme insert ends the cut: the strongest beat, held longest"
+    },
+    "inserts": {
+      "min": 3,
+      "max": 6,
+      "default": 4
+    },
+    "target_length_s": {
+      "min": 6,
+      "max": 9,
+      "default": 7.0,
+      "note": "the approved cut: setup 2.5 + 3 x 1.0 + 1.5 = 7.0 s"
+    },
+    "finale_s": {
+      "min": 1.0,
+      "max": 1.5,
+      "default": 1.2,
+      "note": "deprecated: only for old Scripts with a finale (a warning); there the last insert is an ordinary one"
+    }
+  },
+  "inserts": {
+    "default_fit": "auto",
+    "finale_fit": "fill",
+    "fit_note": "auto: 'fill' when the trimmed source's short side is at least the canvas short side (a 4K stock shot), else 'blur-fill'. fill = cover the canvas with a centred crop. blur-fill = the picture whole at full width (full height for one taller than 9:16), centred, over a blurred, darkened, zoomed copy of itself. Never stretched: every scale keeps the aspect to within a pixel. trim (left/right/top/bottom, source px) cuts logos and watermarks off before either fit, so they are in neither the picture nor the blur.",
+    "blur_fill": {
+      "bg_zoom": 1.2,
+      "work_scale": 0.25,
+      "blur_sigma": 14,
+      "darken": 0.45,
+      "note": "the background is blurred at work_scale of the canvas (sigma in px of a 540-wide work frame, scaled with it) and upscaled"
+    },
+    "fill_max_upscale": 2.0,
+    "fill_upscale_note": "a fill that upscales more than this is a warning: the picture will look soft; use a 4K shot or blur-fill",
+    "finale_fit_note": "deprecated, for old Scripts with a finale"
+  },
+  "transitions": {
+    "default": "cut",
+    "note": "hard cuts only; the cut from the setup to the punch is the joke"
+  },
+  "color": {
+    "hdr_source": "apple-sdr",
+    "rule": "original colour, as on the Mac (author, 2026-10-12): her setup clip comes from the Apple-tone-mapped mezzanine (<walk>/mezz/, cf.mezz) for HDR clips, the raw file for SDR; no grade, no Look. Memes as they are."
+  },
+  "look": {
+    "drx": null,
+    "lut": null
+  },
+  "audio": {
+    "music": false,
+    "track": "silent stereo AAC 48 kHz",
+    "note": "no music and no meme sound: the author adds the sound in Instagram. The file carries a silent stereo AAC track (Instagram and render_check expect an audio stream); render_check passes it as silent instead of measuring -14 LUFS.",
+    "target_lufs": null,
+    "true_peak_dbtp": -1
+  },
+  "speech": {
+    "on_camera_allowed": false,
+    "off_camera_allowed": true,
+    "note": "the setup clip's sound is dropped anyway"
+  },
+  "ending": {
+    "default": "last_meme",
+    "aliases": [
+      "reveal_last"
+    ],
+    "note": "the cut ends on its last Meme insert: no loop, no finale, no return to her footage"
+  },
+  "caption": {
+    "max_words": 10,
+    "lines": 1,
+    "hashtags_max": 5,
+    "location_tag": "required",
+    "cta": false,
+    "alt_text": false,
+    "note": "one short deadpan line in English (one emoji at most) that adds to the text on screen, up to 5 hashtags, the geotag; no CTA, no alt text"
+  },
+  "reframe": {
+    "default": "center",
+    "note": "the setup clip fills the canvas with a centred crop (a portrait clip just scales); trim picks another window"
+  },
+  "render": {
+    "engine": "ffmpeg (cf.memecut), not Resolve: Resolve FX on a clip are out of the API (docs/resolve-rules.md, Known gaps)",
+    "format": "mp4",
+    "codec": "H264",
+    "bitrate_mbps": 45,
+    "maxrate_mbps": 60,
+    "preset": "slow"
+  }
+}

@@ -17,8 +17,11 @@
 // {"anchor": "top-left"|"top-right"|..., "x": n, "y": n, "align"?: ...} in reference px,
 // e.g. from a frame-aware picker) overrides the preset's placement; optional
 // `arrow_to` [x, y] (reference px) is where a preset with an arrow points; optional `scrim` (0..1) overrides its scrim strength;
-// optional `in_frames` / `out_frames` (0 = none) override the fade lengths.
-// A "\n" in `text` is a forced line break. Optional `font_file` (absolute .ttf/.otf) and
+// optional `in_frames` / `out_frames` (0 = none) override the fade lengths; optional
+// `size` (reference px) overrides the preset role's font size.
+// A "\n" in `text` is a forced line break. A key-word mark "{words}" or "{words|colour}"
+// draws those words in a colour (a style.json colors.key_words name or #RRGGBB; a bare
+// mark takes colors.accent) inside the same outline. Optional `font_file` (absolute .ttf/.otf) and
 // `font_ref` (its @font/… ref, reported only) set the overlay font (README "Overlay font").
 // Relative style_path resolves against the spec file's folder; relative --spec and
 // --out resolve against the caller's cwd (INIT_CWD under npm run).
@@ -161,6 +164,20 @@ if (
   die(2, "spec.arrow_to must be [x, y] in reference px");
 if (spec.scrim !== undefined && !(typeof spec.scrim === "number" && spec.scrim >= 0 && spec.scrim <= 1))
   die(2, "spec.scrim must be a number in 0..1");
+if (spec.size !== undefined && !(typeof spec.size === "number" && spec.size > 0))
+  die(2, "spec.size must be a positive number (reference px)");
+
+// Key-word marks (src/layout.ts parseMarks): a stray brace or an unknown colour is exit 2.
+const MARK_RE = /\{([^{}|]*)(?:\|([^{}]*))?\}/g;
+const keyColours = style.colors.key_words ?? {};
+for (const m of spec.text.matchAll(MARK_RE)) {
+  const name = (m[2] ?? "").trim();
+  if (!m[1].trim()) die(2, `empty key-word mark "${m[0]}"`);
+  if (name && !(name in keyColours) && !/^#[0-9A-Fa-f]{6}$/.test(name))
+    die(2, `key-word colour "${name}": a colors.key_words name (${Object.keys(keyColours).join(", ") || "none"}) or #RRGGBB`);
+}
+const plainText = spec.text.replace(MARK_RE, "$1");
+if (/[{}]/.test(plainText)) die(2, `spec.text has a brace outside a key-word mark {words} or {words|colour}`);
 
 // Optional in_frames / out_frames (int >= 0) replace style.animation in/out frames for
 // this overlay; 0 = no fade on that side (a list item that cuts on with its shot).
@@ -198,7 +215,7 @@ if (durationInFrames < 1) die(2, "duration_s is shorter than one frame");
 const warnings = [];
 // Word and line limits apply per "\n" line (src/layout.ts lays each one out on its own).
 const maxWords = style.typography.max_words_per_line * style.typography.max_lines;
-spec.text.split(/\r?\n/).forEach((line, i) => {
+plainText.split(/\r?\n/).forEach((line, i) => {
   const words = line.trim().split(/\s+/).filter(Boolean).length;
   if (words > maxWords)
     warnings.push(`TEXT_OVERFLOW line ${i + 1}: ${words} words > ${maxWords} (max_words_per_line x max_lines)`);
@@ -246,6 +263,7 @@ fs.writeFileSync(propsFile, JSON.stringify({
     preset,
     ...(spec.anchor !== undefined ? { anchor: spec.anchor } : {}),
     ...(spec.scrim !== undefined ? { scrim: spec.scrim } : {}),
+    ...(spec.size !== undefined ? { size: spec.size } : {}),
     ...(spec.arrow_to !== undefined ? { arrowTo: spec.arrow_to } : {}),
     ...(fontCopy ? { fontFile: fontCopy } : {}),
   }));
@@ -313,6 +331,7 @@ const summary = {
   type: spec.type,
   preset,
   anchor: spec.anchor ?? null,
+  size: spec.size ?? null,
   canvas: canvasName,
   fps,
   frames: durationInFrames,

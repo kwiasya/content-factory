@@ -16,6 +16,7 @@ SCHEMA = "cf-pack/1"
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 HEX_RE = re.compile(r"0x[0-9A-Fa-f]{6}")
 KEY_COLORS = {"green": "0x00FF00", "blue": "0x0000FF"}
+ROOT = "."  # in include and folders: the Pack root itself (an inbox of loose files)
 FOLDER_KEYS = {"category", "rights", "key", "key_similarity", "key_blend", "group"}
 
 
@@ -40,12 +41,14 @@ class PackConfig:
     raw: dict = field(default_factory=dict, compare=False)
 
     def folder_for(self, rel: str) -> tuple[str, Folder] | None:
+        """The mapping of the deepest configured folder holding ``rel``; ``"."`` holds everything."""
         best = None
         for key, folder in self.folders.items():
-            if rel == key or rel.startswith(key + "/"):
-                if best is None or len(key) > len(best[0]):
-                    best = (key, folder)
-        return best
+            if key == ROOT or rel == key or rel.startswith(key + "/"):
+                depth = 0 if key == ROOT else len(key)
+                if best is None or depth > best[2]:
+                    best = (key, folder, depth)
+        return best[:2] if best else None
 
 
 @dataclass(frozen=True)
@@ -60,9 +63,12 @@ class PackInfo:
         return {"id": self.id, "root": str(self.root), "created_at": self.created_at, "indexed_at": self.indexed_at}
 
 
-def _relpath(value: Any, what: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise PackError(f"{what}: a relative folder path is required, got {value!r}")
+def _relpath(value: Any, what: str, *, root_ok: bool = False) -> str:
+    if root_ok and value == ROOT:
+        return value
+    if not isinstance(value, str) or not value.strip() or value == ROOT:
+        raise PackError(f"{what}: a relative folder path is required, got {value!r}"
+                        + ("" if root_ok else " ('.' is allowed only in include and folders)"))
     if value.startswith("/") or "\\" in value:
         raise PackError(f"{what}: {value!r} must be relative to the Pack root")
     parts = PurePosixPath(value).parts
@@ -125,10 +131,10 @@ def parse_config(data: Any, *, root: Path | None = None) -> PackConfig:
     raw = {**data, "root": str(root_path)}
     return PackConfig(
         id=pid, root=root_path,
-        include=tuple(_relpath(v, "include") for v in include),
+        include=tuple(_relpath(v, "include", root_ok=True) for v in include),
         exclude=tuple(_relpath(v, "exclude") for v in exclude),
         templates=bool(data.get("templates", False)),
-        folders={_relpath(k, "folders"): _folder(k, v) for k, v in folders.items()},
+        folders={_relpath(k, "folders", root_ok=True): _folder(k, v) for k, v in folders.items()},
         raw=raw)
 
 

@@ -15,6 +15,7 @@ import { loadFont as loadNunito } from "@remotion/google-fonts/Nunito";
 import { loadFont as loadPlayfair } from "@remotion/google-fonts/PlayfairDisplay";
 import { loadFont as loadSpaceGrotesk } from "@remotion/google-fonts/SpaceGrotesk";
 import { loadFont as loadSpecialElite } from "@remotion/google-fonts/SpecialElite";
+import { loadFont as loadTikTokSans } from "@remotion/google-fonts/TikTokSans";
 import { loadFont as loadUnbounded } from "@remotion/google-fonts/Unbounded";
 
 type AnyLoader = (
@@ -36,6 +37,8 @@ const LOADERS: Record<string, AnyLoader> = {
   "playfair display": loadPlayfair as unknown as AnyLoader,
   "space grotesk": loadSpaceGrotesk as unknown as AnyLoader,
   "special elite": loadSpecialElite as unknown as AnyLoader,
+  // TikTok Sans (OFL 1.1): the tiktok-list and tiktok-caption presets.
+  "tiktok sans": loadTikTokSans as unknown as AnyLoader,
   unbounded: loadUnbounded as unknown as AnyLoader,
 };
 
