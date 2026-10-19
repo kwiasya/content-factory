@@ -1,4 +1,4 @@
-"""Absolute paths inside Reference JSON files (``references relativize``, ADR 0013).
+"""Absolute paths inside Reference JSON files (``references relativize``, ADR 0014).
 
 A Reference folder fetched before the store was shared names its own files by absolute paths under the
 Mac that fetched it (``/Users/<who>/Movies/content-factory/references/<watchlist>/<id>/...``). On the

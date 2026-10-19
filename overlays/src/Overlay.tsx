@@ -8,7 +8,7 @@ import {
   useDelayRender,
 } from "remotion";
 import { loadFace, loadFileFace } from "./fonts";
-import { layoutText, TextLayout } from "./layout";
+import { layoutText, lineRuns, parseMarks, TextLayout } from "./layout";
 import { ListStyle, Ornament, resolveRole, RoleStyle } from "./presets";
 import {
   applyCase,
@@ -39,6 +39,19 @@ export const calculateOverlayMetadata: CalculateMetadataFunction<
 const warn = (msg: string) => {
   // The marker lets render.mjs pick the line out of the browser log.
   console.warn(`[cf-overlay] WARN ${msg}`);
+};
+
+/** A round outline `w` px wide as hard text-shadows: copies of the glyphs on circles of radius
+ * w and w/2 (a round dilation, like an outer stroke with round joins; -webkit-text-stroke
+ * always draws mitred corners in Chrome). */
+const roundOutline = (w: number, color: string): string => {
+  const out: string[] = [];
+  for (const [r, n] of [[w, 32], [w / 2, 16]] as const)
+    for (let i = 0; i < n; i++) {
+      const a = (2 * Math.PI * i) / n;
+      out.push(`${(r * Math.cos(a)).toFixed(3)}px ${(r * Math.sin(a)).toFixed(3)}px 0 ${color}`);
+    }
+  return out.join(", ");
 };
 
 const isCenterAnchor = (a: RoleStyle["anchor"]) => a === "center" || a.endsWith("-center");
@@ -316,25 +329,33 @@ const ListBlock: React.FC<{
 };
 
 export const Overlay: React.FC<OverlayProps> = ({
-  text,
+  text: rawText,
   type,
   durationInFrames,
   style,
   preset,
   anchor: anchorOverride,
   scrim: scrimOverride,
+  size: sizeOverride,
   layers = "all",
   arrowTo,
   fontFile,
 }) => {
   const frame = useCurrentFrame();
+  // Key-word marks "{words}" / "{words|colour}": layout measures the plain text, the fill
+  // draws the marked words in their colour; the outline stays the role's.
+  const marks = useMemo(
+    () => parseMarks(rawText, style.colors.key_words, style.colors.accent),
+    [rawText, style.colors.key_words, style.colors.accent],
+  );
+  const text = marks.text;
   const boxRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
 
   const presetName = preset ?? style.typography.preset ?? "legacy";
   const role = useMemo(
-    () => resolveRole(style, type, presetName, { anchor: anchorOverride, scrim: scrimOverride }),
-    [style, type, presetName, anchorOverride, scrimOverride],
+    () => resolveRole(style, type, presetName, { anchor: anchorOverride, scrim: scrimOverride, size: sizeOverride }),
+    [style, type, presetName, anchorOverride, scrimOverride, sizeOverride],
   );
   const showGlyphs = layers !== "background";
   const showDecor = layers === "all";
@@ -365,23 +386,33 @@ export const Overlay: React.FC<OverlayProps> = ({
 
   const maxWidth = textMaxWidth(role, style);
   const tracking = role.tracking ?? 0;
+  // A role with a title block: the lines before the first blank line are the title.
+  const parts = useMemo(() => {
+    const m = role.title && !role.list ? /\r?\n[ \t]*\r?\n/.exec(text) : null;
+    return m ? { title: text.slice(0, m.index), body: text.slice(m.index + m[0].length) } : { title: null, body: text };
+  }, [role.title, role.list, text]);
+  const layoutPart = (t: string, size: number): TextLayout =>
+    layoutText({
+      text: applyCase(t, role.case),
+      fontFamily: face.css,
+      fontWeight: role.weight,
+      fontStyle: role.italic ? "italic" : "normal",
+      fontSize: size,
+      letterSpacingEm: tracking,
+      maxWordsPerLine: role.maxWordsPerLine ?? style.typography.max_words_per_line,
+      maxLines: role.maxLines ?? style.typography.max_lines,
+      maxWidth,
+      punctuationBreaks: role.punctuationBreaks,
+    });
   const layout: TextLayout | null = useMemo(
-    () =>
-      fontsLoaded
-        ? layoutText({
-            text: applyCase(text, role.case),
-            fontFamily: face.css,
-            fontWeight: role.weight,
-            fontStyle: role.italic ? "italic" : "normal",
-            fontSize: role.size,
-            letterSpacingEm: tracking,
-            maxWordsPerLine: role.maxWordsPerLine ?? style.typography.max_words_per_line,
-            maxLines: role.maxLines ?? style.typography.max_lines,
-            maxWidth,
-            punctuationBreaks: role.punctuationBreaks,
-          })
-        : null,
-    [fontsLoaded, text, role, face.css, tracking, style.typography, maxWidth],
+    () => (fontsLoaded ? layoutPart(parts.body, role.size) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fontsLoaded, parts.body, role, face.css, tracking, style.typography, maxWidth],
+  );
+  const titleLayout: TextLayout | null = useMemo(
+    () => (fontsLoaded && parts.title !== null && role.title ? layoutPart(parts.title, role.title.size) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fontsLoaded, parts.title, role, face.css, tracking, style.typography, maxWidth],
   );
 
   // List modes: every "\n" line is its own entry, laid out on its own.
@@ -480,10 +511,28 @@ export const Overlay: React.FC<OverlayProps> = ({
       );
     if (layout.shrunk)
       warn(`FONT_SHRUNK ${role.size}px -> ${layout.fontSize}px to fit the safe-zone width`);
+    if (titleLayout?.shrunk && role.title)
+      warn(`FONT_SHRUNK title ${role.title.size}px -> ${titleLayout.fontSize}px to fit the safe-zone width`);
     if (!face.known) warn(`FONT_FALLBACK "${role.family}" is not a bundled Google font`);
-  }, [frame, checkFrame, style, type, layout, face.known, role, presetName]);
+  }, [frame, checkFrame, style, type, layout, titleLayout, face.known, role, presetName]);
 
   if (!layout) return <AbsoluteFill />;
+  // Text blocks top to bottom: the title (when the role has one and the text a blank line), then the body.
+  const blocks: { lines: string[]; fontSize: number; lineHeight: number; gapAfter: number }[] = [
+    ...(titleLayout && role.title
+      ? [{ lines: titleLayout.lines, fontSize: titleLayout.fontSize, lineHeight: role.title.lineHeight, gapAfter: role.title.gap }]
+      : []),
+    { lines: layout.lines, fontSize: layout.fontSize, lineHeight: role.lineHeight ?? 1.18, gapAfter: 0 },
+  ];
+  const allRuns = marks.marked
+    ? lineRuns(blocks.flatMap((b) => b.lines), marks.words, (t) => applyCase(t, role.case))
+    : null;
+  let runOffset = 0;
+  const blockRuns = blocks.map((b) => {
+    const r = allRuns ? allRuns.slice(runOffset, runOffset + b.lines.length) : null;
+    runOffset += b.lines.length;
+    return r;
+  });
 
   // Everything below is in reference pixels; the design div scales it to the canvas.
   const scale = designScale(style);
@@ -629,84 +678,103 @@ export const Overlay: React.FC<OverlayProps> = ({
             ) : (
             <div style={{ display: "flex", alignItems: "center", gap: role.ornament?.gap ?? 0 }}>
                 {orn && orn.side !== "after" ? <OrnamentSvg o={orn} hidden={!showDecor} /> : null}
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: centered ? "center" : rightAligned ? "flex-end" : "flex-start",
-                    rowGap: role.lineBox?.gap ?? 0,
-                    fontFamily: face.css,
-                    fontWeight: role.weight,
-                    fontStyle: role.italic ? "italic" : "normal",
-                    fontSize: layout.fontSize,
-                    lineHeight: role.lineHeight ?? 1.18,
-                    letterSpacing: tracking ? `${tracking}em` : undefined,
-                    textAlign: centered ? "center" : rightAligned ? "right" : "left",
-                    filter: showDecor ? role.filter : undefined,
-                  }}
-                >
-                  {layout.lines.map((line, i) => (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: centered ? "center" : rightAligned ? "flex-end" : "flex-start" }}>
+                  {blocks.map((blk, bi) => {
+                    const runs = blockRuns[bi];
+                    return (
                     <div
-                      key={i}
+                      key={bi}
                       style={{
-                        whiteSpace: "nowrap",
-                        // Centred tracked text: letter-spacing trails the last glyph, so
-                        // pad the left by the same amount to keep it optically centred.
-                        paddingLeft: centered && tracking > 0 ? `${tracking}em` : 0,
-                        position: "relative",
-                        ...(role.lineBox
-                          ? {
-                              backgroundColor: showBackground ? role.lineBox.color : undefined,
-                              borderRadius: role.lineBox.radius,
-                              padding: `${role.lineBox.padY}px ${role.lineBox.padX}px`,
-                              paddingLeft: role.lineBox.padX + (centered && tracking > 0 ? tracking * layout.fontSize : 0),
-                            }
-                          : {}),
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: centered ? "center" : rightAligned ? "flex-end" : "flex-start",
+                        rowGap: role.lineBox?.gap ?? 0,
+                        fontFamily: face.css,
+                        fontWeight: role.weight,
+                        fontStyle: role.italic ? "italic" : "normal",
+                        fontSize: blk.fontSize,
+                        lineHeight: blk.lineHeight,
+                        marginBottom: blk.gapAfter || undefined,
+                        letterSpacing: tracking ? `${tracking}em` : undefined,
+                        textAlign: centered ? "center" : rightAligned ? "right" : "left",
+                        filter: showDecor ? role.filter : undefined,
                       }}
                     >
-                      {role.stroke && showDecor ? (
-                        // Stroked copy under the fill: the stroke is centred on the
-                        // outline, so 2x width leaves `width` px outside the glyph.
-                        <span
-                          aria-hidden
+                      {blk.lines.map((line, i) => (
+                        <div
+                          key={i}
                           style={{
-                            position: "absolute",
-                            left: 0,
-                            right: 0,
-                            top: 0,
-                            bottom: 0,
-                            paddingLeft: "inherit",
-                            paddingTop: "inherit",
-                            color: role.stroke.color,
-                            WebkitTextStroke: `${2 * role.stroke.width}px ${role.stroke.color}`,
-                            textShadow: role.shadow ?? undefined,
                             whiteSpace: "nowrap",
+                            // Centred tracked text: letter-spacing trails the last glyph, so
+                            // pad the left by the same amount to keep it optically centred.
+                            paddingLeft: centered && tracking > 0 ? `${tracking}em` : 0,
+                            position: "relative",
+                            ...(role.lineBox
+                              ? {
+                                  backgroundColor: showBackground ? role.lineBox.color : undefined,
+                                  borderRadius: role.lineBox.radius,
+                                  padding: `${role.lineBox.padY}px ${role.lineBox.padX}px`,
+                                  paddingLeft: role.lineBox.padX + (centered && tracking > 0 ? tracking * blk.fontSize : 0),
+                                }
+                              : {}),
                           }}
                         >
-                          {line}
-                        </span>
-                      ) : null}
-                      <span
-                        style={{
-                          position: "relative",
-                          visibility: showGlyphs ? "visible" : "hidden",
-                          ...(role.gradient
-                            ? {
-                                backgroundImage: role.gradient,
-                                WebkitBackgroundClip: "text",
-                                backgroundClip: "text",
-                                color: "transparent",
-                              }
-                            : {
-                                color: role.color ?? style.colors.text,
-                                textShadow: role.stroke || !showDecor ? undefined : (role.shadow ?? undefined),
-                              }),
-                        }}
-                      >
-                        {line}
-                      </span>
+                          {role.stroke && showDecor ? (
+                            // Stroked copy under the fill: the stroke is centred on the
+                            // outline, so 2x width leaves `width` px outside the glyph.
+                            <span
+                              aria-hidden
+                              style={{
+                                position: "absolute",
+                                left: 0,
+                                right: 0,
+                                top: 0,
+                                bottom: 0,
+                                paddingLeft: "inherit",
+                                paddingTop: "inherit",
+                                color: role.stroke.color,
+                                ...(role.stroke.round
+                                  ? { textShadow: [roundOutline(role.stroke.width, role.stroke.color), role.shadow].filter(Boolean).join(", ") }
+                                  : {
+                                      WebkitTextStroke: `${2 * role.stroke.width}px ${role.stroke.color}`,
+                                      textShadow: role.shadow ?? undefined,
+                                    }),
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {line}
+                            </span>
+                          ) : null}
+                          <span
+                            style={{
+                              position: "relative",
+                              visibility: showGlyphs ? "visible" : "hidden",
+                              ...(role.gradient
+                                ? {
+                                    backgroundImage: role.gradient,
+                                    WebkitBackgroundClip: "text",
+                                    backgroundClip: "text",
+                                    color: "transparent",
+                                  }
+                                : {
+                                    color: role.color ?? style.colors.text,
+                                    textShadow: role.stroke || !showDecor ? undefined : (role.shadow ?? undefined),
+                                  }),
+                            }}
+                          >
+                            {runs
+                              ? runs[i].map((r, j) => (
+                                  <span key={j} style={r.c ? { color: r.c } : undefined}>
+                                    {r.t}
+                                  </span>
+                                ))
+                              : line}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {orn && orn.side !== "before" ? <OrnamentSvg o={orn} hidden={!showDecor} /> : null}
               </div>

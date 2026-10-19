@@ -148,7 +148,7 @@ def _videos(store: Store, idea_id: int) -> builtins.list[dict]:
 
 def mine(owner: str | None) -> bool:
     """True when a row of ``owner`` belongs to the person on this Mac. ``''``/None only exists in a store that
-    was never merged (``db merge`` writes every owner) and means that store's single person (ADR 0013)."""
+    was never merged (``db merge`` writes every owner) and means that store's single person (ADR 0014)."""
     return owner in (None, "", person())
 
 

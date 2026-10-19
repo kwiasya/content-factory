@@ -1,4 +1,4 @@
-"""The owner rule (ADR 0013): Briefs, Video Notes and Idea <-> Video links name the person whose local root holds
+"""The owner rule (ADR 0014): Briefs, Video Notes and Idea <-> Video links name the person whose local root holds
 the thing; other people's rows are listed with the owner and never opened."""
 
 import contextlib

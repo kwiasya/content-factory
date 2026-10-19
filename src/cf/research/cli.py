@@ -887,7 +887,7 @@ def register_notes(sub, common) -> None:
     p.add_argument("--kind", choices=notes.KINDS)
     p.add_argument("--key", help="repo-relative path, skill name or id")
     p.add_argument("--all", action="store_true",
-                   help="include resolved Notes and the video Notes of the other person (ADR 0013)")
+                   help="include resolved Notes and the video Notes of the other person (ADR 0014)")
     p.set_defaults(func=cmd_notes_list)
     p = gs.add_parser("add", parents=[common], help="leave a Note on one entity")
     p.add_argument("kind", choices=notes.KINDS)
@@ -1030,7 +1030,7 @@ def register_references(sub, common) -> None:
     gs = g.add_subparsers(dest="cmd", required=True)
     p = gs.add_parser("relativize", parents=[common],
                       help="rewrite absolute paths in Reference JSON files: own files relative to the folder, "
-                           "other References under the shared root (ADR 0013)")
+                           "other References under the shared root (ADR 0014)")
     p.add_argument("--root", help="the shared root (default: CF_SHARED_ROOT, which must be mounted)")
     p.add_argument("--dry-run", action="store_true", dest="dry_run", help="count, write nothing")
     p.set_defaults(func=cmd_references_relativize, opens_store=False)
@@ -1171,7 +1171,7 @@ def register_db(sub, common) -> None:
     p.set_defaults(func=cmd_db_migrate)
     p = gs.add_parser("merge", parents=[common],
                       help="merge two stores into a NEW file (inputs are only read); verify; delete it on failure "
-                           "and on --dry-run (ADR 0013)")
+                           "and on --dry-run (ADR 0014)")
     p.add_argument("--base", required=True, help="the store whose rows win on a conflict (the author's)")
     p.add_argument("--other", required=True, help="the store imported into it")
     p.add_argument("--out", required=True, help="the merged store to write; must not exist")

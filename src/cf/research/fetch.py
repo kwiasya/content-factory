@@ -450,7 +450,7 @@ def _transcript(a: Adapters, d: Path, media: Path, language: str, force: bool, s
 
 def _relative_clip_path(shotlog: dict, d: Path) -> None:
     """A Reference's Shot log names its media relative to the Reference folder: the folder lives on the
-    share and its absolute path differs per Mac (ADR 0013)."""
+    share and its absolute path differs per Mac (ADR 0014)."""
     clip = shotlog.get("clip") if isinstance(shotlog, dict) else None
     if not isinstance(clip, dict) or not isinstance(clip.get("path"), str):
         return

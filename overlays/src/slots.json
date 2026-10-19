@@ -2,7 +2,7 @@
   "_doc": "Named placements a render spec can pass as `anchor` to override a preset role's own placement. Coordinates in the 1080x1920 reference space (style.json canvas.reference_width); Overlay.tsx scales them by canvas.width / reference_width (x2 at 2160x3840). See presets.ts for anchor semantics. All sit inside style.json safe_zone.",
   "lower-left": {
     "anchor": "bottom-left",
-    "x": 90,
+    "x": 140,
     "y": 1218,
     "align": "left"
   },
@@ -13,7 +13,7 @@
   },
   "mid-left": {
     "anchor": "middle-left",
-    "x": 90,
+    "x": 140,
     "y": 820,
     "align": "left"
   },
@@ -24,7 +24,7 @@
   },
   "high-left": {
     "anchor": "middle-left",
-    "x": 90,
+    "x": 140,
     "y": 640,
     "align": "left"
   },
@@ -35,7 +35,7 @@
   },
   "upper-left": {
     "anchor": "top-left",
-    "x": 90,
+    "x": 140,
     "y": 300,
     "align": "left"
   },
@@ -46,7 +46,7 @@
   },
   "lower-left-loose": {
     "anchor": "bottom-left",
-    "x": 90,
+    "x": 140,
     "y": 1400,
     "align": "left",
     "_note": "below the strict ads safe zone (y 1248) but inside the organic caption zone (~y 1490); author asked for it"

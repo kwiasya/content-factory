@@ -162,13 +162,13 @@
   "safe_zone": {
     "top": 269,
     "bottom": 672,
-    "left": 65,
-    "right": 65,
+    "left": 130,
+    "right": 130,
     "right_rail": {
       "width": 230,
       "from_y": 1150
     },
-    "source": "Meta Ads Guide 14% / 35% / 6% as relayed in docs/research/02-overlays-and-motion-graphics/result-a.md Section D",
+    "source": "Meta Ads Guide 14% top / 35% bottom; sides 130 px, not Meta's 6% (65 px): Instagram on a tall phone (iPhone 19.5:9; her screenshot is 920x2000) shows a 9:16 Reel full-screen by height and crops (1 - (920/2000)/(9/16))/2 = 9.1% off each side, about 98 px at 1080; 98 px crop + 32 px margin = 130. Found on her post \"Офис — нишевые слова для парня\" (2026-10-19): the left edge of the list was cut off ('niche' lost its n, the numbers 1)-9) were cut)",
     "units": "reference px (canvas.reference_width = 1080); x2 at 2160x3840"
   },
   "typography": {
@@ -208,12 +208,12 @@
     },
     "place": {
       "anchor": "top-left",
-      "x": 90,
+      "x": 140,
       "y": 340
     },
     "fact": {
       "anchor": "top-left",
-      "x": 90,
+      "x": 140,
       "y": 440
     },
     "line": {
@@ -286,31 +286,31 @@
         "h": 400
       },
       "bottom": {
-        "x": 300,
+        "x": 280,
         "y": 840,
-        "w": 480,
+        "w": 440,
         "h": 400
       },
       "top-left": {
-        "x": 80,
+        "x": 130,
         "y": 290,
         "w": 400,
         "h": 400
       },
       "top-right": {
-        "x": 600,
+        "x": 550,
         "y": 290,
         "w": 400,
         "h": 400
       },
       "bottom-left": {
-        "x": 80,
+        "x": 130,
         "y": 840,
         "w": 400,
         "h": 400
       },
       "bottom-right": {
-        "x": 380,
+        "x": 320,
         "y": 840,
         "w": 400,
         "h": 400

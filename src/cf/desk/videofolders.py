@@ -2,7 +2,7 @@
 
 Video folders follow ADR 0006 (`videos/<slug>/video.json`); a legacy Reel `<footage>/reels/<reel>/` is addressed as
 `<footage>~<reel>`, has format `walk-reel` and a status derived from what exists in its folder. A `video.json` names its
-Footage in `footage`; the legacy key `walks` is still read and becomes `footage` (ADR 0012).
+Footage in `footage`; the legacy key `walks` is still read and becomes `footage` (ADR 0013).
 """
 
 from __future__ import annotations

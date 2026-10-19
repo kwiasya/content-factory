@@ -1,6 +1,6 @@
 # Shared setup: one store, References and Library for two Macs
 
-Two people share the research store, the References and the Library over SMB; each keeps their own Footage and Videos (ADR 0013, `GLOSSARY.md`: Shared root, Local root). This page is the setup on both Macs, the one-off move and merge of the two stores, the `db` commands, and recovery. Steps marked **[author]** need sudo, System Settings or credentials and are done by the author; **[Nastya]** likewise on her Mac; the agent runs the rest, one step at a time, and stops at every checkpoint.
+Two people share the research store, the References and the Library over SMB; each keeps their own Footage and Videos (ADR 0014, `GLOSSARY.md`: Shared root, Local root). This page is the setup on both Macs, the one-off move and merge of the two stores, the `db` commands, and recovery. Steps marked **[author]** need sudo, System Settings or credentials and are done by the author; **[Nastya]** likewise on her Mac; the agent runs the rest, one step at a time, and stops at every checkpoint.
 
 ## Layout
 
@@ -136,7 +136,7 @@ N5a. Lock test, the go-live gate; run it after her first CLI command of the day 
 2. The reverse: Nastya holds the lock with the same one-liner, the author's `python -m cf.research notes add general "" "lock test back"` must wait about 10 s and fail, then succeed after `released`.
 3. Freshness: the author adds a Note; her Desk shows it on refresh.
 
-Outcome. All three pass: her local store is renamed `~/Movies/content-factory/factory.db.local-pre-shared` (kept, unused). If a write succeeds while the other Mac holds the lock, locks are not shared across the two Macs: do not retire her local store; adopt "one writer at a time" (never scout, snapshot, fetch, index or own sync on both Macs at once; Desk writes only while the other Mac is idle) and open the network-store item of ADR 0013.
+Outcome. All three pass: her local store is renamed `~/Movies/content-factory/factory.db.local-pre-shared` (kept, unused). If a write succeeds while the other Mac holds the lock, locks are not shared across the two Macs: do not retire her local store; adopt "one writer at a time" (never scout, snapshot, fetch, index or own sync on both Macs at once; Desk writes only while the other Mac is idle) and open the network-store item of ADR 0014.
 
 N6. `python -m cf.desk` → `#/agent` shows both roots, her name and no "not mounted" line; `#/contour` shows `me-walks`; `#/library` lists the author's Pack and plays a preview; `#/videos` lists her Videos.
 

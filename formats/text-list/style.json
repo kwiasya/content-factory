@@ -1,0 +1,213 @@
+{
+  "schema": "cf-style/1",
+  "name": "text-list-v1",
+  "status": "v1 (2026-10-19): the tiktok-list text style approved by the author (\"ну вот щас мне нравится\") after the text-style research; the first Video was \"Офис — нишевые слова для парня\" (built by hand before the Format existed)",
+  "audience": "a man (18–60+) scrolling Reels who stops for a pretty, self-ironic woman; the joke is relatable and gets sent to friends",
+  "_doc": "Style profile of the Text list Format (ADR 0009): one full profile, nothing inherited from the root style.json. No composer reads it yet: a Text list is built by hand with overlays/render.mjs (one overlay spec with this file as style_path and preset tiktok-list) plus ffmpeg; cf.render_check --format text-list reads canvas and audio.music false (a silent track passes). Pixel numbers except canvas.width/height are 1080-wide reference px (x2 at 2160x3840).",
+  "canvas": {
+    "width": 2160,
+    "height": 3840,
+    "fps": 30,
+    "reference_width": 1080
+  },
+  "canvases": {
+    "portrait": {
+      "width": 2160,
+      "height": 3840,
+      "fps": 30,
+      "reference_width": 1080,
+      "note": "the only canvas: a Text list is vertical"
+    }
+  },
+  "safe_zone": {
+    "top": 269,
+    "bottom": 672,
+    "left": 130,
+    "right": 130,
+    "right_rail": {
+      "width": 230,
+      "from_y": 1150
+    },
+    "source": "Meta Ads Guide 14% top / 35% bottom; sides 130 px, not Meta's 6% (65 px): Instagram on a tall phone (iPhone 19.5:9; her screenshot is 920x2000) shows a 9:16 Reel full-screen by height and crops (1 - (920/2000)/(9/16))/2 = 9.1% off each side, about 98 px at 1080; 98 px crop + 32 px margin = 130. Found on her post \"Офис — нишевые слова для парня\" (2026-10-19): the left edge of the list was cut off ('niche' lost its n, the numbers 1)-9) were cut)",
+    "units": "reference px (canvas.reference_width = 1080); x2 at 2160x3840"
+  },
+  "typography": {
+    "preset": "tiktok-list",
+    "preset_note": "TikTok Sans SemiBold 600, white, lowercase, 4-px round black outline (#000), no shadow, no box (overlays/src/presets.ts). The lines before the blank line are the title (64 px, line height 1.12), then +24 px, then the items (56 px, line height 1.14; a spec size down to 48 for a long list). Left at x 140, right edge <= 950. Research: ~/Movies/content-factory/research/text-style-2026-10.md",
+    "font": null,
+    "family": "TikTok Sans",
+    "weight": 600,
+    "title": {
+      "size": 64,
+      "line_height": 1.12,
+      "gap_px": 24
+    },
+    "items": {
+      "size": 56,
+      "min": 48,
+      "line_height": 1.14
+    },
+    "stroke": {
+      "width_px": 4,
+      "color": "#000000",
+      "join": "round"
+    },
+    "shadow": null,
+    "display": {
+      "family": "TikTok Sans",
+      "weight": 600,
+      "size": 64,
+      "case": "lower",
+      "file": null
+    },
+    "body": {
+      "family": "TikTok Sans",
+      "weight": 600,
+      "size": 56,
+      "case": "lower",
+      "file": null
+    },
+    "max_words_per_line": 12,
+    "max_lines": 2
+  },
+  "text": {
+    "language": "en",
+    "case": "lower",
+    "tone": "deadpan list: every line is a punch; no exclamation marks",
+    "source": "a list adapted from a concrete reference, localized into natural English (not translated)",
+    "items": {
+      "min": 5,
+      "max": 10,
+      "note": "a numbered list '1) …'; more than ~10 lines does not fit above the bottom 35 %"
+    },
+    "anchor": {
+      "anchor": "top-left",
+      "x": 140,
+      "y": 300,
+      "align": "left"
+    },
+    "max_right_px": 950,
+    "anchor_note": "left-aligned at x 140 (safe_zone.left 130 + 10 px for the outline), right edge <= 950, top >= 14 % of the height, the whole list above the bottom 35 %, off her face (pick the anchor off the frames)",
+    "key_word": {
+      "per_line": 1,
+      "palette_cycle": [
+        "pink",
+        "yellow",
+        "cyan",
+        "lime",
+        "orange"
+      ],
+      "note": "every line, the title included, colours exactly one key word or phrase: {words|<colour>}; the colours cycle through palette_cycle, line by line, with the same black outline"
+    }
+  },
+  "colors": {
+    "text": "#FFFFFF",
+    "text_shadow": null,
+    "accent": "#FF4FA3",
+    "backdrop": "rgba(0,0,0,0)",
+    "key_words": {
+      "pink": "#FF4FA3",
+      "yellow": "#FFD60A",
+      "cyan": "#3DDCFF",
+      "lime": "#7CFF4F",
+      "orange": "#FF8A3D"
+    },
+    "key_words_note": "the key word's fill; the black outline stays"
+  },
+  "overlay_positions": {
+    "_units": "reference px; render.mjs needs every role, a Text list uses only 'line'",
+    "hook": {
+      "anchor": "top-left",
+      "x": 140,
+      "y": 300
+    },
+    "place": {
+      "anchor": "top-left",
+      "x": 140,
+      "y": 300
+    },
+    "fact": {
+      "anchor": "top-left",
+      "x": 140,
+      "y": 300
+    },
+    "line": {
+      "anchor": "top-left",
+      "x": 140,
+      "y": 300
+    }
+  },
+  "animation": {
+    "in": {
+      "type": "cut",
+      "frames": 0,
+      "ease": "linear",
+      "distance_px": 0
+    },
+    "out": {
+      "type": "cut",
+      "frames": 0,
+      "ease": "linear"
+    },
+    "min_hold_s": 8.0,
+    "note": "the whole list is on screen from frame 0 to the last frame; no fades, no line-by-line reveal"
+  },
+  "pacing": {
+    "length_s": {
+      "min": 8,
+      "max": 12,
+      "default": 10
+    },
+    "takes": 1,
+    "note": "one continuous take of her, long enough to read the whole list"
+  },
+  "footage": {
+    "source": "her own footage: one calm take the author picks from a board (the Editor shows 3–6 candidates)",
+    "rule": "posed or seated shots read better under a list than walking (author)"
+  },
+  "color": {
+    "hdr_source": "apple-sdr",
+    "rule": "original colour, as on the Mac: an HDR Clip through its Apple SDR mezzanine (cf.mezz), an SDR one raw; no grade, no Look"
+  },
+  "look": {
+    "drx": null,
+    "lut": null
+  },
+  "audio": {
+    "music": false,
+    "track": "silent stereo AAC 48 kHz",
+    "note": "no music: the author adds the sound in Instagram; render_check passes the silent track",
+    "target_lufs": null,
+    "true_peak_dbtp": -1
+  },
+  "speech": {
+    "on_camera_allowed": false,
+    "off_camera_allowed": true,
+    "note": "the clip's sound is dropped"
+  },
+  "ending": {
+    "default": "hold",
+    "note": "the take simply ends; the list stays on to the last frame"
+  },
+  "caption": {
+    "max_words": 10,
+    "lines": 1,
+    "hashtags_max": 5,
+    "location_tag": "optional",
+    "cta": false,
+    "alt_text": false,
+    "note": "one short deadpan line in English that plays off the list (one emoji at most), up to 5 hashtags"
+  },
+  "reframe": {
+    "default": "center",
+    "note": "the take fills the canvas with a centred crop (a portrait clip just scales)"
+  },
+  "render": {
+    "engine": "by hand: overlays/render.mjs for the list, ffmpeg for the compose (no composer yet)",
+    "format": "mp4",
+    "codec": "H264",
+    "bitrate_mbps": 45,
+    "maxrate_mbps": 60,
+    "preset": "slow"
+  }
+}

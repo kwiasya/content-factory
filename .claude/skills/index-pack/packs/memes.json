@@ -1,0 +1,9 @@
+{
+  "schema": "cf-pack/1",
+  "id": "memes",
+  "root": "/Users/anastasiiahlushchenko/Movies/content-factory/memes",
+  "include": ["clips"],
+  "folders": {
+    "clips": {"category": "meme"}
+  }
+}

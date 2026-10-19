@@ -134,7 +134,7 @@ class CuePlanTest(unittest.TestCase):
         got = ca.transform(512, 512, ca.pos_box(STYLE, land, "bottom-left"), 3840, 2160)
         self.assertEqual(got, {"ZoomX": 0.3704, "ZoomY": 0.3704, "Pan": -1300.0, "Tilt": -400.0})
         (face,) = self.one("@face/шок")
-        self.assertEqual(face.transform, {"pos": "bottom-left", "ZoomX": 0.3704, "ZoomY": 0.3704, "Pan": -520.0,
+        self.assertEqual(face.transform, {"pos": "bottom-left", "ZoomX": 0.3704, "ZoomY": 0.3704, "Pan": -420.0,
                                           "Tilt": -160.0})
 
     def test_overlapping_cues_get_the_second_lane_and_a_third_fails(self):

@@ -1,4 +1,4 @@
-"""Merge two research stores into a new file (``db merge``, ADR 0013): a one-off tool kept in the repo.
+"""Merge two research stores into a new file (``db merge``, ADR 0014): a one-off tool kept in the repo.
 
 The inputs are copied with SQLite's backup API from ``mode=ro`` connections and never written. The copy
 of ``base`` becomes ``out`` (renumbered when it is in the pre-merge numbering, then migrated); the copy of
@@ -14,7 +14,7 @@ channels, videos and Ideas:
 - every row of an owner column (``idea.brief_owner`` of an Idea with a Brief, ``note.owner`` of a video
   Note, ``idea_video.owner``) gets an explicit owner: ``base_person`` on the base rows, ``other_person`` on
   the other's, where they have none; a merged store has no empty owner, which on a store never merged
-  means "this single person's own rows" (ADR 0013);
+  means "this single person's own rows" (ADR 0014);
 - ``hook`` and ``idea`` are added with remapped ids (``source_video_ids`` too);
 - ``note`` is added unless the same (kind, key, text, created_at) is there;
 - ``quota`` sums calls and units per (day, method), ``rate`` keeps base per (minute, method),

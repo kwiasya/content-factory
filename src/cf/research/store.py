@@ -1,4 +1,4 @@
-"""The research store: one SQLite file at the shared root (ADR 0013).
+"""The research store: one SQLite file at the shared root (ADR 0014).
 
 Path: ``--db`` on the CLI, else ``CF_FACTORY_DB``, else ``<shared root>/factory.db``. The two roots:
 the local root (``CF_LOCAL_ROOT``, else the deprecated ``CF_FOOTAGE_ROOT``, else
@@ -80,13 +80,13 @@ def local_root() -> Path:
 
 def shared_root() -> Path:
     """``CF_SHARED_ROOT``, else ``/Users/Shared/content-factory``: factory.db, references/, library/, packs/,
-    secrets.env and backups/, one folder for both people (ADR 0013)."""
+    secrets.env and backups/, one folder for both people (ADR 0014)."""
     env = _env("CF_SHARED_ROOT")
     return Path(env).expanduser() if env else DEFAULT_SHARED_ROOT
 
 
 def person() -> str:
-    """``CF_PERSON``, else the macOS user name: the owner of rows that point at local things (ADR 0013)."""
+    """``CF_PERSON``, else the macOS user name: the owner of rows that point at local things (ADR 0014)."""
     return _env("CF_PERSON") or getpass.getuser()
 
 
@@ -358,14 +358,14 @@ CREATE INDEX idea_video_slug ON idea_video (video_slug);
 ALTER TABLE asset_author ADD COLUMN hidden_agent_tags TEXT NOT NULL DEFAULT '[]';
 """
 
-# Version 9: the Walk is now Footage (ADR 0012); Notes keyed by the renamed skill ingest-footage follow it.
+# Version 9: the Walk is now Footage (ADR 0013); Notes keyed by the renamed skill ingest-footage follow it.
 V9 = """
 UPDATE note SET key = 'ingest-footage' WHERE kind = 'skill' AND key = 'ingest-walk';
 UPDATE note SET key = '.claude/skills/ingest-footage/' || substr(key, 28)
  WHERE kind = 'document' AND substr(key, 1, 27) = '.claude/skills/ingest-walk/';
 """
 
-# Version 10 (ADR 0013): two people share the store; rows naming something under a person's local root carry
+# Version 10 (ADR 0014): two people share the store; rows naming something under a person's local root carry
 # its owner (CF_PERSON): the Idea's Brief, a Video Note, the Idea <-> Video link. '' = the single person of a store
 # never merged; db merge writes every owner.
 V10 = """

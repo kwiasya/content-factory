@@ -18,7 +18,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from cf import assets, library, script_schema
+from cf import assets, library, memecut, script_schema
 from cf.desk import channels, contour_api, formats_api, media, paths, storeuse
 from cf.desk.hashed import atomic_write, digest, stale
 from cf.desk.problems import Problem, body as problem_body
@@ -141,12 +141,15 @@ def asset_context(root: Path, folder: Path | None, db_path: Path | None,
 
 def script_violations(root: Path, repo: Path, text: str, *, script: bool, folder: Path | None = None,
                       db_path: Path | None = None, shared: Path | None = None) -> list[str]:
-    """Violations of a JSON text; a `script*.json` (`script` true) must be a cf-script/1 document. Asset cues are
+    """Violations of a JSON text; a `script*.json` (`script` true) must be a cf-script/1 document or a Meme cut
+    Script (cf-memecut/1, checked by `cf.memecut.validate` without the Library). Asset cues are
     checked against the Library and the md files of `folder` (the Video); a Script without cues opens no store."""
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
         return [f"invalid JSON: {e}"]
+    if isinstance(data, dict) and data.get("schema") == memecut.SCHEMA:
+        return memecut.validate(data, memecut.load_profile()).problems
     if not isinstance(data, dict) or data.get("schema") != script_schema.SCHEMA:
         if not script:
             return []

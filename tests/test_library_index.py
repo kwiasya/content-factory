@@ -399,3 +399,26 @@ class IndexTest(SyntheticPack):
                 self.assertIn(message, err)
         with open_store(self.db, seed=False, create=True) as s:
             self.assertEqual(s.query("SELECT id FROM pack"), [])
+
+
+@needs_ffmpeg
+class WholeRootPackTest(SyntheticPack):
+    """``"."`` in ``include`` and ``folders`` is the Pack root itself: an inbox folder of loose files."""
+
+    def test_dot_includes_root_level_files_and_deeper_mappings_still_win(self):
+        shutil.copy(self.pack / "unmapped/clip.mp4", self.pack / "loose meme.mp4")
+        self.write_config({**CONFIG, "include": ["."], "templates": False,
+                           "folders": {".": {"category": "meme"}, "sfx": {"category": "sfx"}}})
+        report = self.add_and_index()
+        paths = {v["path"]: a for a in self.index()["assets"] for v in a["variants"]}
+        self.assertEqual((paths["loose meme.mp4"]["category"], paths["loose meme.mp4"]["category_source"]),
+                         ("meme", "mapping"))
+        self.assertEqual(paths["unmapped/clip.mp4"]["category"], "meme")
+        self.assertEqual(paths["sfx/вуш 2.wav"]["category"], "sfx")
+        self.assertEqual(report["fallback"], {})
+
+    def test_dot_is_refused_in_exclude(self):
+        self.write_config({**CONFIG, "exclude": ["."]})
+        code, _, err = self.run_cli("pack", "add", "--config", str(self.config_path))
+        self.assertEqual(code, 1)
+        self.assertIn("exclude", err)

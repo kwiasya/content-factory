@@ -5,7 +5,7 @@ description: Write the analysis of one Reference (summary, idea, hook, storytell
 
 # Analyze a Reference
 
-Turns one Reference into a full card `cf-reference-card/1`: the `measured` section from `fetch`, plus the `analysis` section the Editor writes here. Field reference, the `proposed:` rule and an example: `docs/research/reference-card.md`. Vocabulary: `GLOSSARY.md` (section Исследование). CLI: `.venv/bin/python -m cf.research card|taxonomy|fetch --help`. The Reference folder is `/Users/Shared/content-factory/references/<watchlist or _adhoc>/<video_id>/` in the shared root (ADR 0013) (`fetch --json` prints it as `dir`).
+Turns one Reference into a full card `cf-reference-card/1`: the `measured` section from `fetch`, plus the `analysis` section the Editor writes here. Field reference, the `proposed:` rule and an example: `docs/research/reference-card.md`. Vocabulary: `GLOSSARY.md` (section Исследование). CLI: `.venv/bin/python -m cf.research card|taxonomy|fetch --help`. The Reference folder is `/Users/Shared/content-factory/references/<watchlist or _adhoc>/<video_id>/` in the shared root (ADR 0014) (`fetch --json` prints it as `dir`).
 
 ## Steps
 

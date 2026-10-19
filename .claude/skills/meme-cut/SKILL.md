@@ -1,0 +1,19 @@
+---
+name: meme-cut
+description: Make a Meme cut end to end — a calm clip of the Author with a setup line, a hard cut to a punch line over 3–6 Meme inserts, ending on the last one — from picking the reference, the joke and memes to the file in "Готовые ролики". Use when the Author asks for a meme reel, a "how it looked vs how it felt" video, or sends memes or meme links for one.
+---
+
+# Meme cut
+
+The Format is `formats/meme-cut/FORMAT.md`: structure, the reference rule, the match rule, text, placement, caption, what flops, and the `cf-memecut/1` Script fields. Its numbers live in `formats/meme-cut/style.json`. The Author decides little: the Editor picks the joke, the clip and the memes and shows her a finished draft.
+
+## Steps
+
+1. Read `formats/meme-cut/FORMAT.md`, `author/how-i-talk.md`, `author/joke-log.md` and `author/how-you-work.md`.
+2. **Reference, joke and situation.** Start from a concrete reference (a reel she sent, or one from research) and adapt it to her, as FORMAT.md Reference says (a foreign one is localized, not translated). Write the setup and punch lines with one key word each (`{words}`), and name the `situation` as one Library tag (`свидание`, `сборы`, `монтаж`). Done when the joke is one situation that a viewer gets without sound on the first watch.
+3. **Memes.** `.venv/bin/python -m cf.library query --pack memes --tag <situation>` (and `--pack memes-inbox`). Pick 3–6 that each literally show the situation, the strongest one last, and check each one's frames: `.venv/bin/python -m cf.library show <ref>` gives the poster and preview paths. When too few fit, collect more: links from `~/Library/Mobile Documents/com~apple~CloudDocs/Мемы/ссылки.txt` or a search (the cleanest, largest rendition; no logo or burned captions); ask the Author before downloading, save into the `memes` Pack's `clips/` (`<shared root>/packs/memes/clips/`, default `/Users/Shared/content-factory`) with an `index.json` entry (source page, size, duration, watermark notes), then `/index-pack` for `memes` (index and tag pass). Pick `in_s` on the moment of each meme, and a `trim` for any logo or watermark (`index.json` notes say where).
+4. **Setup clip.** From any Footage with a clip manifest under the local root (a walk, a studio or photo shoot; its Shot logs when there are some) pick 2.3–3 s where she looks calm and pretty in a beautiful place, her full figure when the joke is about the outfit, with free sky or background for the setup line; choose `setup.anchor` off the frames (centred, top at 24–35 % of the height) so the text stays clear of her and inside the safe zone. Set `"style": "stroke"` on a text only when its background is bright or white.
+5. **Script.** Make the Video folder `~/Movies/content-factory/videos/<slug>/` (`video.json` with `"format": "meme-cut"` and the Footage id in `footage`, as Desk's new Video form writes it) and write `script.json` with `reference` and the Footage id in `setup.footage`. `.venv/bin/python -m cf.memecut validate <folder>` until it prints OK with no warnings; a failed match rule means another meme, not a looser tag.
+6. **Build.** `.venv/bin/python -m cf.memecut build <folder>`: overlays (key words in colour, safe-zone check), the text-clear check, the ffmpeg compose into `out/<slug>.mp4` (an older render moves to `out/prev-*`), `cf.render_check` with the silent track, and `out/sheet.jpg`. `--dry-run` prints the plan only. Done when it exits 0 with `render_check: PASS`.
+7. **Look.** Read `out/sheet.jpg`: the setup text off her face and body, one coloured key word per text, the punch in the band just above the memes, each meme whole and centred with no logo, the cut ending on the last meme. Fix the Script and rebuild on anything wrong.
+8. **Hand over.** `.venv/bin/python -m cf.publish <folder>` puts the video and its caption in "Готовые ролики"; tell the Author its name there, show her the sheet, and add the joke and her verdict to `author/joke-log.md`.

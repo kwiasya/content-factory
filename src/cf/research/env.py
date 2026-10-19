@@ -1,4 +1,4 @@
-"""Settings and secrets for the research contour, two files, never in git (ADR 0013).
+"""Settings and secrets for the research contour, two files, never in git (ADR 0014).
 
 The personal ``<repo>/.env`` (``CF_ENV_FILE`` points elsewhere) holds what differs per person: ``CF_PERSON``
 and the roots. The shared ``<shared root>/secrets.env`` (``CF_SECRETS_FILE`` points elsewhere) holds the API
