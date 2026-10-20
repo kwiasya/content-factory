@@ -1,7 +1,7 @@
 {
   "schema": "cf-pack/1",
   "id": "davinci-templates",
-  "root": "/Users/madvil2/Movies/Videos/davinci templates",
+  "root": "/Users/Shared/content-factory/packs/davinci templates",
   "include": ["montage", "CinePacks Smoke FX FREE"],
   "exclude": ["montage/1 pack/_каталог"],
   "templates": true,

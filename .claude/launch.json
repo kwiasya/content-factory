@@ -4,8 +4,12 @@
     {
       "name": "desk",
       "runtimeExecutable": ".venv/bin/python",
-      "runtimeArgs": ["-m", "cf.desk", "--port", "8765"],
-      "env": { "CF_FACTORY_DB": "/Volumes/Shared/content-factory/factory.db" },
+      "runtimeArgs": [
+        "-m",
+        "cf.desk",
+        "--port",
+        "8765"
+      ],
       "port": 8765
     }
   ]
