@@ -45,7 +45,8 @@
     "items": {
       "size": 56,
       "min": 48,
-      "line_height": 1.14
+      "line_height": 1.14,
+      "number_column": "each item's \"N)\" right-aligned in a column as wide as \"10)\", so every item's text starts on one vertical (preset tiktok-list, role numCol; approved 2026-10-20)"
     },
     "stroke": {
       "width_px": 4,

@@ -14,7 +14,8 @@
 ## Text
 
 - **Reference**: every list starts from a concrete viral list and is adapted to her. A Russian one is localized, not translated: native English idioms and online phrases, the same mechanism and punch (`formats/meme-cut/FORMAT.md`, Reference).
-- **Style `tiktok-list`** (`overlays/src/presets.ts`): TikTok Sans SemiBold 600, white, lowercase, a 4 px round black outline, no shadow, no box. Title 64 px at line height 1.12, then +24 px, then the items at 56 px at 1.14 (not below 48 for a long list). In the text, a blank line (`\n\n`) ends the title.
+- **Style `tiktok-list`** (`overlays/src/presets.ts`): TikTok Sans SemiBold 600, white, lowercase, a 4 px round black outline, no shadow, no box. Title 64 px at line height 1.12, then +24 px, then the items at 56 px at 1.14 (not below 48 for a long list). In the text, a blank line (`\n\n`) ends the title; the title stays on one line when it fits.
+- **Number column**: each item's `N)` sits right-aligned in a column as wide as `10)`, so every item's text starts on one vertical (approved on "Офис — нишевые слова для парня", 2026-10-20).
 - **Key words**: exactly one coloured key word or phrase per line, the title included: `{words|pink}`. The colours cycle pink, yellow, cyan, lime, orange, line by line, with the same black outline.
 - **Placement**: left-aligned at x 140, right edge ≤ 950; sides 130 px (Instagram crops ~98 px a side on a tall phone), top ≥ 14 % of the height, the whole list above the bottom 35 %, off her face.
 - Why this style: the author approved it on 2026-10-19 after the text-style research (`~/Movies/content-factory/research/text-style-2026-10.md`): a viral list reads as a plain compact font with one saturated word per line; the old Nunito Black with outline and shadow looked like a meme generator.

@@ -30,7 +30,14 @@ export type TextLayout = {
   wordOverflow: boolean;
   /** Font had to be shrunk to fit the width. */
   shrunk: boolean;
+  /** Number column (layoutText `numCol`): per line, its "N)" on an item's first line,
+   * "" on the item's wrapped lines, null on a line that is not a numbered item; `width`
+   * is the column (the widest of "10)" and the numbers, right-aligned), `gap` one space. */
+  numCol?: { nums: (string | null)[]; width: number; gap: number } | null;
 };
+
+/** A numbered list item: "N) text". */
+const NUM_RE = /^(\d+\))\s+(.*)$/;
 
 export const layoutText = (opts: {
   text: string;
@@ -48,10 +55,58 @@ export const layoutText = (opts: {
   punctuationBreaks?: boolean;
   maxWidth: number;
   minScale?: number;
+  /** A leading "N)" of a "\n" line goes into a right-aligned number column as wide as
+   * "10)" (or the widest number), so every item's text starts on one vertical; the text
+   * is laid out in the width left after the column, wrapped lines hang under it. */
+  numCol?: boolean;
 }): TextLayout => {
   // A "\n" in the text is a forced line break: each paragraph is laid out on its own
   // lines (word and line limits apply per paragraph), all at one font size.
   const paragraphs = opts.text.split(/\r?\n/).map((p) => p.trim()).filter(Boolean);
+  if (opts.numCol) {
+    const m = paragraphs.map((p) => NUM_RE.exec(p));
+    if (m.some(Boolean)) {
+      const em = opts.letterSpacingEm ?? 0;
+      const font = (size: number) =>
+        `${opts.fontStyle === "italic" ? "italic " : ""}${opts.fontWeight} ${size}px ${opts.fontFamily}`;
+      const nums = ["10)", ...m.flatMap((x) => (x ? [x[1]] : []))];
+      const column = (size: number) => ({
+        width: Math.ceil(Math.max(...nums.map((n) => measure(n, font(size), em * size)))),
+        gap: measure(" ", font(size), em * size),
+      });
+      const c0 = column(opts.fontSize);
+      const parts = paragraphs.map((p, i) => {
+        const x = m[i];
+        const l = layoutText({
+          ...opts,
+          numCol: false,
+          text: x ? x[2] : p,
+          maxWidth: x ? opts.maxWidth - c0.width - c0.gap : opts.maxWidth,
+        });
+        return { num: x ? x[1] : null, l };
+      });
+      const fontSize = Math.min(...parts.map((p) => p.l.fontSize));
+      const col = column(fontSize);
+      const lines: string[] = [];
+      const lineNums: (string | null)[] = [];
+      let width = 0;
+      for (const { num, l } of parts)
+        l.lines.forEach((line, j) => {
+          lines.push(num !== null && j === 0 ? `${num} ${line}` : line);
+          lineNums.push(num === null ? null : j === 0 ? num : "");
+          const w = measure(line, font(fontSize), em * fontSize);
+          width = Math.max(width, num === null ? w : col.width + col.gap + w);
+        });
+      return {
+        lines,
+        fontSize,
+        width,
+        wordOverflow: parts.some((p) => p.l.wordOverflow),
+        shrunk: parts.some((p) => p.l.shrunk),
+        numCol: { nums: lineNums, ...col },
+      };
+    }
+  }
   if (paragraphs.length > 1) {
     const parts = paragraphs.map((p) => layoutText({ ...opts, text: p }));
     const fontSize = Math.min(...parts.map((l) => l.fontSize));

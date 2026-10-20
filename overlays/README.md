@@ -105,7 +105,7 @@ spec's `preset` overrides it for one render. The summary line reports `preset`.
 | `y2k-gloss` | Unbounded ExtraBold 84 px, pastel gradient, violet outline, glow, full scrim | 40 px, sparkles both sides |
 | `diary-typewriter` | Special Elite lowercase on cream marker strips, top-left | same, e.g. "potsdam · 04.10" |
 | `handwritten-note` | Caveat Bold 104 px, outline, squiggle underline, scrim | Caveat Bold 72 px, near the horizon |
-| `tiktok-list` | TikTok Sans SemiBold, title 64 / items 56 px, 4-px round black outline, left | same |
+| `tiktok-list` | TikTok Sans SemiBold, title 64 / items 56 px, number column, 4-px round black outline, left | same |
 | `tiktok-caption` | TikTok Sans Medium 64 px, soft shadow, centred | same |
 | `tiktok-caption-stroke` | as `tiktok-caption`, 2-px round black outline | same |
 
@@ -135,9 +135,14 @@ bubbles: plain line = grey received, `> line` = blue sent), `tiktok-hype-small`
 the other Google fonts, through `@remotion/google-fonts/TikTokSans` (`src/fonts.ts`).
 - `tiktok-list` (the Text list Format): SemiBold 600, white, lowercase, a 4 px round black
   outline, no shadow or box. Lines before the first blank line (`\n\n`) are the title,
-  64 px at line height 1.12, then +24 px, then the items at 56 px / 1.14 (a spec `size`
-  sets the items, never below 48). Left at x 140, right edge ≤ 950; each `\n` line stays
-  whole when it fits. One coloured key word per line: `{word|pink}`, `{word|yellow}`, …
+  64 px at line height 1.12 (on one line when it fits the width, role `title.oneLine`), then
+  +24 px, then the items at 56 px / 1.14 (a spec `size` sets the items, never below 48).
+  Number column (role `numCol`, `src/layout.ts`): an item's leading `N)` is drawn
+  right-aligned in a column as wide as `10)` (or its widest number), then one space, so
+  every item's text starts on one vertical; the item is laid out in the width left after
+  the column and a wrapped line hangs under its text; a line without `N)` starts at the
+  left edge. Left at x 140, right edge ≤ 950; each `\n` line stays whole when it fits.
+  One coloured key word per line: `{word|pink}`, `{word|yellow}`, …
 - `tiktok-caption` (the Meme cut): Medium 500, 64 px, line height 1.2, white, shadow
   `0 3px 10px rgba(0,0,0,.75)`, no outline or box, centred, at most 820 px wide.
 - `tiktok-caption-stroke`: the same with a 2 px round black outline in place of the
