@@ -110,6 +110,13 @@ class AdapterTest(Case):
         with self.assertRaises(quota.QuotaExceeded):
             pornhub.video_by_id(self.store, VK, transport=lambda p, q: payload("ph_video_by_id.json"))
 
+    def test_http_403_from_the_api_pauses_the_bucket_like_429(self):
+        def refuse(path, params):
+            raise pornhub.PornhubError("Pornhub API: HTTP 403", 403)
+        with self.assertRaises(pornhub.RateLimited):
+            pornhub.video_by_id(self.store, VK, transport=refuse)
+        self.assertIsNotNone(quota.pressure(self.store, "pornhub").paused_until)
+
     def test_listing_429_is_read_from_the_status_only(self):
         from yt_dlp.utils import DownloadError
         cases = [("ERROR: [PornHub] users/abc4290: HTTP Error 404: Not Found", None),
@@ -413,6 +420,23 @@ class ScoutTest(ScoutBase):
                           now=NOW + timedelta(days=1))
         self.assertIn("rate limit", res.stopped)
         self.assertEqual(res.calls, {"ph.list_page": 1, "ph.video_by_id": 1})
+
+    def test_a_403_midway_stops_the_run_and_the_next_one_completes_it(self):
+        self.ph.uploads["channels/sample-studio"] = keys(5, start=401)
+        for vk in keys(5, start=401):
+            self.ph.videos[vk] = ph_video(vk, iso(NOW - timedelta(days=5)), 100)
+        wl.add_channel(self.store, "ph-walks", "ph:channels/sample-studio", ph_lister=self.ph.lister)
+        self.ph.calls.clear()
+        self.ph.fail = pornhub.PornhubError("Pornhub API: HTTP 403", 403)
+        res = self.run_scout()
+        self.assertIn("rate limit", res.stopped)
+        self.assertEqual(self.ph.count("video_by_id"), 1)
+        self.ph.fail = None
+        self.store.conn.execute("DELETE FROM rate_pressure WHERE bucket = 'pornhub'")
+        self.store.conn.commit()
+        self.run_scout(NOW + timedelta(hours=2))
+        self.assertEqual(len(self.known(keys(100))), 60)
+        self.assertEqual(self.known(keys(5, start=401)), keys(5, start=401))
 
     def test_quota_stop_keeps_what_was_read(self):
         with mock.patch.dict(os.environ, {"CF_QUOTA_PORNHUB": "13"}):

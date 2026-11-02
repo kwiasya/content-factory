@@ -15,7 +15,8 @@ no login, no cookies, and never a video download.
 ``transport`` replaces the API call (``(path, params) -> payload``) and
 ``lister`` the listing (``(url, limit) -> viewkeys``); tests pass fakes. The real
 ones keep ``MIN_INTERVAL_S`` between calls in a process and send a fixed desktop
-User-Agent. HTTP 429 pauses the bucket for an hour (``quota.record_pressure``).
+User-Agent. HTTP 429, and HTTP 403 from the Webmasters API (its throttling), pause the bucket
+for an hour (``quota.record_pressure``).
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ PAGE_SIZE = 40
 YT_DLP_VERSION = "2026.08.19"
 NOT_FOUND_CODES = {"2001", "2002"}
 RATE_LIMIT_STATUS = 429
+API_THROTTLE_STATUSES = {403, RATE_LIMIT_STATUS}
 PAUSE_MINUTES = 60
 VIEWKEY_QUERY_RE = re.compile(r"viewkey=([0-9a-z]+)")
 
@@ -90,7 +92,7 @@ def http_transport(path: str, params: dict) -> dict:
 
 
 class RateLimited(quota.QuotaExceeded):
-    """Pornhub refused an already charged call for its rate limit (HTTP 429)."""
+    """Pornhub refused an already charged call for its rate limit (HTTP 429; 403 from the Webmasters API)."""
 
 
 def _refused(store: Store, method: str, exc: PornhubError) -> RateLimited:
@@ -105,7 +107,7 @@ def video_by_id(store: Store, viewkey: str, *, transport: Transport | None = Non
     try:
         out = (transport or http_transport)(API_PATH, {"id": viewkey})
     except PornhubError as exc:
-        if exc.code == RATE_LIMIT_STATUS:
+        if exc.code in API_THROTTLE_STATUSES:
             raise _refused(store, "ph.video_by_id", exc) from None
         raise
     video = out.get("video") if isinstance(out, dict) else None
