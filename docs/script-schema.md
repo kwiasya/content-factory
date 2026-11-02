@@ -34,6 +34,8 @@ A Script is the text plan of one Reel, written before anything touches Resolve. 
 | `track_in_s` | number, optional | Where the Track starts at timeline frame 0, in Track seconds; default `intro_end` from `beats.json` (the quiet start skipped). Resolve snaps it to a whole timeline frame |
 | `track_fade_out_s` | number, optional | Fade-out of the Track at the end of the timeline, seconds (default 0.6) |
 | `overlay_min_hold_s` | number, optional | Minimum overlay hold for this Script, seconds; replaces `style.json` `animation.min_hold_s` (2 s) in the validator, for a fast list Reel the author planned with shorter text beats |
+| `youtube_playlist` | string, optional | The YouTube playlist a Short goes into (`cf.publish --platform shorts`): `Europe Travel Vlogs` · `Travel Memes` · `Day In My Life` · `City Walks`; `--playlist` wins |
+| `youtube_title`, `youtube_description` | string, optional | The Short's YouTube title (≤100 characters, cut at a word otherwise) and description; absent = the caption's first line and the caption |
 | `metrics` | object or null | Reserved: `avg_watch_time`, `shares`, `saves`, `reach`, filled by hand after publishing |
 
 ## Writing rules
