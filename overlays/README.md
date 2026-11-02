@@ -2,7 +2,9 @@
 
 Remotion project that renders one text overlay for a Reel as a transparent
 ProRes 4444 `.mov` (canvas from style.json, 2160×3840 by default, timeline fps,
-alpha). `build-reel` step 2 calls it once per shot that has an overlay; the files go
+alpha). `build-reel` step 2 calls it once per shot that has an overlay, with the spec
+`python -m cf.build <reel> --overlay-specs` writes from the Script (`overlays/specs/<shot>.json`;
+the Script overlay's `preset`, `anchor` and `in_frames`/`out_frames` pass through); the files go
 on V2/V3 in Resolve.
 
 ## Canvas and scale
@@ -58,13 +60,30 @@ npx --no-install remotion render src/index.ts Overlay <out> --props=<tmp> \
 
 | field | meaning |
 |---|---|
-| `text` | Overlay text, written as it should appear. |
+| `text` | Overlay text, written as it should appear. `\n` is a forced line break. A key-word mark `{words}` or `{words\|colour}` draws those words in a colour inside the same outline (see Key words). |
 | `type` | `hook` \| `place` \| `fact` \| `line`. |
 | `duration_s` | Length of the clip. Frames = `round(duration_s × canvas.fps)`. |
 | `style_path` | Path to the Style profile; a relative path resolves against the spec file's folder. |
 | `preset` | Optional. Overlay preset name (see Presets); defaults to `typography.preset` in style.json, then `legacy`. An unknown name exits 2 and lists the known ones. |
 | `anchor` | Optional. A named slot from `src/slots.json` (`lower-left`, `lower-center`, `mid-left`, `mid-center`, `high-left`, `high-center`, `upper-left`, `upper-center`) that replaces the preset role's placement, for example the calmest, darkest area of this shot that is clear of the face. Unknown → exit 2. |
+| `anchor` (explicit) | Or an explicit placement in reference px: `{"anchor": "top-left"\|"top-right"\|"top-center"\|"middle-left"\|"center"\|"bottom-left"\|"bottom-center", "x": n, "y": n, "align"?: "left"\|"center"\|"right"}` (top-right: x is the right edge), e.g. from a picker that keeps text off the person. |
+| `arrow_to` | Optional `[x, y]` (reference px): where a preset with an arrow (`handwritten-arrow`) points. |
 | `scrim` | Optional, 0..1. Overrides the preset role's scrim strength. |
+| `size` | Optional, reference px > 0. Overrides the preset role's font size (the Meme cut sets 64 from its profile's `text.size`; with a `title`, only the body). |
+| `in_frames`, `out_frames` | Optional ints ≥ 0. Replace `animation.in/out.frames` for this overlay; 0 = no fade on that side (a list item that cuts on with its shot, a header that must not blink at the cut). |
+| `canvas` | Optional. A style.json `canvases` name (`portrait`, `landscape`) or `WxH`; `--canvas` on the command line wins. The preset's size, `reference_width`, `safe_zone`, `overlay_positions` and `slots` replace the top-level ones. On `landscape` (3840×2160, reference 1920×1080) every overlay preset keeps its type system and takes its placement from `canvases.landscape.overlay_positions`, and `anchor` names resolve against `canvases.landscape.slots`; `designScale` is 2 on both 4K canvases, so text is the same size relative to the frame's short side. |
+| `font_file` | Optional. Absolute path to a `.ttf` or `.otf` (the Library font, see Overlay font); anything else, or a missing file, exits 2. |
+| `font_ref` | Optional string, the font's `@font/…` ref; only reported in the summary. |
+
+## Overlay font
+
+A Library font can replace the font family of **every overlay role** (hook, place, fact, line) of whatever preset; sizes, case, boxes and positions stay. Where it is set, first that applies:
+
+1. the Video's Format: a bullet `- Overlay font: `@font/komika-title`` in `formats/<id>/FORMAT.md`;
+2. `style.json` `typography.font` (`"@font/<name>"` or `null`, the default);
+3. neither: the presets keep their Google fonts.
+
+`python -m cf.assets font <script.json>` resolves it against the Library and prints one JSON line `{"ref", "path", "source"}` (or `{"ref": null}`); a broken ref exits 1 with the nearest matches. `/build-reel` puts `font_file` / `font_ref` into every spec. `render.mjs` copies the file into a temp public dir (`--public-dir`; the Pack is never linked or written), the composition registers it with `FontFace` for all weights and both styles (no faked bold or italic) and holds the render until it loads (a font that fails to load cancels the render). No macOS install and no network for this font. The summary's `font` is `{"ref", "file"}` or `null`.
 
 ## Presets
 
@@ -86,6 +105,9 @@ spec's `preset` overrides it for one render. The summary line reports `preset`.
 | `y2k-gloss` | Unbounded ExtraBold 84 px, pastel gradient, violet outline, glow, full scrim | 40 px, sparkles both sides |
 | `diary-typewriter` | Special Elite lowercase on cream marker strips, top-left | same, e.g. "potsdam · 04.10" |
 | `handwritten-note` | Caveat Bold 104 px, outline, squiggle underline, scrim | Caveat Bold 72 px, near the horizon |
+| `tiktok-list` | TikTok Sans SemiBold, title 64 / items 56 px, number column, 4-px round black outline, left | same |
+| `tiktok-caption` | TikTok Sans Medium 64 px, soft shadow, centred | same |
+| `tiktok-caption-stroke` | as `tiktok-caption`, 2-px round black outline | same |
 
 **Legibility without a box.** These are the role fields that make the box-free presets
 readable on bright footage (reel-01 measurements are in
@@ -101,6 +123,48 @@ readable on bright footage (reel-01 measurements are in
   as a faint grey haze.
 - `layers` (prop only, for measurement): `background` renders only the scrim and
   boxes; `glyphs` renders only the glyph fill.
+
+**List presets** (walk-2026-09-13 "my type" board): `notes-checklist` (iOS Notes card;
+a plain line is the title, `[x] item` ticked, `[ ] item` open), `clean-list` (Inter Tight
+lowercase, no box), `handwritten-arrow` (Caveat + arrow to `arrow_to`), `imessage` (chat
+bubbles: plain line = grey received, `> line` = blue sent), `tiktok-hype-small`
+(tiktok-hype boxes at 70 %). Each `\n` line is one list entry.
+
+**TikTok Sans presets** (author, 2026-10-19; research
+`~/Movies/content-factory/research/text-style-2026-10.md`). TikTok Sans (OFL 1.1) loads like
+the other Google fonts, through `@remotion/google-fonts/TikTokSans` (`src/fonts.ts`).
+- `tiktok-list` (the Text list Format): SemiBold 600, white, lowercase, a 4 px round black
+  outline, no shadow or box. Lines before the first blank line (`\n\n`) are the title,
+  64 px at line height 1.12 (on one line when it fits the width, role `title.oneLine`), then
+  +24 px, then the items at 56 px / 1.14 (a spec `size` sets the items, never below 48).
+  Number column (role `numCol`, `src/layout.ts`): an item's leading `N)` is drawn
+  right-aligned in a column as wide as `10)` (or its widest number), then one space, so
+  every item's text starts on one vertical; the item is laid out in the width left after
+  the column and a wrapped line hangs under its text; a line without `N)` starts at the
+  left edge. Left at x 140, right edge ≤ 950; each `\n` line stays whole when it fits.
+  One coloured key word per line: `{word|pink}`, `{word|yellow}`, …
+- `tiktok-caption` (the Meme cut): Medium 500, 64 px, line height 1.2, white, shadow
+  `0 3px 10px rgba(0,0,0,.75)`, no outline or box, centred, at most 820 px wide.
+- `tiktok-caption-stroke`: the same with a 2 px round black outline in place of the
+  shadow, for a line over a bright or white background.
+
+A role's `title: {size, lineHeight, gap}` draws the title block; `stroke.round: true` draws
+the outline as a ring of hard text-shadows (round corners), because Chrome's
+`-webkit-text-stroke` always mitres them.
+
+**Legacy legibility presets** (same walk, "therapy" rewrite): `bold-outline`, Nunito Black 64 px
+in white with a 5 px dark outline and a tight + soft drop shadow, no box or scrim. `\n` breaks lines.
+`bold-outline-wide` is the same look with line height 0.98 and up to the full safe-zone
+width: each `\n` line stays whole when it fits and wraps only when it does not. The Meme
+cut used it until 2026-10-19; it looked like a meme generator, so `tiktok-caption` replaced
+it. Both still render.
+
+**Key words.** In `text`, `{words}` or `{words|colour}` marks a key word or phrase (it
+may span a `\n`). `colour` is a name from style.json `colors.key_words` (the Meme cut
+profile: `pink`, `yellow`, `cyan`, `lime`, `orange`) or `#RRGGBB`; a bare mark takes
+`colors.accent`. Layout measures the text without the marks; the fill draws the marked
+words in the colour, and the outline and shadow stay the role's. A brace outside a mark,
+an empty mark or an unknown colour name exits 2. List presets draw marks uncoloured.
 
 With a non-legacy preset, the preset replaces `typography.display/body`,
 `colors.text/text_shadow/backdrop` and `overlay_positions`. Still read from
@@ -152,13 +216,14 @@ These are the `legacy` preset's inputs.
 (for example `out-cubic`). Not read: `colors.accent`, `typography.*.file`, and
 everything about pacing, look and audio.
 
-**Line breaking.** Words are split into the fewest lines that respect
+**Line breaking.** A `\n` in `text` is a forced break: each paragraph is laid out on its own lines with the rules below, all at one font size (a list header "my type:" over its item). Words are split into the fewest lines that respect
 `max_words_per_line`, and the text must also fit the width the safe zone
 leaves. Among the valid splits it picks the most balanced one, measured with
 the real font. If no split up to `max_lines` fits, it shrinks the font, to no
 less than 60%, and warns `FONT_SHRUNK`. If the text has more words than
 `max_words_per_line × max_lines`, the extra words go on the last line with a
-`TEXT_OVERFLOW` warning. For example, "POV: Potsdam at golden hour" fits the
+`TEXT_OVERFLOW` warning. A `\n` line is laid out on its own, so the limits (and the
+warning) apply per line. For example, "POV: Potsdam at golden hour" fits the
 5-word limit but is about 950 px wide at 72 px, so it breaks into two lines.
 
 **Safe-zone assertion.** On the first fully faded-in frame, the composition

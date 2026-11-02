@@ -12,7 +12,7 @@ from cf.script_schema import ScriptError, from_dict, load, validate
 ROOT = Path(__file__).resolve().parents[1]
 STYLE = json.loads((ROOT / "style.json").read_text())
 MANIFEST = {
-    "walk": "test-walk",
+    "footage": "test-footage",
     "clips": [
         {"file": "A.MOV", "fps": 60.0, "duration_s": 13.0},
         {"file": "B.MOV", "fps": 24.0, "duration_s": 29.0},
@@ -24,7 +24,7 @@ MANIFEST = {
 def good() -> dict:
     return {
         "schema": "cf-script/1",
-        "walk": "test-walk",
+        "footage": "test-footage",
         "concept": "A slow afternoon by the lake.",
         "format": "pov",
         "target_length_s": 9,
@@ -72,6 +72,14 @@ class GoodScriptTest(unittest.TestCase):
     def test_manifest_is_optional(self):
         self.assertEqual(problems(good(), manifest=None), [])
 
+    def test_text_free_reel_with_null_hook_text(self):
+        d = good()
+        d["hook"]["text"] = None
+        for sh in d["shots"]:
+            sh["overlay"] = None
+        self.assertIsNone(from_dict(d).hook.text)
+        self.assertEqual(problems(d), [])
+
 
 class BadScriptTest(unittest.TestCase):
     def assertViolation(self, d: dict, needle: str):
@@ -87,6 +95,17 @@ class BadScriptTest(unittest.TestCase):
         d = good()
         d["hook"]["text"] = "Lake palace"
         self.assertViolation(d, "hook.text: 2 words")
+
+    def test_null_hook_text_needs_every_overlay_null(self):
+        d = good()
+        d["hook"]["text"] = None
+        self.assertViolation(d, "hook.text: null marks a text-free Reel, but s02 carry an overlay")
+
+    def test_missing_hook_text_is_still_a_structural_error(self):
+        d = good()
+        del d["hook"]["text"]
+        with self.assertRaises(ScriptError):
+            from_dict(d)
 
     def test_hook_clip_must_open(self):
         d = good()
@@ -104,15 +123,104 @@ class BadScriptTest(unittest.TestCase):
         d["target_length_s"] = 8
         self.assertViolation(d, "overlay holds 1.80 s")
 
+    def test_script_overlay_min_hold_replaces_style(self):
+        d = good()
+        d["shots"][1]["out_s"] = 3.8  # 1.8 s
+        d["target_length_s"] = 8
+        d["overlay_min_hold_s"] = 1.2
+        self.assertEqual(problems(d), [])
+        d["shots"][1]["out_s"] = 3.0  # 1.0 s < 1.2 s
+        d["shots"][1]["role"] = "build"
+        self.assertViolation(d, "overlay holds 1.00 s")
+
+    def test_overlay_min_hold_must_be_positive(self):
+        d = good()
+        d["overlay_min_hold_s"] = 0
+        self.assertViolation(d, "overlay_min_hold_s: must be > 0")
+
+    def test_emoji_is_not_a_word(self):
+        d = good()
+        d["shots"][1]["overlay"]["text"] = "my type:\nand will touch grass with me \U0001f33e"
+        self.assertEqual(problems(d), [])
+        d["shots"][1]["overlay"]["text"] = "one two three four five six seven eight nine \U0001f33e"
+        self.assertViolation(d, "overlay has 9 words")
+
+    def test_overlay_preset_and_explicit_anchor(self):
+        d = good()
+        ov = d["shots"][1]["overlay"]
+        ov.update(preset="clean-list", anchor={"anchor": "top-left", "x": 80, "y": 284}, in_frames=0, out_frames=0)
+        self.assertEqual(problems(d), [])
+        o = from_dict(d).shots[1].overlay
+        self.assertEqual((o.preset, o.anchor["x"], o.in_frames), ("clean-list", 80, 0))
+        ov["anchor"] = "upper-center"
+        self.assertEqual(problems(d), [])
+        ov["preset"] = "no-such-preset"
+        self.assertViolation(d, "overlay.preset 'no-such-preset'")
+
+    def test_overlay_anchor_problems(self):
+        d = good()
+        ov = d["shots"][1]["overlay"]
+        ov["anchor"] = "nowhere"
+        self.assertViolation(d, "overlay.anchor 'nowhere' is not a slot")
+        ov["anchor"] = {"anchor": "top-left", "y": 300}
+        self.assertViolation(d, "overlay.anchor.x must be a number")
+        ov["anchor"] = {"anchor": "top-center", "y": 300, "align": "justify"}
+        self.assertViolation(d, "overlay.anchor.align 'justify'")
+        ov["anchor"] = {"anchor": "diagonal", "x": 1, "y": 300, "z": 1}
+        self.assertViolation(d, "overlay.anchor.anchor 'diagonal'")
+        self.assertViolation(d, "unknown keys ['z']")
+        ov["anchor"] = 5
+        with self.assertRaises(ScriptError):
+            from_dict(d)
+        ov["anchor"], ov["in_frames"] = None, -1
+        with self.assertRaises(ScriptError):
+            from_dict(d)
+
     def test_overlay_type(self):
         d = good()
         d["shots"][1]["overlay"]["type"] = "title"
         self.assertViolation(d, "overlay.type 'title'")
 
+    def test_overlay_span_holds_over_the_spanned_shots(self):
+        d = good()
+        d["shots"][0]["out_s"] = 2.0  # 1.0 s hook shot
+        d["shots"][1]["in_s"], d["shots"][1]["out_s"] = 2.0, 3.2  # 1.2 s
+        d["target_length_s"] = 6
+        self.assertViolation(d, "overlay holds 1.20 s")
+        d["shots"][1]["overlay"]["span"] = 2  # 1.2 s + the 3 s payoff
+        self.assertEqual(problems(d), [])
+        self.assertEqual(from_dict(d).shots[1].overlay.span, 2)
+
+    def test_overlay_span_too_short_still_fails(self):
+        d = good()
+        for sh, (a, b) in zip(d["shots"], [(1.0, 2.0), (2.0, 2.5), (0.0, 1.0)]):
+            sh["in_s"], sh["out_s"] = a, b
+        d["shots"][1]["overlay"]["span"] = 2
+        d["target_length_s"] = 3
+        self.assertViolation(d, "overlay holds 1.50 s over 2 shots")
+
+    def test_spanned_shot_must_not_carry_its_own_overlay(self):
+        d = good()
+        d["shots"][1]["overlay"]["span"] = 2
+        d["shots"][2]["overlay"] = {"text": "Neues Palais", "type": "place"}
+        self.assertViolation(d, "(s03): has its own overlay inside the span of s02's overlay")
+
+    def test_overlay_span_past_the_last_shot(self):
+        d = good()
+        d["shots"][1]["overlay"]["span"] = 3
+        self.assertViolation(d, "overlay span 3 runs past the last shot")
+
+    def test_overlay_span_must_be_a_positive_int(self):
+        for bad in (0, -1, 1.5, True, "2"):
+            d = good()
+            d["shots"][1]["overlay"]["span"] = bad
+            with self.assertRaises(ScriptError, msg=repr(bad)):
+                from_dict(d)
+
     def test_shot_too_short_and_too_long(self):
         d = good()
-        d["shots"][0]["out_s"] = 2.0  # 1.0 s
-        self.assertViolation(d, "lasts 1.00 s")
+        d["shots"][0]["out_s"] = 1.8  # 0.8 s, under style pacing.shot_s.min (0.9)
+        self.assertViolation(d, "lasts 0.80 s")
         d = good()
         d["shots"][0]["out_s"] = 7.0  # 6 s build/hook
         self.assertViolation(d, "lasts 6.00 s")
@@ -176,13 +284,36 @@ class BadScriptTest(unittest.TestCase):
         d["location_tag"] = ""
         self.assertViolation(d, "location_tag")
 
-    def test_wrong_schema_and_walk(self):
+    def test_wrong_schema_and_footage(self):
         d = good()
         d["schema"] = "cf-script/0"
-        d["walk"] = "other"
+        d["footage"] = "other"
         found = problems(d)
         self.assertTrue(any(p.startswith("schema:") for p in found))
-        self.assertTrue(any(p.startswith("walk:") for p in found))
+        self.assertTrue(any(p.startswith("footage:") for p in found))
+
+    def test_footage_is_read_and_legacy_walk_still_is(self):
+        self.assertEqual(from_dict(good()).footage, "test-footage")
+        d = good()
+        d["walk"] = d.pop("footage")
+        self.assertEqual(from_dict(d).footage, "test-footage")
+        d["footage"] = "test-footage"
+        self.assertEqual(from_dict(d).footage, "test-footage")
+
+    def test_footage_and_walk_that_differ_or_are_both_missing_raise(self):
+        d = good()
+        d["walk"] = "other"
+        with self.assertRaisesRegex(ScriptError, "footage and walk differ; keep footage"):
+            from_dict(d)
+        del d["walk"], d["footage"]
+        with self.assertRaisesRegex(ScriptError, "missing 'footage'"):
+            from_dict(d)
+
+    def test_a_manifest_with_legacy_walk_is_still_compared(self):
+        legacy = {k: v for k, v in MANIFEST.items() if k != "footage"}
+        self.assertEqual(problems(good(), manifest={**legacy, "walk": "test-footage"}), [])
+        found = problems(good(), manifest={**legacy, "walk": "other"})
+        self.assertTrue(any(p.startswith("footage: 'test-footage' does not match") for p in found), found)
 
     def test_structural_errors_raise(self):
         d = good()
@@ -247,7 +378,7 @@ class LoopSeamlessTest(unittest.TestCase):
 
     def test_2997_on_30_seam_is_one_source_frame_later_than_the_seconds(self):
         # Mallorca reel-01 v1: the seconds matched (out_s == in_s) but Resolve skipped frame 3610.
-        man = {"walk": "w", "clips": [{"file": "A.MOV", "fps": 29.97003, "duration_s": 383.783}]}
+        man = {"footage": "w", "clips": [{"file": "A.MOV", "fps": 29.97003, "duration_s": 383.783}]}
         d = seamless()
         d["shots"][0].update(in_s=120.487, out_s=122.8894)
         d["shots"][-1].update(in_s=119.1857, out_s=120.487)
@@ -276,10 +407,26 @@ class LoopSeamlessTest(unittest.TestCase):
         d["shots"][-1]["fade_out_s"] = 0.3
         self.assertSeam(d, "s04 fade_out_s must be 0")
 
-    def test_no_overlay_on_the_last_shot(self):
+    def test_overlay_span_must_not_reach_the_loop_shot(self):
         d = seamless()
-        d["shots"][-1]["overlay"] = {"text": "Again?", "type": "line"}
-        self.assertSeam(d, "s04 must have overlay null")
+        d["shots"][-2]["overlay"] = {"text": "Neues Palais", "type": "place", "span": 2}
+        found = problems(d)
+        self.assertTrue(any("reaches the loop's last shot" in p for p in found), found)
+
+    def test_a_line_span_may_run_into_the_loop_shot(self):
+        d = seamless()
+        d["shots"][-2]["overlay"] = {"text": "my feet after five castles", "type": "line", "span": 2}
+        found = problems(d)
+        self.assertFalse(any("last shot" in p for p in found), found)
+
+    def test_only_a_line_overlay_on_the_last_shot(self):
+        d = seamless()
+        d["shots"][-1]["overlay"] = {"text": "Neues Palais", "type": "place"}
+        self.assertSeam(d, "s04 may only carry a 'line' overlay")
+        d["shots"][-1]["overlay"] = {"text": "Again?", "type": "fact"}
+        self.assertSeam(d, "s04 may only carry a 'line' overlay")
+        d["shots"][-1]["overlay"] = {"text": "my feet after five castles", "type": "line"}
+        self.assertEqual(self.found(d), [])
         # The hook overlay on the first shot is fine: it fades in after the seam.
         d = seamless()
         d["shots"][0]["overlay"] = {"text": "This lake hides a whole palace", "type": "line"}
@@ -306,13 +453,26 @@ class CliTest(unittest.TestCase):
             tmp = Path(t)
             ok = self.run_cli(tmp, good())
             self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
-            self.assertEqual(load(tmp / "script.json").walk, "test-walk")
+            self.assertEqual(load(tmp / "script.json").footage, "test-footage")
             d = good()
             d["hashtags"] = [f"#t{i}" for i in range(7)]
             bad = self.run_cli(tmp, d)
             self.assertEqual(bad.returncode, 1)
             self.assertIn("hashtags: 7", bad.stdout)
 
+
+
+class CanvasFieldTest(unittest.TestCase):
+    def test_canvas_is_optional_and_parsed(self):
+        self.assertIsNone(from_dict(good()).canvas)
+        self.assertEqual(from_dict({**good(), "canvas": "landscape"}).canvas, "landscape")
+        with self.assertRaises(ScriptError):
+            from_dict({**good(), "canvas": 16})
+
+    def test_unknown_canvas_is_a_violation(self):
+        self.assertEqual(validate(from_dict({**good(), "canvas": "landscape"}), MANIFEST, STYLE), [])
+        self.assertTrue(any(p.startswith("canvas:") for p in
+                            validate(from_dict({**good(), "canvas": "cinema"}), MANIFEST, STYLE)))
 
 if __name__ == "__main__":
     unittest.main()

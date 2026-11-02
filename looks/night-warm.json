@@ -1,0 +1,47 @@
+{
+  "name": "night-warm",
+  "description": "Warm cinematic night: softer contrast, amber lamp and projection highlights, a hint of teal in the shadows, gently milky blacks, calmer saturation, soft highlight roll-off. Built for HLG night footage with a -0.5 stop node-1 CDL.",
+  "exposure": 0.0,
+  "contrast": {
+    "amount": 1.1,
+    "pivot": 0.18,
+    "toe_stops": 2.0,
+    "shoulder_stops": 1.0,
+    "per_channel": 0.15
+  },
+  "saturation": {
+    "amount": 1.08,
+    "vibrance": 0.12,
+    "highlight_start": 1.0,
+    "highlight_end": 4.0,
+    "highlight_floor": 0.8,
+    "shadow_start": -3.5,
+    "shadow_end": -6.5,
+    "skin": {
+      "hue": 22,
+      "width": 14,
+      "protect": 0.6
+    },
+    "bands": []
+  },
+  "split_tone": {
+    "highlights": {
+      "hue": 36,
+      "strength": 0.2
+    },
+    "shadows": {
+      "hue": 195,
+      "strength": 0.06
+    },
+    "balance": -1.0,
+    "highlight_range": 3.0,
+    "shadow_range": 4.0
+  },
+  "shoulder": {
+    "knee": 1.2,
+    "compress": 0.5,
+    "width": 1.5,
+    "max_weight": 0.5
+  },
+  "black_lift": 0.004
+}

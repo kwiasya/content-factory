@@ -19,12 +19,16 @@ export type FontSpec = {
 export type Anchor =
   | "center"
   | "middle-left"
+  | "top-right"
   | "top-left"
   | "top-center"
   | "bottom-left"
   | "bottom-center";
 
 export type OverlayPosition = { anchor: Anchor; x?: number; y: number };
+
+/** Explicit placement: anchor type plus reference-px x/y ("top-right": x = right edge). */
+export type AnchorSpec = { anchor: Anchor; x?: number; y: number; align?: "left" | "center" | "right" };
 
 export type Style = {
   /** Output pixels. `reference_width` (default 1080) is the width every other pixel
@@ -34,7 +38,16 @@ export type Style = {
     height: number;
     fps: number;
     reference_width?: number;
+    /** style.json canvases name the canvas was resolved from (render.mjs sets it). */
+    preset?: string;
   };
+  /** Named placements for this canvas (style.json canvases.<name>.slots, reference
+   * px); absent = src/slots.json. render.mjs swaps them in. */
+  slots?: Record<string, unknown>;
+  /** "overlay_positions": every overlay preset takes its anchor/x/y from
+   * overlay_positions instead of its own (portrait) placement. Set by render.mjs
+   * for a canvas preset with its own overlay_positions (landscape). */
+  role_placement?: "preset" | "overlay_positions";
   safe_zone: {
     top: number;
     bottom: number;
@@ -55,6 +68,8 @@ export type Style = {
     text_shadow?: string;
     accent?: string;
     backdrop: string;
+    /** Named key-word colours for inline marks "{words|name}" (layout.ts parseMarks). */
+    key_words?: Record<string, string>;
   };
   overlay_positions: Record<OverlayType, OverlayPosition>;
   animation: {
@@ -71,13 +86,21 @@ export type OverlayProps = {
   style: Style;
   /** Overrides style.typography.preset for this render. */
   preset?: string;
-  /** Named placement from slots.json; overrides the role's own anchor/x/y/align. */
-  anchor?: string;
+  /** Named placement from slots.json, or an explicit placement in reference px
+   * (e.g. from a frame-aware picker); overrides the role's own anchor/x/y/align. */
+  anchor?: string | AnchorSpec;
+  /** Reference-px point a role with `arrow` points at (e.g. the person). */
+  arrowTo?: [number, number];
   /** Overrides the role's scrim strength (0..1). */
   scrim?: number;
+  /** Overrides the role's font size, reference px. */
+  size?: number;
   /** Measurement only: "background" hides the glyphs (keeps scrim and boxes),
    * "glyphs" shows only the glyph fill. Default "all". */
   layers?: "all" | "background" | "glyphs";
+  /** A font file in the render's public dir (render.mjs copies the Library font there):
+   * replaces the family of every role; sizes, case and boxes stay. */
+  fontFile?: string;
 };
 
 export const fontRoleFor = (type: OverlayType): "display" | "body" =>
@@ -122,7 +145,8 @@ export const REFERENCE_WIDTH = 1080;
 export const designScale = (style: Style): number =>
   style.canvas.width / (style.canvas.reference_width ?? REFERENCE_WIDTH);
 
-/** The canvas in reference pixels (1080×1920 for any 9:16 canvas). */
+/** The canvas in reference pixels (1080×1920 for a 9:16 canvas with reference_width
+ * 1080, 1920×1080 for 16:9 with reference_width 1920). */
 export const referenceSize = (
   style: Style,
 ): { width: number; height: number } => {

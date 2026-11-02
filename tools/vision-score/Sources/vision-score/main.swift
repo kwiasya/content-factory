@@ -1,5 +1,6 @@
 // vision-score: score sampled video frames with Apple's Vision framework.
 // Usage: vision-score <video> [--fps 1] [--json out.json] [--max-side 1024] [--landmarks] [--faces-only]
+//                     [--text] [--until S]
 
 import AVFoundation
 import CoreGraphics
@@ -15,6 +16,8 @@ struct Options {
     var maxSide: Int = 1024
     var landmarks = false
     var facesOnly = false
+    var text = false
+    var until: Double?
 }
 
 func usage() -> Never {
@@ -25,6 +28,8 @@ func usage() -> Never {
       --max-side PX  downscale frames so the longer side is at most PX (default 1024, 0 = native)
       --landmarks    face landmarks; adds mouth_open (inner-lip gap / face height, largest face)
       --faces-only   skip aesthetics and humans (faster; those fields are null)
+      --text         on-screen text only (Vision text recognition); adds "text", other fields are null
+      --until S      stop sampling at S seconds (default: the whole video)
 
     """.utf8))
     exit(2)
@@ -50,6 +55,11 @@ func parseOptions() -> Options {
             opts.landmarks = true
         case "--faces-only":
             opts.facesOnly = true
+        case "--text":
+            opts.text = true
+        case "--until":
+            guard let v = args.first.flatMap(Double.init), v > 0 else { usage() }
+            opts.until = v; args.removeFirst()
         case "-h", "--help":
             usage()
         default:
@@ -74,6 +84,7 @@ struct FrameScore {
     var maxHumanH: Double?
     var mouthOpen: Double?
     var landmarks = false
+    var textLines: [(String, Float, Double)]?   // string, confidence, box height (0..1)
     var errors: [String] = []
 
     var json: String {
@@ -84,6 +95,12 @@ struct FrameScore {
         s += ", \"faces\": \(int(faces)), \"max_face_h\": \(num(maxFaceH))"
         s += ", \"humans\": \(int(humans)), \"max_human_h\": \(num(maxHumanH))"
         if landmarks { s += ", \"mouth_open\": \(num(mouthOpen))" }
+        if let lines = textLines {
+            let items = lines.map { line in
+                "{\"s\": \(jsonString(line.0)), \"conf\": \(String(format: "%.3f", Double(line.1))), \"h\": \(String(format: "%.4f", line.2))}"
+            }
+            s += ", \"text\": [" + items.joined(separator: ", ") + "]"
+        }
         if !errors.isEmpty {
             let escaped = errors.joined(separator: "; ")
                 .replacingOccurrences(of: "\\", with: "\\\\")
@@ -93,6 +110,23 @@ struct FrameScore {
         }
         return s + "}"
     }
+}
+
+/// A JSON string literal (quotes, backslashes and control characters escaped).
+func jsonString(_ v: String) -> String {
+    var out = "\""
+    for u in v.unicodeScalars {
+        switch u {
+        case "\"": out += "\\\""
+        case "\\": out += "\\\\"
+        case "\n": out += "\\n"
+        case "\r": out += "\\r"
+        case "\t": out += "\\t"
+        default:
+            if u.value < 0x20 { out += String(format: "\\u%04x", u.value) } else { out.unicodeScalars.append(u) }
+        }
+    }
+    return out + "\""
 }
 
 /// Short one-line error text (NSError descriptions are multi-line and very long).
@@ -120,11 +154,33 @@ func mouthOpen(_ face: FaceObservation, size: CGSize) -> Double? {
     return (hi - lo) / faceH
 }
 
+var textRequest: RecognizeTextRequest = {
+    var r = RecognizeTextRequest()
+    r.recognitionLevel = .accurate
+    r.usesLanguageCorrection = true
+    r.automaticallyDetectsLanguage = true
+    return r
+}()
+
 func score(_ image: CGImage, at t: Double, humanReq: DetectHumanRectanglesRequest) async -> FrameScore {
     var out = FrameScore(t: t)
     out.landmarks = opts.landmarks
     // One handler per frame so Vision can share the decoded image across requests.
     let handler = ImageRequestHandler(image)
+
+    if opts.text {
+        do {
+            let obs = try await handler.perform(textRequest)
+            out.textLines = obs.compactMap { o in
+                guard let top = o.topCandidates(1).first else { return nil }
+                return (top.string, top.confidence, Double(o.boundingBox.height))
+            }
+        } catch {
+            out.errors.append("text: \(brief(error))")
+            out.textLines = []
+        }
+        return out
+    }
 
     if !opts.facesOnly {
         do {
@@ -206,6 +262,7 @@ var i = 0
 while true {
     let t = Double(i) * step
     if t >= duration { break }
+    if let until = opts.until, t > until { break }
     i += 1
     let frameStart = Date()
     let image: CGImage

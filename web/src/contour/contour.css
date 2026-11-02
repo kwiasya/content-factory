@@ -1,0 +1,386 @@
+.contour a {
+  color: var(--accent);
+}
+
+.contour h1 {
+  font-size: 20px;
+}
+
+.contour h2.section {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 22px 0 8px;
+}
+
+.contour-nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.contour-nav a {
+  padding: 2px 10px;
+  border-radius: 10px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.contour-nav a.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.contour .small {
+  font-size: 12.5px;
+}
+
+.contour .cmd {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.contour-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.contour-table.narrow {
+  width: auto;
+  min-width: 360px;
+  margin-bottom: 10px;
+}
+
+.contour-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-align: left;
+}
+
+.contour-table th,
+.contour-table td {
+  padding: 6px 12px 6px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.contour-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.contour-table td.when,
+.contour-table td.links {
+  white-space: nowrap;
+}
+
+.contour-table tr.selected td {
+  background: var(--accent-soft);
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.feed-flags {
+  white-space: nowrap;
+}
+
+.flag {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 7px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.flag.pending {
+  background: var(--warn);
+  border: 1px solid var(--warn-line);
+}
+
+.flag.candidate {
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.contour .status-pill {
+  font-size: 11.5px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.contour .status-pill.idea-brief,
+.contour .status-pill.tax-approved {
+  background: var(--add);
+  color: var(--add-text);
+}
+
+.contour .status-pill.idea-discarded,
+.contour .status-pill.tax-rejected {
+  background: var(--del);
+  color: var(--del-text);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.filters input,
+.filters select,
+.note-add textarea {
+  font: inherit;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.filters input {
+  width: 110px;
+}
+
+.queries {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.facts {
+  margin: 0;
+}
+
+.facts > div {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.facts dt {
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.facts.nested > div {
+  grid-template-columns: 160px 1fr;
+}
+
+.facts.nested > div:last-child {
+  border-bottom: none;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 340px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.card-player {
+  position: sticky;
+  top: 0;
+  margin: 18px 0 0;
+}
+
+.card-player video {
+  width: 100%;
+  max-height: 70vh;
+  border-radius: 8px;
+  background: #000;
+}
+
+.card-player figcaption {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.heatmap {
+  margin: 0;
+}
+
+.heatmap svg {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  height: auto;
+}
+
+.heatmap-bg {
+  fill: var(--panel);
+  stroke: var(--line);
+}
+
+.heatmap-bar {
+  fill: var(--accent);
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.heatmap-bar.active {
+  opacity: 1;
+}
+
+.heatmap-chapter {
+  stroke: var(--muted);
+  stroke-dasharray: 3 3;
+}
+
+.heatmap-axis {
+  stroke: var(--muted);
+}
+
+.heatmap-tick {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.heatmap figcaption {
+  min-height: 1.5em;
+  font-size: 12.5px;
+}
+
+.sections {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.sections li {
+  padding: 3px 0;
+}
+
+.contour button.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+}
+
+.contour button.time {
+  font-variant-numeric: tabular-nums;
+  min-width: 3em;
+  text-align: left;
+}
+
+.warn-box {
+  padding: 8px 12px;
+  border: 1px solid var(--warn-line);
+  border-radius: 8px;
+  background: var(--warn);
+}
+
+.card-ref {
+  margin-right: 6px;
+}
+
+.summary-group {
+  margin-bottom: 12px;
+}
+
+.summary-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.examples {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.examples li {
+  padding: 2px 0;
+}
+
+.idea-detail {
+  margin-top: 20px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.idea-detail h2:not(.section) {
+  font-size: 17px;
+}
+
+.idea-notes {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.note-add {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.note-add textarea {
+  flex: 1;
+  max-width: 560px;
+  resize: vertical;
+}
+
+@media (max-width: 760px) {
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card-player {
+    position: static;
+  }
+
+  .facts > div,
+  .facts.nested > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .contour-table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+.brief-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}

@@ -1,0 +1,20 @@
+{
+  "kind": "youtube#channelListResponse",
+  "etag": "o1P2q3R4",
+  "pageInfo": {"totalResults": 1, "resultsPerPage": 1},
+  "items": [{
+    "kind": "youtube#channel",
+    "etag": "s5T6u7V8",
+    "id": "UCq1W2e3R4t5Y6u7I8o9P0aS",
+    "snippet": {
+      "title": "Lisbon Lens",
+      "description": "Lisbon in under a minute.",
+      "customUrl": "@LisbonLens",
+      "publishedAt": "2024-05-01T10:00:00Z",
+      "thumbnails": {"default": {"url": "https://yt3.ggpht.com/ghi=s88", "width": 88, "height": 88}},
+      "country": "PT"
+    },
+    "contentDetails": {"relatedPlaylists": {"likes": "", "uploads": "UUq1W2e3R4t5Y6u7I8o9P0aS"}},
+    "statistics": {"viewCount": "15200000", "subscriberCount": "48100", "hiddenSubscriberCount": false, "videoCount": "212"}
+  }]
+}

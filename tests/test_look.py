@@ -127,8 +127,37 @@ class Grade(unittest.TestCase):
         self.assertGreater(hi[0], hi[2])
         self.assertGreater(lo[2], lo[0])
 
+    def test_shoulder_off_by_default(self):
+        hi = np.array([[4.0, 1.0, 0.5], [0.02, 0.03, 0.05]])
+        np.testing.assert_allclose(apply_look(hi, LookSpec()), hi, atol=1e-12)
+        spec = LookSpec.from_dict({"shoulder": {"knee": 1.0, "compress": 0.0}})
+        np.testing.assert_allclose(apply_look(hi, spec), hi, atol=1e-12)
+
+    def test_shoulder_compresses_above_the_knee_only(self):
+        spec = LookSpec.from_dict({"shoulder": {"knee": 1.0, "compress": 0.5, "width": 1.0, "max_weight": 0.0}})
+        ramp = np.geomspace(1e-4, 200, 800)
+        y = apply_look(np.stack([ramp] * 3, -1), spec)[:, 0]
+        below = ramp <= 0.18 * 2 ** 1.0
+        np.testing.assert_allclose(y[below], ramp[below], rtol=1e-12)
+        self.assertTrue(np.all(np.diff(y) > 0))  # monotonic
+        self.assertTrue(np.all(y[~below] < ramp[~below]))
+        # far above the knee the log2 slope tends to 1 - compress
+        hi = np.log2(y[-50:])
+        slope = np.diff(hi) / np.diff(np.log2(ramp[-50:]))
+        self.assertAlmostEqual(float(slope.mean()), 0.5, delta=0.02)
+
+    def test_shoulder_keeps_ratios_and_pulls_back_saturated_channels(self):
+        red = np.array([2.0, 0.05, 0.1])  # a bright, saturated projection red: low luma, hot R
+        by_luma = apply_look(red, LookSpec.from_dict({"shoulder": {"knee": 2.0, "compress": 0.6,
+                                                                   "max_weight": 0.0}}))
+        by_max = apply_look(red, LookSpec.from_dict({"shoulder": {"knee": 2.0, "compress": 0.6,
+                                                                  "max_weight": 1.0}}))
+        np.testing.assert_allclose(by_luma, red, rtol=1e-9)  # luma is under the knee: untouched
+        self.assertLess(by_max[0], red[0] * 0.9)
+        np.testing.assert_allclose(by_max / by_max[0], red / red[0], rtol=1e-9)  # hue and saturation kept
+
     def test_shipped_looks_build(self):
-        for f in sorted((REPO / "looks").glob("cinema-*.json")):
+        for f in sorted((REPO / "looks").glob("*.json")):
             spec = load_spec(f)
             self.assertTrue(spec.description)
             lut = build_lut(spec, 9)
@@ -141,3 +170,20 @@ class Grade(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_hue_band_shift_rotates_hue_and_keeps_luminance():
+    import numpy as np
+    from cf.look import LUMA_709, HueBand, LookSpec, _hsv_hue_sat, apply_look
+
+    lime = np.array([[0.3, 0.5, 0.05]])
+    base = LookSpec()
+    shifted = LookSpec.from_dict({"saturation": {"bands": [{"hue": 79, "width": 15, "gain": 1.0, "shift": 10}]}})
+    assert isinstance(shifted.saturation.bands[0], HueBand)
+    h0, _ = _hsv_hue_sat(apply_look(lime, base))
+    h1, _ = _hsv_hue_sat(apply_look(lime, shifted))
+    assert 7 < h1[0] - h0[0] < 13
+    assert abs(apply_look(lime, shifted) @ LUMA_709 - lime @ LUMA_709)[0] < 1e-9
+    # Outside the band (a red) nothing moves.
+    red = np.array([[0.6, 0.1, 0.08]])
+    assert np.allclose(apply_look(red, shifted), apply_look(red, base))

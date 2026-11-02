@@ -6,17 +6,25 @@
 // Every pixel number here (sizes, paddings, radii, outlines, shadows, x/y) is in the
 // 1080×1920 reference space (style.json canvas.reference_width). Overlay.tsx scales the
 // whole design by designScale (style.ts): ×2 on the default 2160×3840 canvas, so a
-// preset looks the same at any canvas size. Safe zone (style.json, reference px):
-// y 269..1248, x 65..1015, and nothing right of x 850 below y 1150 (right rail).
+// preset looks the same at any canvas size. On a canvas preset with its own
+// overlay_positions (landscape, 1920×1080 reference) the roles keep their type system
+// and take anchor/x/y from style.overlay_positions (resolveRole, role_placement);
+// slots come from style.slots there. Safe zone (style.json, reference px):
+// y 269..1248, x 130..950, and nothing right of x 850 below y 1150 (right rail). The sides
+// are 130, not 65: Instagram crops ~98 px off each side of a 9:16 Reel on a 19.5:9 phone.
 // "bottom-*" anchors put the box's bottom edge at y at rest; the slide-in starts
 // `animation.in.distance_px` lower, so bottom anchors sit at y ≤ 1248 - 24 = 1224.
 import slotsJson from "./slots.json";
-import { Anchor, fontRoleFor, FontSpec, OverlayType, Style } from "./style";
+import { Anchor, AnchorSpec, fontRoleFor, FontSpec, OverlayType, Style } from "./style";
 
-export type Slot = { anchor: Anchor; x?: number; y: number; align: "left" | "center" };
-export const SLOTS: Record<string, Slot> = Object.fromEntries(
-  Object.entries(slotsJson).filter(([k]) => !k.startsWith("_")),
-) as Record<string, Slot>;
+export type Slot = { anchor: Anchor; x?: number; y: number; align: "left" | "center" | "right" };
+const slotTable = (raw: Record<string, unknown>): Record<string, Slot> =>
+  Object.fromEntries(Object.entries(raw).filter(([k]) => !k.startsWith("_"))) as Record<string, Slot>;
+/** The portrait slots (src/slots.json). */
+export const SLOTS: Record<string, Slot> = slotTable(slotsJson);
+/** Slots for the style's canvas: its own (style.slots, e.g. landscape) or SLOTS. */
+export const slotsFor = (style: Style): Record<string, Slot> =>
+  style.slots ? slotTable(style.slots) : SLOTS;
 
 export type Ornament = {
   kind: "sparkle" | "heart" | "bow";
@@ -26,6 +34,24 @@ export type Ornament = {
   /** CSS colour, or "accent" for colors.accent. */
   color: string;
   side: "before" | "after" | "both";
+};
+
+export type ListStyle = {
+  mode: "checklist" | "bubbles";
+  /** Gap between entries, px. */
+  gap: number;
+  /** Checklist titles: weight and size relative to role.size. */
+  titleWeight?: number;
+  titleScale?: number;
+  /** Checklist tick circle: filled colour when ticked, ring colour when open. */
+  tickOn?: string;
+  tickOff?: string;
+  /** Bubble colours and geometry. */
+  recv?: { bg: string; color: string };
+  sent?: { bg: string; color: string };
+  bubblePadX?: number;
+  bubblePadY?: number;
+  bubbleRadius?: number;
 };
 
 export type RoleStyle = {
@@ -44,20 +70,21 @@ export type RoleStyle = {
   /** CSS text-shadow, or null for none. */
   shadow: string | null;
   /** Dark outline drawn behind the fill (a stroked copy of the text under it), so
-   * hairlines survive compression. width = visible outline in px. */
-  stroke?: { width: number; color: string } | null;
+   * hairlines survive compression. width = visible outline in px. round: round corners
+   * (drawn as a ring of hard shadows) instead of -webkit-text-stroke's mitred ones. */
+  stroke?: { width: number; color: string; round?: boolean } | null;
   /** Feathered dark ellipse behind the text block, 0..1 (centre alpha 0.6 × scrim). */
   scrim?: number;
   /** CSS filter on the text, e.g. drop-shadow glows that also work with gradients. */
   filter?: string;
   /** Rounded box behind the whole text block, or null. */
-  backdrop: { color: string; padX: number; padY: number; radius: number } | null;
+  backdrop: { color: string; padX: number; padY: number; radius: number; shadow?: string } | null;
   /** Box behind each line separately (CapCut "background", marker highlight). */
   lineBox?: { color: string; padX: number; padY: number; radius: number; gap?: number } | null;
   anchor: Anchor;
   x?: number;
   y: number;
-  align: "left" | "center";
+  align: "left" | "center" | "right";
   /** Cap on the box width in px (the safe zone also limits it). */
   maxWidth?: number;
   maxLines?: number;
@@ -80,6 +107,21 @@ export type RoleStyle = {
   bar?: { width: number; gap: number; color: string } | null;
   /** Small glyph(s) beside the text block. */
   ornament?: Ornament | null;
+  /** List rendering: each "\n" line is one entry.
+   * - checklist: plain lines are titles; "[x] item" is ticked, "[ ] item" is open.
+   * - bubbles: chat bubbles; plain lines are received (grey, left), "> line" is sent
+   *   (blue, right). */
+  list?: ListStyle | null;
+  /** Hand-drawn arrow from the text box towards OverlayProps.arrowTo (when given). */
+  arrow?: { color: string; thickness: number } | null;
+  /** Title block: the lines before the first blank line ("\n\n") of the text are a title
+   * set at `size` / `lineHeight` (weight, case, fill and outline stay the role's), followed
+   * by `gap` px; the rest is set at the role's size. Without a blank line all of it is body.
+   * oneLine: the title stays on one line when it fits the width at `size` (else it wraps). */
+  title?: { size: number; lineHeight: number; gap: number; oneLine?: boolean } | null;
+  /** Number column: a leading "N)" of a body line is drawn right-aligned in a column as
+   * wide as "10)", so every item's text starts on one vertical (layout.ts `numCol`). */
+  numCol?: boolean;
 };
 
 export type Preset = {
@@ -100,7 +142,7 @@ const PLUM_STROKE = { width: 2, color: "rgba(70,12,40,0.8)" };
 const Y2K_STROKE = { width: 3, color: "rgba(55,8,75,0.9)" };
 const THIN_Y2K_STROKE = { width: 2, color: "rgba(55,8,75,0.85)" };
 
-const LEFT_X = 90;
+const LEFT_X = 140;
 const BOTTOM_Y = 1218;
 /** Cap on hook width for left placements (the anchor picker keeps it off the person). */
 const HOOK_COL = 760;
@@ -114,6 +156,9 @@ const PINK_LIGHT = "#FCDDE7";
 const Y2K_GRADIENT = "linear-gradient(180deg, #FFF4FB 0%, #FFC2E6 45%, #DCC8FF 100%)";
 const Y2K_GLOW =
   "drop-shadow(0 1px 1px rgba(70,10,90,0.8)) drop-shadow(0 0 5px rgba(255,120,205,0.55)) drop-shadow(0 4px 12px rgba(40,0,60,0.4))";
+
+/** One role for every overlay type (list presets look the same whatever the type). */
+const listRoles = (r: RoleStyle): Record<OverlayType, RoleStyle> => ({ hook: r, place: r, fact: r, line: r });
 
 const bottomLeft = { anchor: "bottom-left" as const, x: LEFT_X, y: BOTTOM_Y, align: "left" as const };
 const topLeft = { anchor: "top-left" as const, x: LEFT_X, y: 300, align: "left" as const };
@@ -380,6 +425,128 @@ export const PRESETS: Record<string, Preset> = {
       },
     },
   },
+
+  // ---- list presets (walk-2026-09-13 reel-01 "my type:" board) ----
+
+  "notes-checklist": {
+    label: "A Notes checklist",
+    note: "iOS Notes look: a white 90% rounded card, bold title, items with yellow tick circles ('[x] item', '[ ] item').",
+    roles: listRoles({
+      family: "Inter", weight: 500, size: 32, case: "sentence", lineHeight: 1.22,
+      color: "#1C1C1E", shadow: null,
+      backdrop: { color: "rgba(255,255,255,0.9)", padX: 28, padY: 22, radius: 26, shadow: "0 8px 28px rgba(0,0,0,0.22)" },
+      ...topLeft, maxWidth: 520, maxWordsPerLine: 3, maxLines: 3,
+      list: { mode: "checklist", gap: 12, titleWeight: 700, titleScale: 1.25, tickOn: "#F2B300", tickOff: "#C7C7CC" },
+    }),
+  },
+
+  "clean-list": {
+    label: "B Clean caption",
+    note: "Inter Tight SemiBold lowercase, white, layered shadow and soft scrim, small stacked list, no box.",
+    roles: listRoles({
+      family: "Inter Tight", weight: 600, size: 50, case: "lower", tracking: -0.01, lineHeight: 1.1,
+      shadow: LEGIBLE, scrim: 0.6, ...NO_BOX, ...topLeft, maxWidth: 560, maxWordsPerLine: 3,
+      maxLines: 3, punctuationBreaks: true,
+    }),
+  },
+
+  "handwritten-arrow": {
+    label: "C Handwritten note",
+    note: "Caveat Bold, white, dark outline, slight tilt; a hand-drawn arrow points at her when the spec gives arrow_to.",
+    roles: listRoles({
+      family: "Caveat", weight: 700, size: 70, case: "sentence", lineHeight: 0.98,
+      shadow: LEGIBLE, stroke: THIN_STROKE, scrim: 0.5, ...NO_BOX, ...topLeft, maxWidth: 560,
+      maxWordsPerLine: 3, maxLines: 3, rotate: -3, punctuationBreaks: true,
+      arrow: { color: "#FFFFFF", thickness: 6 },
+    }),
+  },
+
+  "imessage": {
+    label: "D iMessage bubbles",
+    note: "Chat bubbles stacking top-right: grey received lines, '> line' as the blue sent bubble.",
+    roles: listRoles({
+      family: "Inter", weight: 500, size: 36, case: "sentence", lineHeight: 1.2, shadow: null,
+      ...NO_BOX, anchor: "top-right", x: 940, y: 300, align: "right", maxWidth: 600,
+      maxWordsPerLine: 3, maxLines: 3,
+      list: {
+        mode: "bubbles", gap: 8, recv: { bg: "#E9E9EB", color: "#000000" },
+        sent: { bg: "#0A84FF", color: "#FFFFFF" }, bubblePadX: 24, bubblePadY: 13, bubbleRadius: 34,
+      },
+    }),
+  },
+
+  "tiktok-hype-small": {
+    label: "E TikTok hype, smaller",
+    note: "tiktok-hype's black-on-white per-line boxes at 70% size, for the top band.",
+    roles: listRoles({
+      family: "Montserrat", weight: 800, size: 39, case: "upper", tracking: -0.01,
+      lineHeight: 1.22, color: "#111111", shadow: null, ...NO_BOX,
+      lineBox: { color: "#FFFFFF", padX: 14, padY: 3, radius: 8 },
+      anchor: "top-center", y: 300, align: "center", maxWidth: 600, rotate: -3,
+      maxWordsPerLine: 3, maxLines: 3, punctuationBreaks: true,
+    }),
+  },
+
+  // ---- TikTok Sans styles (author, 2026-10-19; research ~/Movies/content-factory/research/text-style-2026-10.md) ----
+
+  "tiktok-list": {
+    label: "TikTok list",
+    note: "Text list over her footage: TikTok Sans SemiBold, white, lowercase, a 4-px round black outline drawn under the fill, no shadow or box; a title block (before the blank line) at 64 px / 1.12, on one line when it fits, +24 px, then the items at 56 px / 1.14 (spec size, min 48), their \"N)\" in a right-aligned number column as wide as \"10)\" so every item's text starts on one vertical; left at x 140, right edge <= 950. One coloured key word per line ({word|colour}).",
+    roles: listRoles({
+      family: "TikTok Sans", weight: 600, size: 56, case: "lower", lineHeight: 1.14,
+      color: "#FFFFFF", shadow: null, stroke: { width: 4, color: "#000000", round: true }, ...NO_BOX,
+      anchor: "top-left", x: LEFT_X, y: 300, align: "left", maxWidth: 810,
+      maxWordsPerLine: 12, maxLines: 2, punctuationBreaks: true,
+      title: { size: 64, lineHeight: 1.12, gap: 24, oneLine: true }, numCol: true,
+    }),
+  },
+
+  "tiktok-caption": {
+    label: "TikTok caption",
+    note: "Meme cut setup and punch: TikTok Sans Medium 64 px, white, line height 1.2, soft shadow 0 3px 10px rgba(0,0,0,.75), no outline or box, centred, at most 820 px wide; each \"\\n\" line stays whole when it fits. The native TikTok caption look.",
+    roles: listRoles({
+      family: "TikTok Sans", weight: 500, size: 64, case: "lower", lineHeight: 1.2,
+      color: "#FFFFFF", shadow: "0 3px 10px rgba(0,0,0,0.75)", stroke: null, ...NO_BOX,
+      anchor: "top-center", y: 480, align: "center", maxWidth: 820,
+      maxWordsPerLine: 12, maxLines: 3, punctuationBreaks: true,
+    }),
+  },
+
+  "tiktok-caption-stroke": {
+    label: "TikTok caption, outlined",
+    note: "tiktok-caption with a 2-px black outline in place of the shadow, for text over a bright or white background.",
+    roles: listRoles({
+      family: "TikTok Sans", weight: 500, size: 64, case: "lower", lineHeight: 1.2,
+      color: "#FFFFFF", shadow: null, stroke: { width: 2, color: "#000000", round: true }, ...NO_BOX,
+      anchor: "top-center", y: 480, align: "center", maxWidth: 820,
+      maxWordsPerLine: 12, maxLines: 3, punctuationBreaks: true,
+    }),
+  },
+
+  // ---- legacy legibility presets (walk-2026-09-13 reel-01 "therapy" rewrite, author pick A);
+  // replaced by tiktok-caption in the Meme cut (author, 2026-10-19: "looked like a meme generator") ----
+
+  "bold-outline": {
+    label: "A Bold rounded outline (legacy)",
+    note: "Legacy. Nunito Black, white with a crisp 5-px dark outline and a tight + soft drop shadow, no box or scrim; reads at feed size on a white-grey sky.",
+    roles: listRoles({
+      family: "Nunito", weight: 900, size: 64, case: "sentence", tracking: -0.005, lineHeight: 1.04,
+      color: "#FFFFFF", shadow: "0 3px 2px rgba(0,0,0,0.55), 0 6px 18px rgba(0,0,0,0.45)",
+      stroke: { width: 5, color: "rgba(12,10,10,0.88)" }, ...NO_BOX, ...topLeft, maxWidth: 820,
+      maxWordsPerLine: 4, maxLines: 3, punctuationBreaks: true,
+    }),
+  },
+
+  "bold-outline-wide": {
+    label: "A2 Bold rounded outline, lines as written (legacy)",
+    note: "Legacy (the Meme cut's preset until 2026-10-19, now tiktok-caption). bold-outline's look; each \"\\n\" line stays whole when it fits the safe-zone width (it wraps only when it does not), line height 0.98; its size comes from the spec.",
+    roles: listRoles({
+      family: "Nunito", weight: 900, size: 80, case: "sentence", tracking: -0.005, lineHeight: 0.98,
+      color: "#FFFFFF", shadow: "0 3px 2px rgba(0,0,0,0.55), 0 6px 18px rgba(0,0,0,0.45)",
+      stroke: { width: 5, color: "rgba(12,10,10,0.88)" }, ...NO_BOX, ...topLeft, maxWidth: 950,
+      maxWordsPerLine: 12, maxLines: 3, punctuationBreaks: true,
+    }),
+  },
 };
 
 export const PRESET_NAMES = ["legacy", ...Object.keys(PRESETS)];
@@ -409,19 +576,38 @@ export const resolveRole = (
   style: Style,
   type: OverlayType,
   presetName: string | undefined,
-  override: { anchor?: string; scrim?: number } = {},
+  override: { anchor?: string | AnchorSpec; scrim?: number; size?: number } = {},
 ): RoleStyle => {
   const base = baseRole(style, type, presetName);
   let out = base;
-  if (override.anchor) {
-    const slot = SLOTS[override.anchor];
+  if (style.role_placement === "overlay_positions") {
+    // Canvas with its own placements (landscape): the preset keeps its type system
+    // (font, size, boxes, caps) and takes anchor/x/y from overlay_positions.
+    const pos = style.overlay_positions[type];
+    out = {
+      ...out,
+      anchor: pos.anchor,
+      x: pos.x,
+      y: pos.y,
+      align: pos.anchor === "center" || pos.anchor.endsWith("-center") ? "center" : "left",
+    };
+  }
+  if (override.anchor && typeof override.anchor === "object") {
+    const a = override.anchor;
+    const align =
+      a.align ?? (a.anchor === "top-right" ? "right" : a.anchor === "center" || a.anchor.endsWith("-center") ? "center" : "left");
+    out = { ...out, anchor: a.anchor, x: a.x, y: a.y, align };
+  } else if (override.anchor) {
+    const slots = slotsFor(style);
+    const slot = slots[override.anchor];
     if (!slot)
       throw new Error(
-        `[cf-overlay] unknown anchor "${override.anchor}"; known: ${Object.keys(SLOTS).join(", ")}`,
+        `[cf-overlay] unknown anchor "${override.anchor}"; known: ${Object.keys(slots).join(", ")}`,
       );
     out = { ...out, anchor: slot.anchor, x: slot.x, y: slot.y, align: slot.align };
   }
   if (typeof override.scrim === "number") out = { ...out, scrim: override.scrim };
+  if (typeof override.size === "number") out = { ...out, size: override.size };
   return out;
 };
 

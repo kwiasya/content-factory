@@ -22,11 +22,17 @@ The grade, in order, on linear light (``apply_look``):
 3. saturation around luminance: base gain, vibrance (more gain for low-saturation
    colors), roll-off toward ``highlight_floor`` x gain in highlights and toward 1 in the
    noise floor, a skin band (hue window) that keeps only ``1 - protect`` of the change, and
-   optional hue bands that scale the gain (e.g. calmer yellow-green foliage);
+   optional hue bands that scale the gain (e.g. calmer yellow-green foliage) and can rotate
+   the hue inside the band (``shift``, luminance kept: lime grass toward green or olive);
 4. split toning: multiplicative (log-offset) push toward a hue in the highlights and
    another in the shadows, luminance-neutral;
-5. black lift ("milk"): ``lift`` linear added at black, mid grey kept;
-6. gamut guard: colors pushed outside DWG are desaturated toward their luminance, then
+5. highlight shoulder (off unless ``shoulder.compress`` > 0): above ``knee`` stops over the
+   pivot the log2 slope of a norm eases from 1 down to ``1 - compress`` over ``width`` stops,
+   and RGB is scaled by the norm's ratio, so hue and saturation are kept. The norm blends
+   luminance and max(RGB) (``max_weight``); max(RGB) also pulls back saturated projection
+   colours whose one channel would otherwise reach the output DRT's ceiling;
+6. black lift ("milk"): ``lift`` linear added at black, mid grey kept;
+7. gamut guard: colors pushed outside DWG are desaturated toward their luminance, then
    the result is re-encoded and clamped to the LUT range.
 
 ``preview`` applies the same grade to an 8-bit Rec.709 still as an approximation: it
@@ -109,6 +115,7 @@ class HueBand:
     hue: float = 75.0      # HSV hue (degrees) of the band centre
     width: float = 20.0    # half width (full effect inside, cosine falloff to 2x)
     gain: float = 1.0      # multiplier on the saturation gain inside the band
+    shift: float = 0.0     # hue rotation (degrees, + = toward higher HSV hue) inside the band
 
 
 @dataclass
@@ -140,6 +147,14 @@ class SplitTone:
 
 
 @dataclass
+class Shoulder:
+    knee: float = 2.0         # stops over the pivot where the compression starts
+    compress: float = 0.0     # 0..<1: how much the log2 slope drops far above the knee (0 = off)
+    width: float = 1.5        # stops over which the slope eases from 1 to 1 - compress
+    max_weight: float = 1.0   # norm = (1 - w) * luminance + w * max(RGB)
+
+
+@dataclass
 class LookSpec:
     name: str = "identity"
     description: str = ""
@@ -147,6 +162,7 @@ class LookSpec:
     contrast: Contrast = field(default_factory=Contrast)
     saturation: Saturation = field(default_factory=Saturation)
     split_tone: SplitTone = field(default_factory=SplitTone)
+    shoulder: Shoulder = field(default_factory=Shoulder)
     black_lift: float = 0.0    # linear light added at black (mid grey kept)
 
     @classmethod
@@ -167,7 +183,8 @@ class LookSpec:
         split = lambda s: take(SplitTone, s, {"highlights": lambda t: take(Tone, t),  # noqa: E731
                                               "shadows": lambda t: take(Tone, t)})
         return take(cls, {k: v for k, v in d.items() if not k.startswith("_")},
-                    {"contrast": lambda c: take(Contrast, c), "saturation": sat, "split_tone": split})
+                    {"contrast": lambda c: take(Contrast, c), "saturation": sat, "split_tone": split,
+                     "shoulder": lambda sh: take(Shoulder, sh)})
 
 
 def load_spec(path: str | Path) -> LookSpec:
@@ -201,6 +218,19 @@ def _curve(v: np.ndarray, c: Contrast) -> np.ndarray:
     return np.where(pos, c.pivot * np.exp2(y), v * black_gain)
 
 
+def _shoulder_ratio(n: np.ndarray, sh: Shoulder, pivot: float) -> np.ndarray:
+    """Gain for a norm ``n``: 1 at and below the knee, then log2 slope 1 -> 1 - compress.
+
+    y = x - c (d - w tanh(d / w)) with d = x - knee (log2 stops over the pivot): continuous
+    with continuous slope at the knee, monotonic for c < 1.
+    """
+    pos = n > 1e-10
+    x = np.log2(np.where(pos, n, 1.0) / pivot)
+    d = np.maximum(x - sh.knee, 0.0)
+    drop = sh.compress * (d - sh.width * np.tanh(d / sh.width))
+    return np.where(pos, np.exp2(-drop), 1.0)
+
+
 def _hsv_hue_sat(rgb_lin: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """HSV hue (degrees) and saturation of display-encoded (gamma 1/2.4) Rec.709 values."""
     e = np.clip(rgb_lin, 0.0, None) ** (1 / 2.4)
@@ -227,6 +257,22 @@ def _tone_vector(hue: float) -> np.ndarray:
     v = np.array(rgb, dtype=np.float64)
     v = v - v @ LUMA_709
     return v / np.abs(v).max()
+
+
+def _rotate_hue(rgb: np.ndarray, degrees: np.ndarray) -> np.ndarray:
+    """Rotate chroma around the Rec.709 luminance axis (luminance kept); + = toward higher HSV hue.
+
+    Works in the (B - Y, R - Y) plane; G is solved from the luminance. Used by hue bands
+    with a ``shift`` (e.g. lime grass toward green or toward olive).
+    """
+    y = _luma(rgb)
+    cb, cr = rgb[..., 2] - y, rgb[..., 0] - y
+    t = -np.radians(degrees)
+    c, s = np.cos(t), np.sin(t)
+    cb2, cr2 = c * cb + s * cr, -s * cb + c * cr
+    r, b = y + cr2, y + cb2
+    g = (y - LUMA_709[0] * r - LUMA_709[2] * b) / LUMA_709[1]
+    return np.stack([r, g, b], axis=-1)
 
 
 def apply_look(rgb: np.ndarray, spec: LookSpec) -> np.ndarray:
@@ -258,6 +304,10 @@ def apply_look(rgb: np.ndarray, spec: LookSpec) -> np.ndarray:
         w = _hue_window(hue, band.hue, band.width) * _smoothstep(0.04, 0.15, hsv_s)
         gain = gain * (1.0 + (band.gain - 1.0) * w)
     rgb = y[..., None] + gain[..., None] * (rgb - y[..., None])
+    for band in s.bands:
+        if band.shift:
+            w = _hue_window(hue, band.hue, band.width) * _smoothstep(0.04, 0.15, hsv_s)
+            rgb = _rotate_hue(rgb, band.shift * w)
 
     # 4. split toning (log offsets weighted by distance from the crossover)
     st = spec.split_tone
@@ -270,7 +320,13 @@ def apply_look(rgb: np.ndarray, spec: LookSpec) -> np.ndarray:
                 + st.shadows.strength * ws[..., None] * _tone_vector(st.shadows.hue))
         rgb = rgb * np.exp2(push)
 
-    # 5. black lift, mid grey fixed
+    # 5. highlight shoulder on a luminance / max(RGB) norm (ratios kept)
+    sh = spec.shoulder
+    if sh.compress > 0:
+        norm = (1.0 - sh.max_weight) * _luma(rgb) + sh.max_weight * rgb.max(-1)
+        rgb = rgb * _shoulder_ratio(norm, sh, c.pivot)[..., None]
+
+    # 6. black lift, mid grey fixed
     if spec.black_lift:
         rgb = spec.black_lift + rgb * (1.0 - spec.black_lift / c.pivot)
     return rgb

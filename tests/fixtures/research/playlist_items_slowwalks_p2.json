@@ -1,0 +1,27 @@
+{
+  "kind": "youtube#playlistItemListResponse",
+  "etag": "b2C3d4E5",
+  "prevPageToken": "EAEaBlBUOkNESQ",
+  "pageInfo": {"totalResults": 4, "resultsPerPage": 3},
+  "items": [
+    {
+      "kind": "youtube#playlistItem",
+      "etag": "f6G7h8I9",
+      "id": "VVV4UjltWHlaYkMxZEVmMkdoSWpLbE1uLlp4OXlXOHZVN3RT",
+      "snippet": {
+        "publishedAt": "2026-09-20T08:15:00Z",
+        "channelId": "UCxR9mXyZbC1dEf2GhIjKlMn",
+        "title": "Porto Ribeira Morning Walk",
+        "description": "Ribeira to Dom Luís I bridge.",
+        "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/Zx9yW8vU7tS/hqdefault.jpg", "width": 480, "height": 360}},
+        "channelTitle": "Slow Walks",
+        "playlistId": "UUxR9mXyZbC1dEf2GhIjKlMn",
+        "position": 3,
+        "resourceId": {"kind": "youtube#video", "videoId": "Zx9yW8vU7tS"},
+        "videoOwnerChannelTitle": "Slow Walks",
+        "videoOwnerChannelId": "UCxR9mXyZbC1dEf2GhIjKlMn"
+      },
+      "contentDetails": {"videoId": "Zx9yW8vU7tS", "videoPublishedAt": "2026-09-20T08:15:00Z"}
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "desk",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        "-m",
+        "cf.desk",
+        "--port",
+        "8765"
+      ],
+      "port": 8765
+    }
+  ]
+}

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STYLE = json.loads((ROOT / "style.json").read_text())
 CW, CH = 2160, 3840
 MANIFEST = {
-    "walk": "w",
+    "footage": "w",
     "clips": [
         {"file": "DJI.mp4", "fps": 29.97, "duration_s": 100.0, "width": 3840, "height": 2160,
          "display_width": 3840, "display_height": 2160},
@@ -31,7 +31,7 @@ MANIFEST = {
 
 def script(shots, ending="reveal_last"):
     return from_dict({
-        "schema": "cf-script/1", "walk": "w", "concept": "c", "format": "pov", "target_length_s": 2.5 * len(shots),
+        "schema": "cf-script/1", "footage": "w", "concept": "c", "format": "pov", "target_length_s": 2.5 * len(shots),
         "hook": {"type": "pov", "text": "one two three four five", "clip": shots[0]["clip"]},
         "shots": shots, "ending": ending, "location_tag": "x",
     })
@@ -170,6 +170,22 @@ class DefaultsTest(unittest.TestCase):
         self.assertIsNone(plans["s02"])
         self.assertEqual((plans["s03"].mode, plans["s03"].default), ("pan", False))
         self.assertAlmostEqual(plans["s03"].pan, -933.3333, places=3)
+
+    def test_landscape_canvas_landscape_sources_get_no_reframe(self):
+        sc = script([shot("DJI.mp4", 1, 3.5), shot("IPH.MOV", 1, 3.5)])
+        plans = plan_reframes(sc, MANIFEST, 3840, 2160)  # no follow analysis needed: nothing to reframe
+        self.assertEqual(plans, {"s01": None, "s02": None})
+        sc.canvas = "landscape"
+        self.assertEqual(validate(sc, MANIFEST, STYLE), [])
+
+    def test_landscape_canvas_rejects_reframe_and_portrait_clips(self):
+        a = script([shot("DJI.mp4", 1, 3.5, reframe={"mode": "center"})])
+        a.canvas = "landscape"
+        self.assertTrue(any("canvas's aspect" in p for p in validate(a, MANIFEST, STYLE)))
+        b = script([shot("PORT.MOV", 1, 3.5)])
+        b.canvas = "landscape"
+        self.assertTrue(any("narrower than the 3840x2160 canvas" in p for p in validate(b, MANIFEST, STYLE)))
+        self.assertFalse(any("narrower" in p for p in validate(script([shot("PORT.MOV", 1, 3.5)]), MANIFEST, STYLE)))
 
     def test_plan_reframes_refuses_reframe_on_a_portrait_clip(self):
         sc = script([shot("PORT.MOV", 1, 3.5, reframe={"mode": "center"})])

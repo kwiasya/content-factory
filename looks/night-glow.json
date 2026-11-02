@@ -1,0 +1,63 @@
+{
+  "name": "night-glow",
+  "description": "Night projections: glowing but unclipped highlights (max-RGB shoulder), deep but open blacks, richer reds/magentas/blues for 'Colours of Love', protected skin, slightly cool night shadows. Built for HLG night footage with a -0.5 stop node-1 CDL (reels/reel-01/look-compare in the berlin-2026-10-11 Walk).",
+  "exposure": 0.0,
+  "contrast": {
+    "amount": 1.2,
+    "pivot": 0.18,
+    "toe_stops": 1.5,
+    "shoulder_stops": 1.0,
+    "per_channel": 0.1
+  },
+  "saturation": {
+    "amount": 1.25,
+    "vibrance": 0.15,
+    "highlight_start": 1.5,
+    "highlight_end": 4.5,
+    "highlight_floor": 0.95,
+    "shadow_start": -3.5,
+    "shadow_end": -6.5,
+    "skin": {
+      "hue": 22,
+      "width": 14,
+      "protect": 0.6
+    },
+    "bands": [
+      {
+        "hue": 350,
+        "width": 10,
+        "gain": 1.2
+      },
+      {
+        "hue": 310,
+        "width": 18,
+        "gain": 1.25
+      },
+      {
+        "hue": 228,
+        "width": 20,
+        "gain": 1.2
+      }
+    ]
+  },
+  "split_tone": {
+    "highlights": {
+      "hue": 0,
+      "strength": 0.0
+    },
+    "shadows": {
+      "hue": 215,
+      "strength": 0.15
+    },
+    "balance": -1.5,
+    "highlight_range": 3.0,
+    "shadow_range": 4.0
+  },
+  "shoulder": {
+    "knee": 1.8,
+    "compress": 0.5,
+    "width": 1.5,
+    "max_weight": 0.6
+  },
+  "black_lift": 0.0
+}

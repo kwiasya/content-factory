@@ -1,14 +1,28 @@
 #!/usr/bin/env node
 // Render one text overlay as transparent ProRes 4444.
 //
-//   node render.mjs --spec spec.json --out overlay.mov [--strict]
+//   node render.mjs --spec spec.json --out overlay.mov [--canvas landscape|portrait|WxH] [--strict]
 //   npm run render -- --spec spec.json --out overlay.mov
 //
 // spec.json: { "text": "...", "type": "hook|place|fact|line", "duration_s": 3,
-//              "style_path": "../style.json", "preset": "editorial-serif" }
+//              "style_path": "../style.json", "preset": "editorial-serif", "canvas": "landscape" }
+// Canvas: --canvas > spec.canvas > style.json canvas. A name picks style.json
+// canvases.<name>; WxH takes the geometry of the preset with the same aspect ratio
+// (cf.canvas.resolve is the Python twin). The preset's safe_zone, overlay_positions
+// and slots replace the top-level ones; with overlay_positions every overlay preset
+// takes its placement from there (role_placement), and designScale = width /
+// reference_width (2 at 2160x3840 and at 3840x2160).
 // `preset` is optional; it defaults to style.json typography.preset, then "legacy".
-// Optional `anchor` (a slot name from src/slots.json, e.g. "lower-left") overrides
-// the preset's placement; optional `scrim` (0..1) overrides its scrim strength.
+// Optional `anchor` (a slot name from src/slots.json, e.g. "lower-left", or an explicit
+// {"anchor": "top-left"|"top-right"|..., "x": n, "y": n, "align"?: ...} in reference px,
+// e.g. from a frame-aware picker) overrides the preset's placement; optional
+// `arrow_to` [x, y] (reference px) is where a preset with an arrow points; optional `scrim` (0..1) overrides its scrim strength;
+// optional `in_frames` / `out_frames` (0 = none) override the fade lengths; optional
+// `size` (reference px) overrides the preset role's font size.
+// A "\n" in `text` is a forced line break. A key-word mark "{words}" or "{words|colour}"
+// draws those words in a colour (a style.json colors.key_words name or #RRGGBB; a bare
+// mark takes colors.accent) inside the same outline. Optional `font_file` (absolute .ttf/.otf) and
+// `font_ref` (its @font/… ref, reported only) set the overlay font (README "Overlay font").
 // Relative style_path resolves against the spec file's folder; relative --spec and
 // --out resolve against the caller's cwd (INIT_CWD under npm run).
 // Last stdout line is a JSON summary; exit 0 ok, 1 render failed, 2 bad input,
@@ -36,6 +50,7 @@ const parseArgs = (argv) => {
     const k = argv[i];
     if (k === "--spec") a.spec = argv[++i];
     else if (k === "--out") a.out = argv[++i];
+    else if (k === "--canvas") a.canvas = argv[++i];
     else if (k === "--strict") a.strict = true;
     else if (k === "-h" || k === "--help") a.help = true;
     else die(2, `unknown argument ${k}`);
@@ -45,7 +60,7 @@ const parseArgs = (argv) => {
 
 const args = parseArgs(process.argv.slice(2));
 if (args.help || !args.spec || !args.out)
-  die(2, "usage: node render.mjs --spec spec.json --out file.mov [--strict]");
+  die(2, "usage: node render.mjs --spec spec.json --out file.mov [--canvas landscape|portrait|WxH] [--strict]");
 
 const specPath = path.resolve(CALLER_CWD, args.spec);
 const outPath = path.resolve(CALLER_CWD, args.out);
@@ -63,13 +78,59 @@ if (typeof spec.style_path !== "string") die(2, "spec.style_path must be a path 
 if (spec.preset !== undefined && (typeof spec.preset !== "string" || !spec.preset.trim()))
   die(2, "spec.preset must be a non-empty string when present");
 
+if (spec.canvas !== undefined && (typeof spec.canvas !== "string" || !spec.canvas.trim()))
+  die(2, "spec.canvas must be a canvas name or WxH when present");
+
 const stylePath = path.resolve(path.dirname(specPath), spec.style_path);
-let style;
+let baseStyle;
 try {
-  style = JSON.parse(fs.readFileSync(stylePath, "utf8"));
+  baseStyle = JSON.parse(fs.readFileSync(stylePath, "utf8"));
 } catch (e) {
   die(2, `cannot read style ${stylePath}: ${e.message}`);
 }
+if (!baseStyle.canvas) die(2, `style.json is missing "canvas"`);
+
+// --- canvas resolution (mirror of src/cf/canvas.py resolve / overlay_style) ---
+const canvasPresets = Object.fromEntries(
+  Object.entries(baseStyle.canvases ?? {}).filter(([k, v]) => !k.startsWith("_") && v && typeof v === "object"),
+);
+const sameAspect = (a, b) => a[0] * b[1] === a[1] * b[0];
+const defaultPreset = () => {
+  const c = baseStyle.canvas;
+  for (const [name, p] of Object.entries(canvasPresets))
+    if (p.width === c.width && p.height === c.height) return [name, { ...c, ...p }];
+  return [null, c];
+};
+const resolveCanvas = (specText) => {
+  const t = (specText ?? "").trim();
+  if (!t) return defaultPreset();
+  if (canvasPresets[t]) return [t, canvasPresets[t]];
+  const m = /^\s*(\d+)\s*[xX×]\s*(\d+)\s*$/.exec(t);
+  if (!m) die(2, `unknown canvas "${t}"; style.json canvases has ${Object.keys(canvasPresets).join(", ")} (or give WxH)`);
+  const size = [Number(m[1]), Number(m[2])];
+  if (size.some((n) => n <= 0 || n % 2)) die(2, `canvas ${t}: width and height must be positive and even`);
+  const [dn, dc] = defaultPreset();
+  if (sameAspect(size, [dc.width, dc.height])) return [dn, { ...dc, width: size[0], height: size[1] }];
+  for (const [name, p] of Object.entries(canvasPresets))
+    if (sameAspect(size, [p.width, p.height])) return [name, { ...p, width: size[0], height: size[1] }];
+  die(2, `canvas ${t}: no style.json canvases preset has that aspect ratio`);
+};
+const canvasSpec = args.canvas ?? spec.canvas;
+const [canvasName, cv] = resolveCanvas(canvasSpec);
+const style = {
+  ...baseStyle,
+  canvas: {
+    width: cv.width,
+    height: cv.height,
+    fps: cv.fps ?? baseStyle.canvas.fps,
+    reference_width: cv.reference_width ?? baseStyle.canvas.reference_width ?? 1080,
+    ...(canvasName ? { preset: canvasName } : {}),
+  },
+  safe_zone: cv.safe_zone ?? baseStyle.safe_zone,
+  overlay_positions: cv.overlay_positions ?? baseStyle.overlay_positions,
+  ...(cv.slots ? { slots: cv.slots } : {}),
+  ...(cv.overlay_positions ? { role_placement: "overlay_positions" } : {}),
+};
 for (const key of ["canvas", "safe_zone", "typography", "colors", "overlay_positions", "animation"])
   if (!style[key]) die(2, `style.json is missing "${key}"`);
 if (!style.overlay_positions[spec.type]) die(2, `style.overlay_positions has no "${spec.type}"`);
@@ -85,22 +146,80 @@ const presetSrc = fs.readFileSync(path.join(HERE, "src", "presets.ts"), "utf8");
 const knownPresets = ["legacy", ...[...presetSrc.matchAll(/^  "([a-z0-9-]+)": \{$/gm)].map((m) => m[1])];
 if (!knownPresets.includes(preset)) die(2, `unknown preset "${preset}"; known: ${knownPresets.join(", ")}`);
 
-const slots = JSON.parse(fs.readFileSync(path.join(HERE, "src", "slots.json"), "utf8"));
+const slots = style.slots ?? JSON.parse(fs.readFileSync(path.join(HERE, "src", "slots.json"), "utf8"));
 const knownSlots = Object.keys(slots).filter((k) => !k.startsWith("_"));
-if (spec.anchor !== undefined && !knownSlots.includes(spec.anchor))
+const ANCHOR_TYPES = ["center", "middle-left", "top-right", "top-left", "top-center", "bottom-left", "bottom-center"];
+if (spec.anchor !== undefined && typeof spec.anchor === "object" && spec.anchor !== null) {
+  const a = spec.anchor;
+  if (!ANCHOR_TYPES.includes(a.anchor)) die(2, `spec.anchor.anchor must be one of ${ANCHOR_TYPES.join("|")}`);
+  if (typeof a.y !== "number" || (a.x !== undefined && typeof a.x !== "number"))
+    die(2, "spec.anchor needs numeric y (and x for left/right anchors), reference px");
+  if (a.align !== undefined && !["left", "center", "right"].includes(a.align)) die(2, "spec.anchor.align must be left|center|right");
+} else if (spec.anchor !== undefined && !knownSlots.includes(spec.anchor))
   die(2, `unknown anchor "${spec.anchor}"; known: ${knownSlots.join(", ")}`);
+if (
+  spec.arrow_to !== undefined &&
+  !(Array.isArray(spec.arrow_to) && spec.arrow_to.length === 2 && spec.arrow_to.every((v) => typeof v === "number"))
+)
+  die(2, "spec.arrow_to must be [x, y] in reference px");
 if (spec.scrim !== undefined && !(typeof spec.scrim === "number" && spec.scrim >= 0 && spec.scrim <= 1))
   die(2, "spec.scrim must be a number in 0..1");
+if (spec.size !== undefined && !(typeof spec.size === "number" && spec.size > 0))
+  die(2, "spec.size must be a positive number (reference px)");
+
+// Key-word marks (src/layout.ts parseMarks): a stray brace or an unknown colour is exit 2.
+const MARK_RE = /\{([^{}|]*)(?:\|([^{}]*))?\}/g;
+const keyColours = style.colors.key_words ?? {};
+for (const m of spec.text.matchAll(MARK_RE)) {
+  const name = (m[2] ?? "").trim();
+  if (!m[1].trim()) die(2, `empty key-word mark "${m[0]}"`);
+  if (name && !(name in keyColours) && !/^#[0-9A-Fa-f]{6}$/.test(name))
+    die(2, `key-word colour "${name}": a colors.key_words name (${Object.keys(keyColours).join(", ") || "none"}) or #RRGGBB`);
+}
+const plainText = spec.text.replace(MARK_RE, "$1");
+if (/[{}]/.test(plainText)) die(2, `spec.text has a brace outside a key-word mark {words} or {words|colour}`);
+
+// Optional in_frames / out_frames (int >= 0) replace style.animation in/out frames for
+// this overlay; 0 = no fade on that side (a list item that cuts on with its shot).
+for (const k of ["in_frames", "out_frames"])
+  if (spec[k] !== undefined && !(Number.isInteger(spec[k]) && spec[k] >= 0))
+    die(2, `spec.${k} must be an integer >= 0`);
+if (spec.in_frames !== undefined || spec.out_frames !== undefined)
+  style.animation = {
+    ...style.animation,
+    in: { ...style.animation.in, ...(spec.in_frames !== undefined ? { frames: spec.in_frames } : {}) },
+    out: { ...style.animation.out, ...(spec.out_frames !== undefined ? { frames: spec.out_frames } : {}) },
+  };
+
+// Optional font_file (absolute .ttf/.otf, the Library font from `python -m cf.assets font`)
+// replaces every role's family; font_ref is only reported. The file is copied into a temp
+// public dir (never linked, the Pack stays untouched) and served with staticFile().
+const FONT_SUFFIXES = [".ttf", ".otf"];
+let fontCopy = null;
+if (spec.font_file !== undefined && spec.font_file !== null) {
+  if (typeof spec.font_file !== "string" || !path.isAbsolute(spec.font_file))
+    die(2, "spec.font_file must be an absolute path to a .ttf or .otf file");
+  const ext = path.extname(spec.font_file).toLowerCase();
+  if (!FONT_SUFFIXES.includes(ext)) die(2, `spec.font_file ${spec.font_file} is not a .ttf or .otf file`);
+  if (!fs.existsSync(spec.font_file) || !fs.statSync(spec.font_file).isFile())
+    die(2, `spec.font_file ${spec.font_file} does not exist`);
+  fontCopy = `cf-font${ext}`;
+}
+if (spec.font_ref !== undefined && spec.font_ref !== null && typeof spec.font_ref !== "string")
+  die(2, "spec.font_ref must be a string when present");
 
 const fps = style.canvas.fps;
 const durationInFrames = Math.round(spec.duration_s * fps);
 if (durationInFrames < 1) die(2, "duration_s is shorter than one frame");
 
 const warnings = [];
-const words = spec.text.trim().split(/\s+/).length;
+// Word and line limits apply per "\n" line (src/layout.ts lays each one out on its own).
 const maxWords = style.typography.max_words_per_line * style.typography.max_lines;
-if (words > maxWords)
-  warnings.push(`TEXT_OVERFLOW ${words} words > ${maxWords} (max_words_per_line x max_lines)`);
+plainText.split(/\r?\n/).forEach((line, i) => {
+  const words = line.trim().split(/\s+/).filter(Boolean).length;
+  if (words > maxWords)
+    warnings.push(`TEXT_OVERFLOW line ${i + 1}: ${words} words > ${maxWords} (max_words_per_line x max_lines)`);
+});
 const minHold = style.animation.min_hold_s;
 if (minHold && spec.duration_s < minHold)
   warnings.push(`SHORT_HOLD duration_s ${spec.duration_s} < min_hold_s ${minHold}`);
@@ -144,8 +263,16 @@ fs.writeFileSync(propsFile, JSON.stringify({
     preset,
     ...(spec.anchor !== undefined ? { anchor: spec.anchor } : {}),
     ...(spec.scrim !== undefined ? { scrim: spec.scrim } : {}),
+    ...(spec.size !== undefined ? { size: spec.size } : {}),
+    ...(spec.arrow_to !== undefined ? { arrowTo: spec.arrow_to } : {}),
+    ...(fontCopy ? { fontFile: fontCopy } : {}),
   }));
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
+let publicDir = null;
+if (fontCopy) {
+  publicDir = fs.mkdtempSync(path.join(os.tmpdir(), "cf-overlay-public-"));
+  fs.copyFileSync(spec.font_file, path.join(publicDir, fontCopy));
+}
 
 const cliArgs = [
   "--no-install",
@@ -163,6 +290,7 @@ const cliArgs = [
   "--color-space=bt709",
   "--overwrite",
   "--log=verbose",
+  ...(publicDir ? [`--public-dir=${publicDir}`] : []),
 ];
 
 await acquireLock();
@@ -195,6 +323,7 @@ const code = await new Promise((resolve) => {
   });
 });
 fs.rmSync(path.dirname(propsFile), { recursive: true, force: true });
+if (publicDir) fs.rmSync(publicDir, { recursive: true, force: true });
 
 const summary = {
   ok: code === 0,
@@ -202,12 +331,15 @@ const summary = {
   type: spec.type,
   preset,
   anchor: spec.anchor ?? null,
+  size: spec.size ?? null,
+  canvas: canvasName,
   fps,
   frames: durationInFrames,
   width: style.canvas.width,
   height: style.canvas.height,
   scale: designScale,
   render_s: Math.round((Date.now() - started) / 100) / 10,
+  font: fontCopy ? { ref: spec.font_ref ?? null, file: spec.font_file } : null,
   safe_zone_ok: !warnings.some((w) => w.startsWith("SAFE_ZONE_VIOLATION")),
   warnings,
 };

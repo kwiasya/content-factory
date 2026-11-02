@@ -33,3 +33,21 @@
 - Любую зависимость от Sandcastles, Higgsfield, Seedance.
 - HTML-отчёты «в фирменном стиле»: наши артефакты это JSON и проект в Resolve.
 - Лид-генерацию, CTA под ManyChat, бизнес-позиционирование под продажи.
+
+## Добавлено 2026-10-11: cowork-setup (Anthropic, Cowork)
+
+| Скилл | Что делает | Зависит от | Берём |
+|---|---|---|---|
+| cowork-setup | Интервью в 3 фазы, пишет `Context/who-i-am.md`, `how-i-talk.md`, `how-you-work.md` и CLAUDE.md, который велит читать их каждую сессию | Cowork (папка workspace); сам по себе standalone | Всё, кроме Cowork: три файла как `author/*.md`, интервью батчами по 3–5 через AskUserQuestion, reflect-back после батча, файл пишется сразу после своего батча, «how-you-work это пульт управления», hard rules по умолчанию даже если автор их не назвал. Вопросы переписаны под производство контента: один зритель, примеры подписей, язык оверлеев, что нельзя без спроса (перерендер, Track, style.json). → `/author-setup`, `author/`, секция Author в CLAUDE.md |
+
+Не взяли: generic-вопросы про должность и инструменты (у нас известно), `Context/` как имя папки (у нас `author/`: в репо агент это Editor, человек это автор). Репо не только для автора, поэтому `author/` целиком в gitignore: личные файлы живут только на Маке, в репо лежат лишь шаблоны в `.claude/skills/author-setup/templates/`.
+
+## Добавлено 2026-10-11 (вечер): два скилла Sandcastles watchlist и Creator Breakout
+
+| Скилл | Что делает | Зависит от | Берём |
+|---|---|---|---|
+| sandcastles-watchlist-all-recent | Лента всех видео watchlist за 7 дней, новые сверху, режим «поставить на cron 7:00» | Sandcastles MCP (`search_my_videos`) | Формат строки отчёта и идею двух режимов (сейчас / по расписанию) |
+| sandcastles-watchlist-outliers | То же, но только выбросы ≥ 1x, ранжирование по outlier score | Sandcastles MCP | Параметры фильтра как поля нашей ленты: lookback_days, min_outlier_score, min_views, min_engagement, limit |
+| Creator Breakout Detector (Google Drive, не скачивали) | По URL канала за 2 года ищет момент прорыва и что изменилось | Sandcastles MCP | Идею как отдельный отчёт поверх истории загрузок канала |
+
+Полная карта продукта Sandcastles, с которой мы снимаем функции: `docs/research/sandcastles-map.md`.

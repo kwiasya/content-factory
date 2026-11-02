@@ -12,11 +12,14 @@ dependencies = [
     "opencv-python-headless",
     "ultralytics",
     "lap>=0.5.12",  # ByteTrack matching for ultralytics track()
+    "stable-ts",  # cf.metrics.speech: the Shot log speech step (and cf.research fetch transcripts)
 ]
 
 [project.optional-dependencies]
 dev = ["pytest"]
 music = ["beat-this", "librosa", "all-in-one-infer"]  # cf.beats (torch comes with ultralytics)
+research = ["yt-dlp[default]"]  # cf.research fetch: download (needs deno for YouTube); transcription uses core stable-ts
+desk = ["fastapi", "uvicorn[standard]", "httpx2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

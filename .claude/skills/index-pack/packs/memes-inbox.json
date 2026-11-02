@@ -1,0 +1,13 @@
+{
+  "schema": "cf-pack/1",
+  "id": "memes-inbox",
+  "root": "/Users/Shared/content-factory/packs/memes-inbox",
+  "include": [
+    "."
+  ],
+  "folders": {
+    ".": {
+      "category": "meme"
+    }
+  }
+}

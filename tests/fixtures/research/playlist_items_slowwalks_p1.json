@@ -1,0 +1,63 @@
+{
+  "kind": "youtube#playlistItemListResponse",
+  "etag": "a1B2c3D4",
+  "nextPageToken": "EAAaBlBUOkNESQ",
+  "pageInfo": {"totalResults": 4, "resultsPerPage": 3},
+  "items": [
+    {
+      "kind": "youtube#playlistItem",
+      "etag": "e5F6g7H8",
+      "id": "VVV4UjltWHlaYkMxZEVmMkdoSWpLbE1uLmRRdzR3OVdnWGNR",
+      "snippet": {
+        "publishedAt": "2026-10-09T16:00:12Z",
+        "channelId": "UCxR9mXyZbC1dEf2GhIjKlMn",
+        "title": "Lisbon Alfama at Golden Hour — 4K Walk",
+        "description": "Start: Miradouro de Santa Luzia...",
+        "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", "width": 480, "height": 360}},
+        "channelTitle": "Slow Walks",
+        "playlistId": "UUxR9mXyZbC1dEf2GhIjKlMn",
+        "position": 0,
+        "resourceId": {"kind": "youtube#video", "videoId": "dQw4w9WgXcQ"},
+        "videoOwnerChannelTitle": "Slow Walks",
+        "videoOwnerChannelId": "UCxR9mXyZbC1dEf2GhIjKlMn"
+      },
+      "contentDetails": {"videoId": "dQw4w9WgXcQ", "videoPublishedAt": "2026-10-09T16:00:12Z"}
+    },
+    {
+      "kind": "youtube#playlistItem",
+      "etag": "z1Z2z3Z4",
+      "id": "VVV4UjltWHlaYkMxZEVmMkdoSWpLbE1uLmRlbGV0ZWQx",
+      "snippet": {
+        "publishedAt": "2026-10-08T09:00:00Z",
+        "channelId": "UCxR9mXyZbC1dEf2GhIjKlMn",
+        "title": "Deleted video",
+        "description": "This video is unavailable.",
+        "thumbnails": {},
+        "channelTitle": "Slow Walks",
+        "playlistId": "UUxR9mXyZbC1dEf2GhIjKlMn",
+        "position": 1,
+        "resourceId": {"kind": "youtube#video", "videoId": "Dl3t3dV1d30"}
+      },
+      "contentDetails": {"videoId": "Dl3t3dV1d30"}
+    },
+    {
+      "kind": "youtube#playlistItem",
+      "etag": "i9J0k1L2",
+      "id": "VVV4UjltWHlaYkMxZEVmMkdoSWpLbE1uLkFiM2RFZjZoSWow",
+      "snippet": {
+        "publishedAt": "2026-10-07T12:30:00Z",
+        "channelId": "UCxR9mXyZbC1dEf2GhIjKlMn",
+        "title": "POV: you found the quietest street in Lisbon",
+        "description": "#lisbon #shorts",
+        "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/Ab3dEf6hIj0/hqdefault.jpg", "width": 480, "height": 360}},
+        "channelTitle": "Slow Walks",
+        "playlistId": "UUxR9mXyZbC1dEf2GhIjKlMn",
+        "position": 2,
+        "resourceId": {"kind": "youtube#video", "videoId": "Ab3dEf6hIj0"},
+        "videoOwnerChannelTitle": "Slow Walks",
+        "videoOwnerChannelId": "UCxR9mXyZbC1dEf2GhIjKlMn"
+      },
+      "contentDetails": {"videoId": "Ab3dEf6hIj0", "videoPublishedAt": "2026-10-07T12:30:00Z"}
+    }
+  ]
+}
