@@ -33,6 +33,13 @@ fetched from what the store already has from the Graph API (scout, snapshot,
 media without login or cookies; when Instagram refuses, the card is
 caption-only (no transcript, Shot log or OCR) and its ``notes.media`` says why.
 The Reference folder is named by the shortcode.
+
+A Pornhub video (a view link, ``ph:<viewkey>`` or a bare viewkey; ADR 0015) is
+never downloaded: the Webmasters API refreshes its row and snapshot, and the
+folder (named by the viewkey) gets ``info.json``, ``thumb.jpg``, the 16 preview
+frames in ``frames/`` and their 4×4 contact sheet ``frames.jpg``. The card measures
+packaging (title, tags, categories), publish time and counts; no transcript,
+Shot log or OCR.
 """
 
 from __future__ import annotations
@@ -40,12 +47,12 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 from typing import Callable
 from urllib.parse import parse_qs, unquote
 
-from cf.research import card, ingest, measure, quota, youtube
+from cf.research import card, ingest, measure, pornhub, quota, youtube
 from cf.research import watchlist as watchlists
 from cf.research.kinds import video_kind
 from cf.research.store import Store, dumps, ensure_shared_root, now_iso, shared_root
@@ -330,11 +337,15 @@ def fetch(store: Store, ref: str, *, watchlist: str | None = None, force: bool =
     Result: ``video_id`` (YouTube id), ``video`` (store id), ``dir``, ``channel_source``,
     ``language`` and ``language_source`` (``info``, ``whisper``, ``watchlist`` or ``default``),
     ``steps`` (per artifact: made, kept, downloaded, FAILED: …), ``captions`` (``.vtt`` file
-    names in ``dir``), ``card``. An Instagram link goes to ``fetch_instagram``.
+    names in ``dir``), ``card``. An Instagram link goes to ``fetch_instagram``, a Pornhub one to
+    ``fetch_pornhub``.
     """
     code = instagram_ref(ref)
     if code is not None:
         return fetch_instagram(store, code, watchlist=watchlist, force=force, adapters=adapters, root=root)
+    vk = pornhub_ref(ref)
+    if vk is not None:
+        return fetch_pornhub(store, vk, watchlist=watchlist, force=force, root=root)
     vid = parse_video_ref(ref)
     a = adapters or default_adapters()
     hint = DEFAULT_LANGUAGE
@@ -571,3 +582,129 @@ def fetch_instagram(store: Store, code: str, *, watchlist: str | None = None, fo
     return {"video_id": code, "video": row["id"], "title": row["title"], "dir": str(d), "watchlist": watchlist,
             "language": language, "channel_source": f"store ({row['handle'] or 'owner unknown'})",
             "platform": "instagram", "steps": steps, "captions": [], "card": saved}
+
+
+def pornhub_ref(text: str) -> str | None:
+    """The viewkey of a Pornhub video link, ``ph:<viewkey>`` or a bare viewkey; None for anything else."""
+    t = (text or "").strip()
+    if t.lower().startswith("ph:"):
+        vk = t[3:].strip().lower()
+        if not ingest.VIEWKEY_RE.fullmatch(vk):
+            raise FetchError(f"not a Pornhub viewkey: {text!r} (a channel is added with `watchlist add-channel`)")
+        return vk
+    if ingest.VIEWKEY_RE.fullmatch(t):
+        return t
+    if ingest.pornhub_segments(t) is None:
+        return None
+    vk = ingest.ph_link_viewkey(t)
+    if vk is None:
+        raise FetchError(f"not a Pornhub video link: {text!r} (expected view_video.php?viewkey=…)")
+    return vk
+
+
+PH_NO_VIDEO = "no video: analysed from metadata, thumbnail and 16 preview frames (ADR 0015)"
+SHEET_COLS = 4
+PH_FRAMES = 16
+
+
+def http_image(url: str) -> bytes:
+    """One image from the Pornhub CDN with the adapter's User-Agent and no cookies."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": pornhub.USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=pornhub.TIMEOUT_S) as resp:
+            return resp.read()
+    except (urllib.error.URLError, OSError) as exc:
+        raise FetchError(f"image {url}: {exc}") from None
+
+
+def contact_sheet(frames: list[Path], dest: Path, cols: int = SHEET_COLS) -> bool:
+    """Tile ``frames`` (each scaled to the first one's size) into a ``cols``-wide sheet at ``dest``;
+    False when none can be read."""
+    import cv2
+    import numpy as np
+    imgs = [cv2.imread(str(p)) for p in frames]
+    first = next((i for i in imgs if i is not None), None)
+    if first is None:
+        return False
+    h, w = first.shape[:2]
+    rows = -(-len(imgs) // cols)
+    sheet = np.zeros((rows * h, cols * w, 3), np.uint8)
+    for n, img in enumerate(imgs):
+        if img is not None:
+            r, c = divmod(n, cols)
+            sheet[r * h:(r + 1) * h, c * w:(c + 1) * w] = cv2.resize(img, (w, h))
+    return bool(cv2.imwrite(str(dest), sheet))
+
+
+def fetch_pornhub(store: Store, viewkey: str, *, watchlist: str | None = None, force: bool = False,
+                  root: Path | None = None, transport: pornhub.Transport | None = None,
+                  downloader: Callable[[str], bytes] | None = None, tz: tzinfo | None = None) -> dict:
+    """Fetch of one Pornhub Reference without its video (see the module docstring). ``transport`` replaces
+    the API, ``downloader(url) -> bytes`` the image download (tests); ``tz`` sets ``published.hour_local``
+    (default: this Mac's zone). Images already in the folder are kept unless ``force``."""
+    d = folder_for(viewkey, watchlist, root)
+    try:
+        video = pornhub.video_by_id(store, viewkey, transport=transport)
+    except pornhub.PornhubError as exc:
+        if pornhub.missing(exc):
+            raise FetchError(f"Pornhub video {viewkey} is gone (deleted, private or never there)") from None
+        raise
+    ts = now_iso()
+    vid = ingest.ingest_ph_videos(store, None, [video], fetched_at=ts, taken_at=ts)[0]
+    d.mkdir(parents=True, exist_ok=True)
+    _write(d / "info.json", video)
+    get = downloader or http_image
+    steps: dict[str, str] = {"media": "never downloaded (ADR 0015)"}
+
+    def image(url: str | None, dest: Path) -> str:
+        if not url:
+            return "none in the API answer"
+        if dest.exists() and not force:
+            return "kept"
+        try:
+            data = get(url)
+        except FetchError as exc:
+            return f"FAILED: {exc}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        return "made"
+
+    steps["thumb"] = image(video.get("default_thumb"), d / "thumb.jpg")
+    urls = [t.get("src") for t in video.get("thumbs") or [] if t.get("src")][:PH_FRAMES]
+    files = [d / "frames" / f"{i:02d}.jpg" for i in range(1, len(urls) + 1)]
+    done = [image(u, f) for u, f in zip(urls, files)]
+    failed = [x for x in done if x.startswith("FAILED")]
+    steps["frames"] = failed[0] if failed else ("made" if "made" in done else "kept" if done else "none")
+    sheet = d / "frames.jpg"
+    if "made" in done or (files and not sheet.exists()):
+        steps["sheet"] = "made" if contact_sheet([f for f in files if f.exists()], sheet) else "FAILED: no frame"
+    else:
+        steps["sheet"] = "kept" if sheet.exists() else "none"
+    for step in ("transcript", "captions", "proxy", "shotlog", "ocr"):
+        steps[step] = "skipped (no video)"
+
+    row = store.one("SELECT v.title, v.published_at, v.duration_s, v.tags, c.handle FROM video v "
+                    "LEFT JOIN channel c ON c.id = v.channel_id WHERE v.id = ?", (vid,))
+    raw = ingest.ph_video_row(video)
+    extra = json.loads(raw["raw"])
+    snap = ingest.ph_snapshot_row(video)
+    measured = measure.measure({"duration": row["duration_s"]}, None, None, None)
+    measured["notes"] = {k: "no video" for k in measured["notes"]} | {"media": PH_NO_VIDEO}
+    measured["platform"] = "pornhub"
+    measured["packaging"] = {"title": row["title"], **measure.title_features(row["title"]),
+                             "tags": json.loads(row["tags"]), "categories": extra["categories"],
+                             "pornstars": extra["pornstars"], "segment": extra["segment"],
+                             "thumb": "thumb.jpg" if (d / "thumb.jpg").exists() else None,
+                             "frames": "frames.jpg" if sheet.exists() else None}
+    measured["published"] = measure.published(row["published_at"], tz)
+    measured["counts"] = {"taken_at": ts, "views": snap["views"], "likes": snap["likes"],
+                          "votes": extra["ratings"], "rating": extra["rating"]}
+    with store.transaction() as c:
+        c.execute("UPDATE video SET has_media = 0, has_transcript = 0 WHERE id = ?", (vid,))
+    saved = card.save(store, vid, measured, path=d / "card.json")
+    return {"video_id": viewkey, "video": vid, "title": row["title"], "dir": str(d), "watchlist": watchlist,
+            "language": None, "channel_source": f"store ({row['handle'] or 'owner unknown'})",
+            "platform": "pornhub", "steps": steps, "captions": [], "card": saved}
+

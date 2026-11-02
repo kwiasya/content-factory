@@ -4,12 +4,13 @@ import {
   contourApi,
   DEFAULT_FILTERS,
   platformName,
+  PLATFORMS,
   type FeedFilters,
   type FeedRow,
 } from "./api";
 import { PlatformBadge } from "./PlatformBadge";
 import { Cmd, ContourShell, Status } from "./ContourShell";
-import { outlierText, seconds, viewsText } from "./format";
+import { outlierText, ratingText, seconds, viewsText } from "./format";
 import { CONTOUR_PREFIX, cardHref, ideasHref, summaryHref } from "./routes";
 import { useLoad } from "./useLoad";
 import { useT, type Key } from "../i18n";
@@ -189,6 +190,20 @@ export function WatchlistPage({ name }: { name: string }) {
             <option value="long">{t("card.kind.long")}</option>
           </select>
         </label>
+        <label>
+          {t("watchlist.filter.platform")}
+          <select
+            value={draft.platform}
+            onChange={(e) => setDraft({ ...draft, platform: e.target.value })}
+          >
+            <option value="">{t("watchlist.filter.anyPlatform")}</option>
+            {PLATFORMS.map((p) => (
+              <option key={p} value={p}>
+                {platformName(p)}
+              </option>
+            ))}
+          </select>
+        </label>
         <button className="primary" type="submit">
           {t("common.apply")}
         </button>
@@ -230,6 +245,7 @@ function FeedTable({
     );
   }
   const pending = rows.filter((r) => !r.analyzed).length;
+  const rated = rows.some((r) => r.platform === "pornhub");
   return (
     <>
       <p className="muted">
@@ -245,6 +261,7 @@ function FeedTable({
             <th className="num">{t("research.col.number")}</th>
             <th className="num">{t("watchlist.col.outlier")}</th>
             <th className="num">{t("watchlist.col.views")}</th>
+            {rated && <th className="num">{t("watchlist.col.rating")}</th>}
             <th>{t("watchlist.col.date")}</th>
             <th>{t("watchlist.col.title")}</th>
             <th>{t("watchlist.col.handle")}</th>
@@ -263,6 +280,7 @@ function FeedTable({
                 )}
               </td>
               <td className="num">{viewsText(r.views, t)}</td>
+              {rated && <td className="num">{ratingText(r.rating, t)}</td>}
               <td className="when">{formatDate(r.date, t)}</td>
               <td>
                 <a href={cardHref(r.external_id)}>

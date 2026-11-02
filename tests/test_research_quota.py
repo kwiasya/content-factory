@@ -38,7 +38,10 @@ class QuotaTest(unittest.TestCase):
         self.assertEqual(quota.cost("search.list"), ("search", 1))
         for m in ("channels.list", "playlistItems.list", "videos.list"):
             self.assertEqual(quota.cost(m), ("default", 1))
-        self.assertEqual(quota.limits(), {"default": 10_000, "search": 100, "instagram": 100})
+        self.assertEqual(quota.limits(), {"default": 10_000, "search": 100, "instagram": 100, "pornhub": 600})
+        for m in ("ph.video_by_id", "ph.list_page"):
+            self.assertEqual(quota.cost(m), ("pornhub", 1))
+            self.assertEqual(quota.window("pornhub"), "hour")
 
     def test_usage_adds_up_per_bucket_and_method(self):
         quota.charge(self.store, "channels.list", now=NOON_PT)
@@ -47,7 +50,7 @@ class QuotaTest(unittest.TestCase):
         u = quota.usage(self.store, now=NOON_PT)
         self.assertEqual(u.day, "2026-10-11")
         self.assertEqual({(b.bucket, b.used, b.remaining) for b in u.buckets},
-                         {("default", 2, 9_998), ("search", 1, 99), ("instagram", 0, 100)})
+                         {("default", 2, 9_998), ("search", 1, 99), ("instagram", 0, 100), ("pornhub", 0, 600)})
         self.assertEqual({m.method: (m.calls, m.units) for m in u.by_method},
                          {"channels.list": (2, 2), "search.list": (1, 1)})
 

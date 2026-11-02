@@ -11,7 +11,10 @@ The rule is the same on every Platform, and per Platform by construction: a
 channel lives on one Platform, so its baseline does too. Instagram reels are
 ``short``. An Instagram Reference without views (Business Discovery leaves
 ``view_count`` out on some media) falls back to likes against the median likes
-of the same baseline (``basis`` says which was used).
+of the same baseline (``basis`` says which was used). Pornhub References (ADR 0015)
+score on views like YouTube; most are ``long``. Their publish times come from the
+API's go-live time, so uploads published in one batch share a timestamp: the
+baseline breaks such ties by store id, newest first.
 """
 
 from __future__ import annotations

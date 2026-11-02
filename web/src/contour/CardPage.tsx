@@ -1,8 +1,15 @@
 import { useCallback, useRef, type ReactNode } from "react";
 import { mediaUrl } from "../api";
-import { contourApi, platformName, type Measured } from "./api";
+import { contourApi, platformName, type CardDetail, type Measured } from "./api";
 import { Cmd, ContourShell, Status } from "./ContourShell";
-import { plain, seconds, secondsText, outlierText, viewsText } from "./format";
+import {
+  plain,
+  ratingText,
+  seconds,
+  secondsText,
+  outlierText,
+  viewsText,
+} from "./format";
 import { useT, type T } from "../i18n";
 import { formatDate, formatNumber } from "../format";
 import { Heatmap } from "./Heatmap";
@@ -46,6 +53,97 @@ function measuredRows(m: Measured, t: T): [string, ReactNode][] {
     [t("card.spokenHook"), m.spoken_hook ? `«${m.spoken_hook}»` : "—"],
     [t("card.language"), plain(m.language)],
   ];
+}
+
+function flag(on: boolean | undefined, t: T): string {
+  return on === undefined ? "—" : t(on ? "card.yes" : "card.no");
+}
+
+function list(xs: string[] | undefined): string {
+  return xs && xs.length > 0 ? xs.join(", ") : "—";
+}
+
+function hour(weekday: string | null | undefined, h: number | null | undefined): string {
+  return weekday && h !== null && h !== undefined
+    ? `${weekday} ${String(h).padStart(2, "0")}:00`
+    : "—";
+}
+
+function FactList({ rows }: { rows: [string, ReactNode][] }) {
+  return (
+    <dl className="facts">
+      {rows.map(([k, v]) => (
+        <div key={k}>
+          <dt>{k}</dt>
+          <dd>{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function NoVideoCard({ data }: { data: CardDetail }) {
+  const t = useT();
+  const m = data.card.measured;
+  const pk = m.packaging;
+  const pub = m.published;
+  const n = m.counts;
+  const images = data.images;
+  return (
+    <div>
+      <p className="muted">{t("card.noVideo")}</p>
+      {(images?.thumb || images?.frames) && (
+        <div className="card-images">
+          {images?.thumb && (
+            <figure>
+              <img src={mediaUrl(images.thumb)} alt={t("card.thumb")} />
+              <figcaption className="muted">{t("card.thumb")}</figcaption>
+            </figure>
+          )}
+          {images?.frames && (
+            <figure>
+              <img src={mediaUrl(images.frames)} alt={t("card.frames")} />
+              <figcaption className="muted">{t("card.frames")}</figcaption>
+            </figure>
+          )}
+        </div>
+      )}
+      <h2 className="section">{t("card.measured")}</h2>
+      <FactList
+        rows={[
+          [t("card.duration"), seconds(m.duration_s)],
+          [t("card.kind"), kindText(m.kind, t)],
+          [t("card.viewCount"), numberText(n?.views, t)],
+          [t("card.rating"), ratingText(n?.rating, t)],
+          [t("card.votes"), numberText(n?.votes, t)],
+        ]}
+      />
+      <h2 className="section">{t("card.packaging")}</h2>
+      <FactList
+        rows={[
+          [t("card.titleChars"), numberText(pk?.title_chars, t)],
+          [t("card.titleWords"), numberText(pk?.title_words, t)],
+          [t("card.capsShare"), ratingText(pk?.caps_share === null || pk?.caps_share === undefined ? null : pk.caps_share * 100, t)],
+          [t("card.digits"), numberText(pk?.digits, t)],
+          [t("card.brackets"), flag(pk?.brackets, t)],
+          [t("card.pov"), flag(pk?.pov, t)],
+          [t("card.emoji"), numberText(pk?.emoji, t)],
+          [t("card.tags"), list(pk?.tags)],
+          [t("card.categories"), list(pk?.categories)],
+          [t("card.performers"), list(pk?.pornstars)],
+          [t("card.segment"), plain(pk?.segment)],
+        ]}
+      />
+      <h2 className="section">{t("card.published")}</h2>
+      <FactList
+        rows={[
+          [t("card.publishedAt"), plain(pub?.at)],
+          [t("card.publishedUtc"), hour(pub?.weekday, pub?.hour_utc)],
+          [t("card.publishedLocal"), hour(pub?.weekday_local, pub?.hour_local)],
+        ]}
+      />
+    </div>
+  );
 }
 
 function label(key: string): string {
@@ -112,6 +210,7 @@ export function CardPage({ id }: { id: string }) {
   const peaks = m.heatmap_peaks ?? [];
   const chapters = m.chapters ?? [];
   const duration = m.duration_s ?? ref?.duration_s ?? null;
+  const noVideo = (m.platform ?? ref?.platform) === "pornhub";
 
   return (
     <ContourShell active={null}>
@@ -149,97 +248,100 @@ export function CardPage({ id }: { id: string }) {
         </div>
       </div>
 
-      <div className={media ? "card-grid" : ""}>
-        {media && (
-          <figure className="player card-player">
-            <video
-              ref={video}
-              src={mediaUrl(media)}
-              controls
-              preload="metadata"
-            />
-            <figcaption className="muted">
-              <code>{media}</code>
-            </figcaption>
-          </figure>
-        )}
-        <div>
-          <h2 className="section">{t("card.measured")}</h2>
-          <dl className="facts">
-            {measuredRows(m, t).map(([k, v]) => (
-              <div key={k}>
-                <dt>{k}</dt>
-                <dd>{v}</dd>
-              </div>
-            ))}
-          </dl>
-
-          <h2 className="section">{t("card.peaks")}</h2>
-          {peaks.length > 0 && duration ? (
-            <Heatmap
-              duration={duration}
-              peaks={peaks}
-              chapters={chapters}
-              onSeek={media ? seek : undefined}
-            />
-          ) : (
-            <p className="muted">{t("card.noHeatmap")}</p>
+      {noVideo && <NoVideoCard data={data} />}
+      {!noVideo && (
+        <div className={media ? "card-grid" : ""}>
+          {media && (
+            <figure className="player card-player">
+              <video
+                ref={video}
+                src={mediaUrl(media)}
+                controls
+                preload="metadata"
+              />
+              <figcaption className="muted">
+                <code>{media}</code>
+              </figcaption>
+            </figure>
           )}
-
-          <h2 className="section">{t("card.sections")}</h2>
-          {sections.length === 0 ? (
-            <p className="muted">{t("card.noSections")}</p>
-          ) : (
-            <ol className="sections">
-              {sections.map((s) => (
-                <li key={s.start_s}>
-                  <button
-                    className="link time"
-                    disabled={!media}
-                    onClick={() => seek(s.start_s)}
-                  >
-                    {seconds(s.start_s)}
-                  </button>{" "}
-                  {s.text}
-                </li>
+          <div>
+            <h2 className="section">{t("card.measured")}</h2>
+            <dl className="facts">
+              {measuredRows(m, t).map(([k, v]) => (
+                <div key={k}>
+                  <dt>{k}</dt>
+                  <dd>{v}</dd>
+                </div>
               ))}
-            </ol>
-          )}
+            </dl>
 
-          <h2 className="section">{t("card.chapters")}</h2>
-          {chapters.length === 0 ? (
-            <p className="muted">{t("card.noChapters")}</p>
-          ) : (
-            <ol className="sections">
-              {chapters.map((c) => (
-                <li key={c.start_s}>
-                  <button
-                    className="link time"
-                    disabled={!media}
-                    onClick={() => seek(c.start_s)}
-                  >
-                    {seconds(c.start_s)}
-                  </button>{" "}
-                  {c.title}
-                </li>
-              ))}
-            </ol>
-          )}
+            <h2 className="section">{t("card.peaks")}</h2>
+            {peaks.length > 0 && duration ? (
+              <Heatmap
+                duration={duration}
+                peaks={peaks}
+                chapters={chapters}
+                onSeek={media ? seek : undefined}
+              />
+            ) : (
+              <p className="muted">{t("card.noHeatmap")}</p>
+            )}
 
-          {m.notes && Object.keys(m.notes).length > 0 && (
-            <>
-              <h2 className="section">{t("card.measurementNotes")}</h2>
-              <ul className="muted">
-                {Object.entries(m.notes).map(([field, note]) => (
-                  <li key={field}>
-                    {t.or(`card.field.${field}`, field)}: {note}
+            <h2 className="section">{t("card.sections")}</h2>
+            {sections.length === 0 ? (
+              <p className="muted">{t("card.noSections")}</p>
+            ) : (
+              <ol className="sections">
+                {sections.map((s) => (
+                  <li key={s.start_s}>
+                    <button
+                      className="link time"
+                      disabled={!media}
+                      onClick={() => seek(s.start_s)}
+                    >
+                      {seconds(s.start_s)}
+                    </button>{" "}
+                    {s.text}
                   </li>
                 ))}
-              </ul>
-            </>
-          )}
+              </ol>
+            )}
+
+            <h2 className="section">{t("card.chapters")}</h2>
+            {chapters.length === 0 ? (
+              <p className="muted">{t("card.noChapters")}</p>
+            ) : (
+              <ol className="sections">
+                {chapters.map((c) => (
+                  <li key={c.start_s}>
+                    <button
+                      className="link time"
+                      disabled={!media}
+                      onClick={() => seek(c.start_s)}
+                    >
+                      {seconds(c.start_s)}
+                    </button>{" "}
+                    {c.title}
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            {m.notes && Object.keys(m.notes).length > 0 && (
+              <>
+                <h2 className="section">{t("card.measurementNotes")}</h2>
+                <ul className="muted">
+                  {Object.entries(m.notes).map(([field, note]) => (
+                    <li key={field}>
+                      {t.or(`card.field.${field}`, field)}: {note}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <h2 className="section">{t("card.analysis")}</h2>
       {card.analysis === null ? (

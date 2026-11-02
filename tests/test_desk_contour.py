@@ -333,9 +333,9 @@ class QuotaTest(ContourCase):
     def test_quota_shows_today_per_bucket_and_method(self):
         got = self.get("/api/contour/quota")
         buckets = {b["bucket"]: b for b in got["buckets"]}
-        self.assertEqual(set(buckets), {"default", "search", "instagram"})
+        self.assertEqual(set(buckets), {"default", "search", "instagram", "pornhub"})
         self.assertEqual({b: v["window"] for b, v in buckets.items()},
-                         {"default": "day", "search": "day", "instagram": "hour"})
+                         {"default": "day", "search": "day", "instagram": "hour", "pornhub": "hour"})
         self.assertEqual(buckets["default"]["remaining"], buckets["default"]["limit"] - buckets["default"]["used"])
         self.assertEqual(buckets["default"]["used"], sum(m["units"] for m in got["by_method"]))
         self.assertRegex(got["day"], r"^\d{4}-\d{2}-\d{2}$")
@@ -375,3 +375,51 @@ class InstagramTest(ContourCase):
         self.assertEqual(self.get("/api/contour/watchlists/lisbon/feed", platform="instagram")["rows"], [])
         got = self.get("/api/contour/watchlists/lisbon/feed", 422, platform="tiktok")
         self.assertEqual(got["code"], "feed_platform_invalid")
+
+
+PH_VK = "6a000000000c1"
+
+
+class PornhubTest(ContourCase):
+    """A Pornhub channel in lisbon with a baseline and one hit whose card has a thumbnail and a frame sheet."""
+
+    def setUp(self):
+        super().setUp()
+        from cf.research import ingest
+
+        def video(vk: str, days: float, views: int) -> dict:
+            return {"video_id": vk, "title": f"walk {vk}", "duration": "12:00", "views": views, "rating": 88.5,
+                    "ratings": 200, "publish_date": ago(days).replace("T", " ").rstrip("Z"), "tags": [],
+                    "categories": [{"category": "amateur"}], "pornstars": [], "thumbs": []}
+        with st.open_store(self.db) as s:
+            cid = ingest.ingest_ph_channel(s, "model", "sample-maker")
+            s.conn.execute("INSERT INTO watchlist_channel (watchlist_id, channel_id, added_at) SELECT id, ?, ? "
+                           "FROM watchlist WHERE name = 'lisbon'", (cid, ago(0)))
+            s.conn.commit()
+            ingest.ingest_ph_videos(s, cid, [video(f"6a000000000b{i}", 10 + i, 1000) for i in range(5)]
+                                    + [video(PH_VK, 4, 8000)])
+            d = self.footage / "references" / "lisbon" / PH_VK
+            d.mkdir(parents=True)
+            (d / "thumb.jpg").write_bytes(b"\xff\xd8\xff")
+            (d / "frames.jpg").write_bytes(b"\xff\xd8\xff")
+            card.save(s, card.video(s, PH_VK)["id"], {"duration_s": 720.0, "spoken_hook": None, "platform": "pornhub",
+                                                     "packaging": {"thumb": "thumb.jpg", "frames": "frames.jpg"}},
+                      path=d / "card.json")
+
+    def test_feed_takes_pornhub_with_rating(self):
+        rows = self.get("/api/contour/watchlists/lisbon/feed", platform="pornhub")["rows"]
+        self.assertEqual(rows[0]["external_id"], PH_VK)
+        self.assertEqual((rows[0]["platform"], rows[0]["rating"], rows[0]["outlier"]), ("pornhub", 88.5, 8.0))
+        self.assertEqual(self.get("/api/contour/watchlists/lisbon")["watchlist"]["platforms"]["pornhub"], 1)
+
+    def test_card_serves_thumbnail_and_frame_sheet(self):
+        got = self.get(f"/api/contour/cards/{PH_VK}")
+        self.assertEqual(got["reference"]["platform"], "pornhub")
+        self.assertEqual(got["images"], {"thumb": f"references/lisbon/{PH_VK}/thumb.jpg",
+                                         "frames": f"references/lisbon/{PH_VK}/frames.jpg"})
+        self.assertIsNone(got["media"])
+        for rel in got["images"].values():
+            self.assertEqual(self.client.get("/api/media", params={"path": rel}).status_code, 200)
+        self.assertEqual(self.client.get("/api/media", params={"path": f"references/lisbon/{PH_VK}/card.json"})
+                         .status_code, 404)
+

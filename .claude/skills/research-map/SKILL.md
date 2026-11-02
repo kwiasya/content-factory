@@ -19,4 +19,6 @@ A niche becomes evidence for hooks, formats and Ideas through these skills, in o
 
 Store: `/Users/Shared/content-factory/factory.db` in the shared root, one store for both people (ADR 0014; override `CF_SHARED_ROOT`, `CF_FACTORY_DB` or `--db`; `db check` shows its state, only `db init` creates it); API payloads, media, transcripts and cards under `<shared root>/references/`; API keys in `<shared root>/secrets.env`. CLI: `.venv/bin/python -m cf.research <group> <cmd> [--json]`; quota left today: `.venv/bin/python -m cf.research quota`. Vocabulary: `GLOSSARY.md` (section Исследование). Plan: GitHub issue #1; the product it reproduces: `docs/research/sandcastles-map.md`.
 
+Platforms: YouTube, Instagram (ADR 0010) and Pornhub (ADR 0015: API data, thumbnail and preview frames, never a video; `traits <watchlist>` compares its outliers' packaging and timing).
+
 Shortest path to a first card: 1 → 2 → 3 on the top outlier of the feed.

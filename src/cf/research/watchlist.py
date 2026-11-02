@@ -10,6 +10,11 @@ A Watchlist holds channels of both Platforms. An Instagram account is given as
 Business Discovery (``instagram``, one call of the hourly bucket), which sees
 public business and creator accounts only (ADR 0010). Search queries are
 YouTube's: Instagram has no search API.
+
+A Pornhub channel is given as a ``pornhub.com/{model,channels,pornstar,users}/<slug>``
+link or ``ph:<kind>/<slug>``; it is checked by listing one of its videos with
+yt-dlp (``pornhub``, one call of the hourly bucket) and stored as ``<kind>/<slug>``
+(ADR 0015).
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ import sqlite3
 from dataclasses import asdict, dataclass, field
 from urllib.parse import unquote
 
-from cf.research import env, formats, ingest, instagram, youtube
+from cf.research import env, formats, ingest, instagram, pornhub, youtube
 from cf.research.store import Store, dumps, now_iso
 
 
@@ -33,7 +38,8 @@ class ChannelRef:
     """What the Author pointed at: ``kind`` is ``handle`` (``@name``, lowercase),
     ``id`` (``UC…``), ``username`` (legacy ``/user/`` URLs) or ``custom`` (legacy
     ``/c/`` URLs, resolved as a handle first, then as a username). ``platform`` is
-    ``instagram`` for an Instagram account (kind ``handle``, ``@username`` lowercase)."""
+    ``instagram`` for an Instagram account (kind ``handle``, ``@username`` lowercase) and ``pornhub``
+    for a Pornhub channel (kind ``id``, ``<kind>/<slug>`` lowercase)."""
     kind: str
     value: str
     platform: str = "youtube"
@@ -44,6 +50,8 @@ CHANNEL_ID_RE = re.compile(r"UC[\w-]{22}")
 HANDLE_RE = re.compile(r"[\w.-]{3,100}")
 IG_HANDLE_RE = re.compile(r"[A-Za-z0-9._]{1,30}")
 IG_PREFIXES = ("ig:", "instagram:")
+PH_PREFIX = "ph:"
+PH_SLUG_RE = re.compile(r"[\w.-]{1,100}")
 IG_NOT_ACCOUNT_PATHS = {"explore", "stories", "accounts", "direct", "about", "legal", "developer"}
 VIDEO_PATHS = {"watch", "shorts", "live", "embed", "v"}
 NOT_CHANNEL_PATHS = {"playlist", "results", "feed", "hashtag", "post", "channel", "user", "c"}
@@ -83,12 +91,45 @@ def parse_instagram_ref(text: str) -> ChannelRef | None:
     return _ig_handle(segs[0], text)
 
 
+def _ph_channel(kind: str, slug: str, text: str) -> ChannelRef:
+    if kind not in ingest.PH_CHANNEL_KINDS or not PH_SLUG_RE.fullmatch(slug or ""):
+        raise WatchlistError(f"{text!r} has no Pornhub channel in it (expected pornhub.com/model/<slug>, "
+                             f"/channels/<slug>, /pornstar/<slug>, /users/<slug> or ph:<kind>/<slug>)")
+    return ChannelRef("id", f"{kind}/{slug}".lower(), "pornhub")
+
+
+def parse_pornhub_ref(text: str) -> ChannelRef | None:
+    """A ``pornhub.com/{model,channels,pornstar,users}/<slug>[/videos]`` link or ``ph:<kind>/<slug>`` as a
+    Pornhub ``ChannelRef``; None when ``text`` is neither; WatchlistError for a video or other link."""
+    t = (text or "").strip()
+    video = (f"{text!r} is a video link, not a channel; add it with `watchlist add-reference`")
+    if t.lower().startswith(PH_PREFIX):
+        rest = t[len(PH_PREFIX):].strip()
+        if ingest.VIEWKEY_RE.fullmatch(rest.lower()):
+            raise WatchlistError(video)
+        kind, _, slug = rest.partition("/")
+        return _ph_channel(kind.lower(), slug.strip("/"), text)
+    got = ingest.pornhub_segments(t) if ("/" in t or "pornhub.com" in t.lower()) else None
+    if got is None:
+        return None
+    segs = got[0]
+    if ingest.ph_link_viewkey(t) or segs[:1] in (["view_video.php"], ["embed"]):
+        raise WatchlistError(video)
+    if len(segs) < 2 or (len(segs) > 2 and segs[2] != "videos"):
+        return _ph_channel("", "", text)
+    return _ph_channel(segs[0].lower(), segs[1], text)
+
+
 def parse_channel_ref(text: str) -> ChannelRef:
     """Turn a handle, channel id or YouTube channel URL, or an Instagram account (``ig:<username>``,
-    ``instagram.com/<username>``), into a ``ChannelRef``."""
+    ``instagram.com/<username>``), or a Pornhub channel (``ph:<kind>/<slug>``, a ``pornhub.com`` channel link),
+    into a ``ChannelRef``."""
     t = (text or "").strip()
     if not t:
         raise WatchlistError("empty channel reference")
+    ph = parse_pornhub_ref(t)
+    if ph is not None:
+        return ph
     ig = parse_instagram_ref(t)
     if ig is not None:
         return ig
@@ -318,13 +359,15 @@ def resolve_instagram(store: Store, username: str, *, own: bool | None = None, m
 
 def add_channel(store: Store, name: str, ref: str, *, own: bool = False, refresh: bool = False,
                 transport: youtube.Transport | None = None,
-                ig_transport: instagram.Transport | None = None) -> ReferenceChannel:
+                ig_transport: instagram.Transport | None = None,
+                ph_lister: pornhub.Lister | None = None) -> ReferenceChannel:
     """Add a Reference channel to a Watchlist by handle, channel id or URL, or an Instagram account.
 
     A channel the store already knows is reused without an API call unless
     ``refresh``; otherwise ``channels.list`` is called (1 quota unit) and ingested,
     or for Instagram Business Discovery (1 call of the hourly bucket; followers
-    and media count, no media yet: ``scout`` reads those).
+    and media count, no media yet: ``scout`` reads those), or for Pornhub a one-video listing
+    (one call of the hourly bucket) that proves the channel exists.
     ``own`` marks the channel as the Author's. Adding twice is harmless.
     """
     wid = row(store, name)["id"]
@@ -332,6 +375,11 @@ def add_channel(store: Store, name: str, ref: str, *, own: bool = False, refresh
     found = None if refresh else find_channel(store, parsed)
     if found is None and parsed.platform == "instagram":
         cid = resolve_instagram(store, parsed.value, own=True if own else None, transport=ig_transport)[0]
+    elif found is None and parsed.platform == "pornhub":
+        kind, slug = parsed.value.split("/", 1)
+        if pornhub.channel_exists(store, parsed.value, lister=ph_lister) is None:
+            raise WatchlistError(f"no Pornhub {kind} {slug!r} ({ref.strip()!r}): its video list is empty or missing")
+        cid = ingest.ingest_ph_channel(store, kind, slug)
     elif found is None:
         if parsed.kind == "id":
             attempts = [{"ids": [parsed.value]}]

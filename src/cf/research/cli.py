@@ -2,7 +2,8 @@
 
 Groups: ``watchlist`` (add, list, show, remove, add-channel,
 remove-channel, add-query, add-reference), ``taxonomy`` (list, approve, reject), ``quota``,
-``scout``, ``snapshot``, ``feed``, ``fetch`` (one Reference, deep), ``card``
+``scout``, ``snapshot``, ``feed``, ``traits`` (outliers against all References: packaging and timing),
+``fetch`` (one Reference, deep), ``card``
 (validate, save, show), ``ideas`` (add, list, show, shortlist, discard,
 restore, note, brief, candidates), ``summary`` (hooks, formats, topics), ``hooks``
 (save, remove, list, export: the Hook library of a Format), ``notes`` (list, add,
@@ -28,10 +29,10 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from cf.research import (backup, brief, card, env, feed, fetch, hooks, ideas, instagram, merge, notes, own, picks, quota,
-                         refpaths, renumber, scout, summary, taxonomy, watchlist, youtube)
+from cf.research import (backup, brief, card, env, feed, fetch, hooks, ideas, instagram, merge, notes, own, picks,
+                         pornhub, quota, refpaths, renumber, scout, summary, taxonomy, traits, watchlist, youtube)
 from cf.research.kinds import KINDS
-from cf.research.store import (OLD_NUMBERING_HINT, SCHEMA_VERSION, BUSY_MESSAGE, StoreError, connect, default_db_path,
+from cf.research.store import (OLD_NUMBERING_HINT, PLATFORMS, SCHEMA_VERSION, BUSY_MESSAGE, StoreError, connect, default_db_path,
                                ensure_shared_root, is_busy, journal_mode, missing_message, mount_hint, old_numbering, open_store,
                                shared_root)
 
@@ -39,7 +40,7 @@ from cf.research.store import (OLD_NUMBERING_HINT, SCHEMA_VERSION, BUSY_MESSAGE,
 USER_ERRORS: tuple[type[Exception], ...] = (
     watchlist.WatchlistError, taxonomy.TaxonomyError, quota.QuotaExceeded,
     youtube.YouTubeError, StoreError, fetch.FetchError, card.CardError, ideas.IdeaError, hooks.HookError,
-    notes.NoteError, instagram.InstagramError, own.OwnError,
+    notes.NoteError, instagram.InstagramError, own.OwnError, pornhub.PornhubError,
 )
 
 
@@ -165,7 +166,8 @@ def register_watchlist(sub, common) -> None:
     p.set_defaults(func=cmd_wl_remove)
     p = gs.add_parser("add-channel", parents=[common],
                       help="add a Reference channel: YouTube @handle, channel URL or UC… id; Instagram "
-                           "ig:<username> or instagram.com/<username> (public business or creator accounts only)")
+                           "ig:<username> or instagram.com/<username> (public business or creator accounts only); "
+                           "Pornhub pornhub.com/{model,channels,pornstar,users}/<slug> or ph:<kind>/<slug>")
     p.add_argument("name")
     p.add_argument("ref")
     p.add_argument("--own", action="store_true", help="the channel is the Author's")
@@ -182,10 +184,12 @@ def register_watchlist(sub, common) -> None:
     p.add_argument("query")
     p.set_defaults(func=cmd_wl_add_query)
     p = gs.add_parser("add-reference", parents=[common],
-                      help="pick Instagram reel or post links into a Watchlist (owner via yt-dlp metadata without "
-                           "login, else the store; unresolved links are kept with their Note)")
+                      help="pick Instagram reel or post links or Pornhub videos into a Watchlist (Instagram owner via "
+                           "yt-dlp metadata without login, else the store; a Pornhub video through its API, owner from "
+                           "the store; unresolved links are kept with their Note)")
     p.add_argument("name")
-    p.add_argument("ref", nargs="+", help="instagram.com/reel/<code>/ or /p/<code>/ (tracking parameters dropped)")
+    p.add_argument("ref", nargs="+", help="instagram.com/reel/<code>/ or /p/<code>/ (tracking parameters dropped), "
+                   "pornhub.com/view_video.php?viewkey=<viewkey> or ph:<viewkey>")
     p.add_argument("--note", help="the Author's note, stored verbatim as a card Note (one link only)")
     p.add_argument("--delay", type=float, default=picks.DELAY_S,
                    help="seconds between yt-dlp calls (default %(default)s)")
@@ -252,16 +256,17 @@ def cmd_quota(args, store) -> int:
                           [(b.bucket, b.limit, b.used, b.remaining) for b in u.buckets if b.window == "hour"])
         ig_calls = md_table(["Метод", "Вызовов"], [(m.method, m.calls) for m in u.hourly_by_method]) \
             if u.hourly_by_method else "Вызовов за последний час не было."
-        press = "".join(f"\n\nMeta сообщила {p.pct}% лимита {p.bucket} в {p.seen_at}"
+        press = "".join(f"\n\n{quota.PRESSURE_SOURCES.get(p.bucket, p.bucket)} сообщила {p.pct}% лимита {p.bucket} "
+                        f"в {p.seen_at}"
                         + (f"; пауза до {p.paused_until} UTC" if p.paused_until else "") for p in u.pressure)
         return (f"Квота YouTube Data API на {u.day} (сутки по Тихоокеанскому времени)\n\n{daily}\n\n{calls}\n\n"
-                f"Instagram Graph API (скользящий час)\n\n{hourly}\n\n{ig_calls}{press}")
+                f"Instagram Graph API и Pornhub (скользящий час)\n\n{hourly}\n\n{ig_calls}{press}")
     return emit(args, u.to_dict(), human)
 
 
 def register_quota(sub, common) -> None:
     p = sub.add_parser("quota", parents=[common],
-                       help="today's YouTube Data API quota and the last hour's Instagram Graph API calls")
+                       help="today's YouTube Data API quota and the last hour's Instagram Graph API and Pornhub calls")
     p.add_argument("--day", help="ISO date (Pacific); default today")
     p.set_defaults(func=cmd_quota)
 
@@ -291,6 +296,16 @@ def _fetch_human(r: dict) -> str:
                 md_table(["Окно", "Значение", "Цитата"],
                          [(f"{_mmss(p['start_s'])}–{_mmss(p['end_s'])}", p["value"], p["quote"])
                           for p in m["heatmap_peaks"]])]
+    if m.get("packaging"):
+        pk, pub, n = m["packaging"], m["published"], m["counts"]
+        out += ["", md_table(["Упаковка", "Значение"], [
+            ("Знаков в названии", pk["title_chars"]), ("Слов", pk["title_words"]), ("Доля заглавных", pk["caps_share"]),
+            ("Цифр", pk["digits"]), ("Скобки", pk["brackets"]), ("POV", pk["pov"]), ("Эмодзи", pk["emoji"]),
+            ("Теги", ", ".join(pk["tags"])), ("Категории", ", ".join(pk["categories"])),
+            ("Опубликовано (UTC)", f"{pub['at']} ({pub['weekday']} {pub['hour_utc']} ч)" if pub["at"] else None),
+            ("Местное время", f"{pub['weekday_local']} {pub['hour_local']} ч" if pub["at"] else None),
+            ("Просмотры", n["views"]), ("Рейтинг, %", n["rating"]), ("Голосов", n["votes"]),
+            ("Превью", pk["thumb"]), ("Кадры", pk["frames"])])]
     if m["notes"]:
         out += [""] + [f"- {k}: {v}" for k, v in m["notes"].items()]
     if r["steps"].get("analysis", "").startswith("kept; stale"):
@@ -322,8 +337,9 @@ def cmd_fetch(args, store) -> int:
 def register_fetch(sub, common) -> None:
     p = sub.add_parser("fetch", parents=[common],
                        help="deep fetch of one Reference: media, transcript, proxy, Shot log, measured card")
-    p.add_argument("ref", help="YouTube video URL or 11-character id, or an Instagram reel link the store has "
-                        "(media via yt-dlp without login; caption-only when Instagram refuses)")
+    p.add_argument("ref", help="YouTube video URL or 11-character id, an Instagram reel link the store has "
+                        "(media via yt-dlp without login; caption-only when Instagram refuses), or a Pornhub view "
+                        "link, ph:<viewkey> or viewkey (never downloaded: API data, thumbnail and 16 preview frames)")
     p.add_argument("--watchlist", help="Watchlist for the folder of a first fetch and the fallback transcript language "
                         "(the only one for an Instagram reel; a fetched Reference keeps its folder; no membership)")
     p.add_argument("--force", action="store_true", help="download, transcribe and analyse again")
@@ -383,8 +399,8 @@ def cmd_scout(args, store) -> int:
 
 def register_scout(sub, common) -> None:
     p = sub.add_parser("scout", parents=[common],
-                       help="pull uploads of the Watchlist's Reference channels (YouTube and Instagram) and run its "
-                            "search queries (YouTube only)")
+                       help="pull uploads of the Watchlist's Reference channels (YouTube, Instagram and Pornhub) and "
+                            "run its search queries (YouTube only)")
     p.add_argument("name")
     p.add_argument("--no-search", action="store_true", help="skip the search queries")
     p.add_argument("--search-days", type=float, default=scout.DEFAULT_SEARCH_DAYS,
@@ -400,8 +416,8 @@ def cmd_snapshot(args, store) -> int:
     r = scout.snapshot(store, args.name)
 
     def human() -> str:
-        gone = f"\n\nПропали с YouTube: {', '.join(r.missing)}" if r.missing else ""
-        gone += "".join(f"\n\nОшибка Instagram {e}" for e in r.errors)
+        gone = f"\n\nПропали с YouTube или Pornhub: {', '.join(r.missing)}" if r.missing else ""
+        gone += "".join(f"\n\nОшибка Instagram или Pornhub {e}" for e in r.errors)
         gone += f"\n\nПропущено: {r.skipped}" if r.skipped else ""
         return (f"Снимок {r.watchlist} на {r.taken_at}: {r.videos} Reference. "
                 f"Вызовы API: {_calls_text(r.calls)}{gone}{_stopped_text(r.stopped)}")
@@ -439,9 +455,49 @@ def register_feed(sub, common) -> None:
     p.add_argument("--kind", choices=KINDS)
     p.add_argument("--max-duration", type=float, help="seconds, e.g. 60 for Walk Reel work (drops Instagram "
                    "reels, whose length the API does not give, until they are fetched)")
-    p.add_argument("--platform", choices=("youtube", "instagram"), help="one Platform only")
+    p.add_argument("--platform", choices=PLATFORMS, help="one Platform only")
     p.add_argument("--limit", type=int, default=20, help="rows (default %(default)s)")
     p.set_defaults(func=cmd_feed)
+
+
+def _shares_table(title: str, shares: list[traits.Share]) -> str:
+    if not shares:
+        return f"{title}: нет данных."
+    return f"{title}\n\n" + md_table(["Признак", "Всего", "Outliers", "Доля всех", "Доля outliers", "Lift"],
+                                      [(s.key, s.all, s.outliers, s.share_all, s.share_outliers, s.lift)
+                                       for s in shares])
+
+
+def cmd_traits(args, store) -> int:
+    r = traits.traits(store, args.name, platform=args.platform, days=args.days, min_outlier=args.min_outlier)
+
+    def human() -> str:
+        tl, rt = r.title_length, r.rating
+        head = (f"Черты outliers {r.watchlist} за {args.days:g} дн. ({r.platform or 'все площадки'}): "
+                f"{r.outliers} outliers (≥ {r.min_outlier:g}x) из {r.references} Reference с оценкой.")
+        parts = [head, _shares_table("Длительность, мин", r.duration), _shares_table("Название", r.title),
+                 f"Медиана длины названия: знаков {tl['chars']['all']} / {tl['chars']['outliers']}, "
+                 f"слов {tl['words']['all']} / {tl['words']['outliers']} (все / outliers)",
+                 _shares_table(f"Теги (не меньше {traits.MIN_SUPPORT} Reference)", r.tags),
+                 _shares_table("Категории", r.categories),
+                 _shares_table("День недели, UTC", r.weekday_utc), _shares_table("Час, UTC", r.hour_utc),
+                 _shares_table("День недели, местное время", r.weekday_local),
+                 _shares_table("Час, местное время", r.hour_local),
+                 f"Медиана рейтинга: {rt['all']} / {rt['outliers']} (все / outliers)"]
+        return "\n\n".join(parts)
+    return emit(args, r.to_dict(), human)
+
+
+def register_traits(sub, common) -> None:
+    p = sub.add_parser("traits", parents=[common],
+                       help="what the Watchlist's outliers share against all its scored References: duration, title, "
+                            "tags and categories, weekday and hour, rating (Pornhub cards have no transcript)")
+    p.add_argument("name")
+    p.add_argument("--platform", choices=PLATFORMS, help="one Platform only")
+    p.add_argument("--days", type=float, default=90, help="published in the last N days (default %(default)s)")
+    p.add_argument("--min-outlier", type=float, default=2.0,
+                   help="Outlier score from which a Reference counts as an outlier (default %(default)s)")
+    p.set_defaults(func=cmd_traits)
 
 
 # --- card ---------------------------------------------------------------------
@@ -1192,7 +1248,8 @@ def register_db(sub, common) -> None:
 
 
 GROUPS: list[Callable] = [register_watchlist, register_taxonomy, register_quota,
-                          register_scout, register_snapshot, register_feed, register_fetch, register_card,
+                          register_scout, register_snapshot, register_feed, register_traits, register_fetch,
+                          register_card,
                           register_ideas, register_summary, register_hooks, register_notes, register_own,
                           register_ig, register_references, register_db]
 

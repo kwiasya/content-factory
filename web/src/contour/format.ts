@@ -15,6 +15,15 @@ export function viewsText(views: number | null | undefined, t: T): string {
   return new Intl.NumberFormat(t.locale, { notation: "compact", maximumFractionDigits: 1 }).format(views);
 }
 
+export function ratingText(rating: number | null | undefined, t: T): string {
+  if (rating === null || rating === undefined) {
+    return "—";
+  }
+  return t("unit.percent", {
+    n: new Intl.NumberFormat(t.locale, { maximumFractionDigits: 1 }).format(rating),
+  });
+}
+
 export function secondsText(s: number | null | undefined, t: T): string {
   if (s === null || s === undefined) {
     return "—";

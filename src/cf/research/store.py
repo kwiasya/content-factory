@@ -384,7 +384,7 @@ ALTER TABLE idea_video_new RENAME TO idea_video;
 CREATE INDEX idea_video_slug ON idea_video (video_slug);
 """
 
-PLATFORMS = ("youtube", "instagram")
+PLATFORMS = ("youtube", "instagram", "pornhub")
 
 MIGRATIONS: list[str] = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10]  # MIGRATIONS[i] takes the store from version i to i + 1
 SCHEMA_VERSION = len(MIGRATIONS)

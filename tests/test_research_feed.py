@@ -103,6 +103,15 @@ class FeedTest(unittest.TestCase):
         with self.assertRaises(wl.WatchlistError):
             feed.feed(self.store, "nope", now=NOW)
 
+    def test_platform_filter_accepts_pornhub_and_youtube_rows_have_no_rating(self):
+        self.assertEqual(feed.feed(self.store, "lisbon", platform="pornhub", now=NOW), [])
+        rows = feed.feed(self.store, "lisbon", platform="youtube", now=NOW)
+        self.assertTrue(rows)
+        self.assertEqual({r.rating for r in rows}, {None})
+        with self.assertRaises(wl.WatchlistError) as cm:
+            feed.feed(self.store, "lisbon", platform="vimeo", now=NOW)
+        self.assertIn("pornhub", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

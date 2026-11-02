@@ -13,7 +13,9 @@ Hourly buckets (``HOURLY_LIMITS``) count calls over a rolling 60 minutes, one
 ``rate`` row per minute and method: the Instagram Graph API allows about 200
 calls an hour per user (ADR 0010), but Meta's header reported 51 % after 62
 calls on the live account (2026-10-12), so the default limit is 100;
-``CF_QUOTA_INSTAGRAM`` overrides it. Meta also
+``CF_QUOTA_INSTAGRAM`` overrides it. Pornhub publishes no limit (ADR 0015): its
+bucket allows 600 calls an hour (``CF_QUOTA_PORNHUB``), and an HTTP 429 pauses
+it for an hour. Meta also
 reports its own count in the ``X-Business-Use-Case-Usage`` / ``X-App-Usage``
 headers: ``record_pressure`` keeps the last share seen, and from ``STOP_PCT`` on
 every call of the bucket is refused until the cool-down (Meta's
@@ -31,7 +33,8 @@ from zoneinfo import ZoneInfo
 from cf.research.store import Store, now_iso
 
 DEFAULT_LIMITS = {"default": 10_000, "search": 100}
-HOURLY_LIMITS = {"instagram": 100}  # calls in any 60 minutes
+HOURLY_LIMITS = {"instagram": 100, "pornhub": 600}  # calls in any 60 minutes
+PRESSURE_SOURCES = {"instagram": "Meta", "pornhub": "Pornhub"}
 STOP_PCT = 90       # Meta's reported usage share (percent) from which the bucket pauses
 PAUSE_MINUTES = 15  # the least pause after such a report
 RESET_TZ = ZoneInfo("America/Los_Angeles")
@@ -50,6 +53,8 @@ COSTS = {
     "ig.business_discovery": ("instagram", 1),
     "ig.media": ("instagram", 1),
     "ig.insights": ("instagram", 1),
+    "ph.video_by_id": ("pornhub", 1),
+    "ph.list_page": ("pornhub", 1),
 }
 
 
@@ -187,7 +192,7 @@ def _over(store: Store, need: dict[str, int], day: str, what: str,
             p = pressure(store, bucket, now=now) if units else None
             if p is not None and p.paused_until:
                 return QuotaExceeded(
-                    f"quota: Meta reported {p.pct}% of the {bucket} rate limit used at {p.seen_at}; {what} "
+                    f"quota: {PRESSURE_SOURCES.get(bucket, bucket)} reported {p.pct}% of the {bucket} rate limit used at {p.seen_at}; {what} "
                     f"waits until {p.paused_until} (UTC). Stopped before calling the API.")
             if u + units > limit:
                 return QuotaExceeded(

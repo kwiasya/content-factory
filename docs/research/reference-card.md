@@ -12,6 +12,7 @@ A Reference card is the deep analysis of one Reference, schema `cf-reference-car
   - `whisper`: Whisper's detection, when the info has no usable language, or when every window with speech names the same other language at 80 % or more.
   - `watchlist` or `default`: the fallback hint (the Watchlist's language, else `en`) when neither gives one, or a kept transcript has none.
   - `transcript`: a transcript kept from an earlier fetch that did not record the source.
+- A Pornhub Reference (ADR 0015) is never downloaded, so its transcript, Shot log and OCR fields are null with `notes` saying `no video`, and `notes.media` says what it was analysed from. Its `measured` adds `platform` (`pornhub`), `packaging` (`title`, `title_chars`, `title_words`, `caps_share`, `emoji`, `digits`, `brackets`, `pov`, `tags`, `categories`, `pornstars`, `segment`, and `thumb` and `frames`: `thumb.jpg` and the 4×4 sheet `frames.jpg` of the 16 preview frames, relative to the Reference folder), `published` (`at` ISO UTC, `weekday` and `hour_utc`, `weekday_local` and `hour_local` in this Mac's zone) and `counts` (`taken_at`, `views`, `likes` = up votes, `votes`, `rating` %). Its analysis has `hook.spoken_hook` null, and the spoken hook check passes.
 - `analysis` is written by the Editor (skill `analyze-reference`), null until then. Saved only through `card save`, which validates it first.
 
 ## Analysis fields

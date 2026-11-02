@@ -10,6 +10,7 @@ first seconds (``tools/vision-score --text`` records, or None when OCR did not r
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone, tzinfo
 
 from cf.research.kinds import video_kind
 from cf.scoring import DEFAULT as SCORING
@@ -208,3 +209,31 @@ def measure(info: dict, transcript: dict | None, shotlog: dict | None,
         "notes": notes,
     }
     return out
+
+
+EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF]")
+POV_RE = re.compile(r"\bpov\b", re.IGNORECASE)
+BRACKETS = set("()[]{}")
+WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def title_features(title: str | None) -> dict:
+    """What a title is made of: ``title_chars``, ``title_words``, ``caps_share`` (upper-case share of its
+    letters, two decimals), ``emoji``, ``digits`` (counts), ``brackets`` and ``pov`` (flags)."""
+    t = title or ""
+    letters = [c for c in t if c.isalpha()]
+    return {"title_chars": len(t), "title_words": len(t.split()),
+            "caps_share": round(sum(c.isupper() for c in letters) / len(letters), 2) if letters else None,
+            "emoji": len(EMOJI_RE.findall(t)), "digits": sum(c.isdigit() for c in t),
+            "brackets": any(c in BRACKETS for c in t), "pov": bool(POV_RE.search(t))}
+
+
+def published(at: str | None, tz: tzinfo | None = None) -> dict:
+    """``at`` (ISO UTC) with its weekday and hour in UTC and in ``tz`` (default: this Mac's zone)."""
+    if not at:
+        return {"at": None, "weekday": None, "hour_utc": None, "weekday_local": None, "hour_local": None}
+    t = datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    local = t.astimezone(tz) if tz is not None else t.astimezone()
+    return {"at": at, "weekday": WEEKDAYS[t.weekday()], "hour_utc": t.hour,
+            "weekday_local": WEEKDAYS[local.weekday()], "hour_local": local.hour}
+

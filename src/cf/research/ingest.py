@@ -2,8 +2,13 @@
 
 ``*_row`` functions are pure (payload item → dict of column values);
 ``ingest_*`` functions upsert those rows and return the store ids. This is the
-layer tests feed with fixtures; the network never reaches past ``youtube`` and
-``instagram``.
+layer tests feed with fixtures; the network never reaches past ``youtube``,
+``instagram`` and ``pornhub``.
+
+Pornhub (ADR 0015): a channel is keyed ``<kind>/<slug>`` (``model/<slug>``,
+``channels/<slug>``…) with the slug as handle; a Reference by its viewkey. Likes
+are up votes, ``round(rating × ratings / 100)``; there are no comments. Only the
+latest rating and vote count stay in ``video.raw``.
 
 Instagram (ADR 0010): a Reference channel is keyed by the account's Graph id
 with its ``@username`` as handle; a Reference by its permalink shortcode (the
@@ -17,7 +22,7 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from cf.research.kinds import parse_iso_duration, video_kind
 from cf.research.store import Store, StoreError, dumps, now_iso
@@ -425,3 +430,128 @@ def ingest_insights(store: Store, video_id: int, values: dict[str, int], *, like
                   f"{', '.join('?' for _ in cols)}) ON CONFLICT (video_id, taken_at) DO UPDATE SET "
                   f"{', '.join(f'{k} = excluded.{k}' for k in cols)}",
                   (video_id, taken_at or now_iso(), *row.values()))
+
+
+PH_SITE = "https://www.pornhub.com"
+PH_CHANNEL_KINDS = ("model", "channels", "pornstar", "users")
+VIEWKEY_RE = re.compile(r"(?:ph)?[0-9a-f]{13}")
+_PH_TIME_RE = re.compile(r"(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)")
+
+
+def pornhub_segments(text: str) -> tuple[list[str], str] | None:
+    """The non-empty path segments and the query of a link on a Pornhub host (scheme optional);
+    None when the host is not Pornhub's."""
+    t = (text or "").strip()
+    parts = urlsplit(t if "://" in t else "https://" + t)
+    host = (parts.hostname or "").lower()
+    if host != "pornhub.com" and not host.endswith(".pornhub.com"):
+        return None
+    return [unquote(x).strip() for x in parts.path.split("/") if x.strip()], parts.query
+
+
+def ph_link_viewkey(text: str) -> str | None:
+    """The viewkey of a Pornhub video link (``view_video.php?viewkey=…``, ``/embed/<viewkey>``); None for
+    any other link."""
+    got = pornhub_segments(text)
+    if got is None:
+        return None
+    segs, query = got
+    vk = None
+    if segs[:1] == ["view_video.php"]:
+        vk = (parse_qs(query).get("viewkey") or [None])[0]
+    elif len(segs) > 1 and segs[0] == "embed":
+        vk = segs[1]
+    vk = (vk or "").strip().lower()
+    return vk if VIEWKEY_RE.fullmatch(vk) else None
+
+
+def ph_url(viewkey: str) -> str:
+    """The view link of a viewkey."""
+    return f"{PH_SITE}/view_video.php?viewkey={viewkey}"
+
+
+def ph_duration(text: str | None) -> float | None:
+    """Seconds of the API's ``duration`` (``mm:ss`` or ``h:mm:ss``); None for anything else."""
+    parts = (text or "").strip().split(":")
+    if len(parts) not in (2, 3) or not all(p.isdigit() for p in parts):
+        return None
+    nums = [int(p) for p in parts]
+    if any(n >= 60 for n in nums[1:]):
+        return None
+    total = 0
+    for n in nums:
+        total = total * 60 + n
+    return float(total) or None
+
+
+def ph_time(text: str | None) -> str | None:
+    """The API's ``publish_date`` (``2026-09-21 19:00:05``, read as UTC: spike S1, ADR 0015) as ISO UTC."""
+    m = _PH_TIME_RE.fullmatch((text or "").strip())
+    return f"{m.group(1)}T{m.group(2)}Z" if m else None
+
+
+def ph_likes(video: dict) -> int | None:
+    """Up votes from the rating share and the vote count: ``round(rating × ratings / 100)``."""
+    try:
+        return round(float(video["rating"]) * int(video["ratings"]) / 100)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def ph_video_row(video: dict) -> dict:
+    """Column values of ``video`` from one ``video_by_id`` video object (channel and own flag not included)."""
+    vk = video["video_id"]
+    dur = ph_duration(video.get("duration"))
+    raw = {"categories": [c.get("category") for c in video.get("categories") or [] if c.get("category")],
+           "pornstars": [p.get("pornstar_name") for p in video.get("pornstars") or [] if p.get("pornstar_name")],
+           "segment": video.get("segment"), "rating": video.get("rating"), "ratings": video.get("ratings"),
+           "default_thumb": video.get("default_thumb"),
+           "thumbs": [t.get("src") for t in video.get("thumbs") or [] if t.get("src")],
+           "api_publish_date": video.get("publish_date")}
+    return {
+        "platform": "pornhub",
+        "external_id": vk,
+        "title": video.get("title"),
+        "published_at": ph_time(video.get("publish_date")),
+        "duration_s": dur,
+        "kind": video_kind(dur),
+        "tags": dumps([t.get("tag_name") for t in video.get("tags") or [] if t.get("tag_name")]),
+        "url": ph_url(vk),
+        "raw": dumps(raw),
+    }
+
+
+def ph_snapshot_row(video: dict) -> dict:
+    """``views``, ``likes`` (from rating and votes) and ``comments`` (the API has none) of one video."""
+    return {"views": _int(video.get("views")), "likes": ph_likes(video), "comments": None}
+
+
+def ingest_ph_channel(store: Store, kind: str, slug: str, title: str | None = None) -> int:
+    """Upsert one Pornhub channel (``<kind>/<slug>``, lowercase; the slug is its handle); return its store id.
+    A new title replaces the stored one; without one the slug stands in."""
+    ext = f"{kind}/{slug}".lower()
+    with store.transaction() as c:
+        c.execute("INSERT INTO channel (platform, external_id, handle, title, fetched_at) VALUES "
+                  "('pornhub', ?, ?, ?, ?) ON CONFLICT (platform, external_id) DO UPDATE SET "
+                  "title = COALESCE(?, title), fetched_at = excluded.fetched_at",
+                  (ext, slug.lower(), title or slug.lower(), now_iso(), title))
+        return int(c.execute("SELECT id FROM channel WHERE platform = 'pornhub' AND external_id = ?",
+                             (ext,)).fetchone()[0])
+
+
+def ingest_ph_videos(store: Store, channel_id: int | None, videos: list[dict], *, fetched_at: str | None = None,
+                     taken_at: str | None = None) -> list[int]:
+    """Upsert ``video_by_id`` video objects and record one snapshot each at ``taken_at``; return their store
+    ids in order. ``channel_id`` None keeps the channel the store has. Videos of an own channel are own."""
+    ts = fetched_at or now_iso()
+    snap_ts = taken_at or ts
+    ids: list[int] = []
+    with store.transaction() as c:
+        own = 0
+        if channel_id is not None:
+            own = int(c.execute("SELECT own FROM channel WHERE id = ?", (channel_id,)).fetchone()[0])
+        for v in videos:
+            vid = upsert_video(c, {**ph_video_row(v), "fetched_at": ts}, channel_id, own)
+            _snapshot(c, vid, snap_ts, ph_snapshot_row(v))
+            ids.append(vid)
+    return ids

@@ -29,7 +29,7 @@ _Avoid_: комментарий, таск, тикет, фидбек
 _Avoid_: тип контента, рубрика, шаблон
 
 **Platform (Площадка)**:
-Сервис, куда публикуется готовое видео: Instagram Reels, YouTube, YouTube Shorts, TikTok. Один и тот же Reel может выйти на нескольких Platform; меняются подпись, хэштеги и safe zone, не монтаж. В исследовании Platform это ещё и источник данных: у каждого Reference channel и Reference она своя (`youtube` или `instagram`, ADR 0010), а Outlier score считается внутри одной Platform.
+Сервис, куда публикуется готовое видео: Instagram Reels, YouTube, YouTube Shorts, TikTok. Один и тот же Reel может выйти на нескольких Platform; меняются подпись, хэштеги и safe zone, не монтаж. В исследовании Platform это ещё и источник данных: у каждого Reference channel и Reference она своя (`youtube`, `instagram` или `pornhub`, ADR 0010, 0015), а Outlier score считается внутри одной Platform.
 _Avoid_: соцсеть, сеть, канал
 
 **Channel (Канал)**:

@@ -28,6 +28,20 @@ down to ``uploads_through`` as for YouTube; every reel read gets a snapshot
 the last ``IG_SNAPSHOT_DAYS``). Search queries stay YouTube-only. The scout of a
 Watchlist with Instagram channels also checks the token and warns when fewer
 than ``TOKEN_WARN_DAYS`` days are left.
+
+Pornhub channels (ADR 0015) need no key: yt-dlp lists a channel's viewkeys,
+newest first (``ph.list_page`` per 40 listed), and the Webmasters API reads
+each viewkey the store does not know (``ph.video_by_id``), which also gives its
+snapshot (views, up votes as likes, no comments). A first run backfills the
+newest ``PH_BACKFILL``; later runs list ``PH_NEW_LIMIT`` from the top and 40
+more each time (re-listing from the top, up to ``PH_MAX_LIST``) until the list
+reaches a video published ``PH_PUBLISH_LAG_DAYS`` before the channel's
+``uploads_through``. ``snapshot`` re-reads each Pornhub
+Reference published in the last ``PH_SNAPSHOT_DAYS``, every Pornhub pick and
+every own Pornhub video once, unless it has a snapshot from the last hour; a
+video the API no longer has is ``missing``.
+Without a YouTube key the YouTube part is skipped when Instagram or Pornhub
+channels are there.
 """
 
 from __future__ import annotations
@@ -37,7 +51,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from cf.research import env, ingest, instagram, quota, youtube
+from cf.research import env, ingest, instagram, pornhub, quota, youtube
 from cf.research.kinds import KINDS
 from cf.research import watchlist as watchlists
 from cf.research.store import Store, StoreError, now_iso
@@ -47,6 +61,11 @@ IG_BACKFILL = 50         # reels of an Instagram channel a first scout aims at
 IG_BACKFILL_PAGES = 3    # pages of 50 media at most for that (feed posts share the pages)
 IG_SNAPSHOT_DAYS = 30    # snapshot re-reads Instagram reels published within this many days
 IG_SNAPSHOT_PAGES = 2    # pages per Instagram channel at most in one snapshot
+PH_BACKFILL = 60
+PH_NEW_LIMIT = 40
+PH_MAX_LIST = 200
+PH_SNAPSHOT_DAYS = 30
+PH_PUBLISH_LAG_DAYS = 20
 TOKEN_WARN_DAYS = 7
 DEFAULT_SEARCH_DAYS = 30
 DEFAULT_SEARCH_PAGES = 1
@@ -169,17 +188,29 @@ class _Run:
         self.calls: Counter = Counter()
 
     ig_transport = None
+    ph_transport = None
+    ph_lister = None
 
     def call(self, method: str, fn, *args, **kwargs) -> dict:
-        """``fn`` (a ``youtube`` or ``instagram`` function for ``method``), counted in ``calls`` once
-        charged: an API error after the charge counts too, a quota refusal does not."""
-        transport = self.ig_transport if method.startswith("ig.") else self.transport
+        """``fn`` (a ``youtube``, ``instagram`` or ``pornhub`` function for ``method``), counted in ``calls``
+        once charged: an API error after the charge counts too, a quota refusal does not."""
+        transport = {"ig.": self.ig_transport, "ph.": self.ph_transport}.get(method[:3], self.transport)
         try:
             out = fn(self.store, *args, transport=transport, **kwargs)
-        except (youtube.YouTubeError, instagram.InstagramError):
+        except (youtube.YouTubeError, instagram.InstagramError, pornhub.PornhubError, pornhub.RateLimited):
             self.calls[method] += 1
             raise
         self.calls[method] += 1
+        return out
+
+    def ph_list(self, channel_ext_id: str, limit: int) -> list[str]:
+        """``pornhub.list_uploads``, its pages counted in ``calls`` once charged."""
+        try:
+            out = pornhub.list_uploads(self.store, channel_ext_id, limit=limit, lister=self.ph_lister)
+        except (pornhub.PornhubError, pornhub.RateLimited):
+            self.calls["ph.list_page"] += pornhub.pages(limit)
+            raise
+        self.calls["ph.list_page"] += pornhub.pages(limit)
         return out
 
     def videos(self, ids: list[str]) -> dict:
@@ -328,6 +359,79 @@ def _ig_uploads(run: _Run, ch: dict, progress: list) -> ChannelScout:
     return report()
 
 
+def _ph_uploads(run: _Run, ch: dict, progress: list) -> ChannelScout:
+    """List one Pornhub channel and read its unknown viewkeys, oldest first; append its ``ChannelScout`` to
+    ``progress`` even if the quota stops it. A first run reads the newest ``PH_BACKFILL``. A later run lists
+    down to a video of this channel published ``PH_PUBLISH_LAG_DAYS`` before ``uploads_through``: a video goes
+    live up to that long after its upload, so one listed below a read video can still be new. The mark moves
+    only once every unknown video above the stop is read, so a run cut short by the quota or an error is
+    completed by the next one; at ``PH_MAX_LIST`` without reaching the stop, older uploads stay unread.
+    Known videos with no channel yet are claimed for this one."""
+    backfill = ch["backfilled_at"] is None
+    mark = ch["uploads_through"]
+    stop = now_iso(datetime.fromisoformat(mark.replace("Z", "+00:00")) - timedelta(days=PH_PUBLISH_LAG_DAYS)) \
+        if mark else None
+    state = {"pages": 0, "new": 0, "end": False, "done": not backfill, "error": None}
+
+    def report() -> ChannelScout:
+        counts = run.kind_counts(ch["id"])
+        return ChannelScout(ch["external_id"], ch["handle"], "backfill" if backfill else "new", state["pages"],
+                            state["new"], counts["short"], counts["long"], state["end"], state["done"],
+                            state["error"], "pornhub")
+
+    progress.append(report)
+    try:
+        limit = PH_BACKFILL if backfill else PH_NEW_LIMIT
+        while True:
+            listed = run.ph_list(ch["external_id"], limit)
+            state["pages"] += pornhub.pages(limit)
+            state["end"] = len(listed) < limit
+            known = _ph_known(run, ch["id"], listed)
+            own = {vk: at for vk, (cid, at) in known.items() if cid == ch["id"]}
+            reached = None if backfill else next((i for i, vk in enumerate(listed) if vk in own and (
+                stop is None or (own[vk] or "") <= stop)), None)
+            if reached is not None:
+                listed = listed[:reached]
+            if backfill or state["end"] or reached is not None or limit >= PH_MAX_LIST:
+                break
+            limit = min(limit + PH_NEW_LIMIT, PH_MAX_LIST)
+        dates = []
+        for vk in reversed([k for k in listed if k not in known]):
+            try:
+                v = run.call("ph.video_by_id", pornhub.video_by_id, vk)
+            except pornhub.PornhubError as exc:
+                if pornhub.missing(exc):
+                    continue
+                raise
+            ingest.ingest_ph_videos(run.store, ch["id"], [v], fetched_at=run.taken_at, taken_at=run.taken_at)
+            state["new"] += 1
+            if ingest.ph_time(v.get("publish_date")):
+                dates.append(ingest.ph_time(v.get("publish_date")))
+        dates += [own[vk] for vk in listed if own.get(vk)]
+        through = max([d for d in [mark, *dates] if d], default=None)
+        with run.store.transaction() as c:
+            c.execute("UPDATE channel SET backfilled_at = COALESCE(backfilled_at, ?), uploads_through = ? "
+                      "WHERE id = ?", (run.taken_at, through, ch["id"]))
+        state["done"] = True
+    except pornhub.PornhubError as exc:
+        state["error"] = str(exc)
+    return report()
+
+
+def _ph_known(run: _Run, channel_id: int, viewkeys: list[str]) -> dict[str, tuple[int, str | None]]:
+    """Those of ``viewkeys`` the store already has, with their channel and ``published_at``; the ones with no
+    channel yet are claimed for ``channel_id`` first."""
+    if not viewkeys:
+        return {}
+    marks = ",".join("?" * len(viewkeys))
+    with run.store.transaction() as c:
+        c.execute(f"UPDATE video SET channel_id = ? WHERE platform = 'pornhub' AND channel_id IS NULL "
+                  f"AND external_id IN ({marks})", (channel_id, *viewkeys))
+    return {r["external_id"]: (r["channel_id"], r["published_at"]) for r in run.store.query(
+        f"SELECT external_id, channel_id, published_at FROM video WHERE platform = 'pornhub' AND external_id IN ({marks})",
+        tuple(viewkeys))}
+
+
 def token_check(*, transport: instagram.Transport | None = None,
                 now: datetime | None = None) -> tuple[dict | None, str | None]:
     """The Instagram token's status and a warning when fewer than ``TOKEN_WARN_DAYS`` days are left
@@ -387,7 +491,8 @@ def _fill_channels(run: _Run, wid: int) -> None:
 def scout(store: Store, name: str, *, search: bool = True, search_days: float = DEFAULT_SEARCH_DAYS,
           search_pages: int = DEFAULT_SEARCH_PAGES, video_duration: str | None = None,
           transport: youtube.Transport | None = None, ig_transport: instagram.Transport | None = None,
-          token_transport: instagram.Transport | None = None, now: datetime | None = None) -> ScoutResult:
+          token_transport: instagram.Transport | None = None, ph_transport: pornhub.Transport | None = None,
+          ph_lister: pornhub.Lister | None = None, now: datetime | None = None) -> ScoutResult:
     """Pull uploads of every Reference channel of the Watchlist, then run its search queries.
 
     Search reads ``search_pages`` pages (50 results each) per query, ordered by
@@ -399,24 +504,26 @@ def scout(store: Store, name: str, *, search: bool = True, search_days: float = 
     or query (a deleted channel, a bad filter) is recorded on its ``error`` and the
     run goes on; the call stays charged. A missing API key is refused up front;
     with Instagram channels in the Watchlist the YouTube part is skipped instead
-    (``skipped``) and the Instagram part runs. ``token_transport`` replaces the
+    (``skipped``) and the Instagram and Pornhub parts run. ``ph_transport`` and ``ph_lister`` replace the
+    Pornhub API and listing (tests). ``token_transport`` replaces the
     token check (tests); with ``ig_transport`` given and no ``token_transport``
     the check is not made.
     """
     w = watchlists.row(store, name)
     now = now or datetime.now(timezone.utc)
     run = _Run(store, transport, now_iso(now))
-    run.ig_transport = ig_transport
+    run.ig_transport, run.ph_transport, run.ph_lister = ig_transport, ph_transport, ph_lister
     chans = store.query(
         "SELECT c.id, c.platform, c.external_id, c.handle, c.uploads_playlist_id, c.backfilled_at, c.uploads_through "
         "FROM channel c JOIN watchlist_channel wc ON wc.channel_id = c.id WHERE wc.watchlist_id = ? "
         "ORDER BY wc.added_at, c.id", (w["id"],))
     ig = [c for c in chans if c["platform"] == "instagram"]
+    ph = [c for c in chans if c["platform"] == "pornhub"]
     yt = [c for c in chans if c["platform"] == "youtube"]
     queries = json.loads(w["queries"]) if search and search_pages > 0 else []
     skipped = None
     if (yt or queries) and transport is None and not env.api_key():
-        if not ig:
+        if not (ig or ph):
             raise youtube.YouTubeError(env.KEY_HELP)
         skipped = f"YouTube part skipped ({len(yt)} channels, {len(queries)} queries): {env.KEY_HELP}"
         yt, queries = [], []
@@ -425,7 +532,7 @@ def scout(store: Store, name: str, *, search: bool = True, search_days: float = 
     # the least a useful run needs: one page per channel and per query, their videos, candidate channels
     plan = {"playlistItems.list": len(yt), "videos.list": len(yt) + len(queries),
             "search.list": len(queries), "channels.list": 1 if queries else 0,
-            "ig.business_discovery": len(ig)}
+            "ig.business_discovery": len(ig), "ph.list_page": len(ph), "ph.video_by_id": len(ph)}
     quota.check(store, {m: n for m, n in plan.items() if n})
     token = warning = None
     if ig and (ig_transport is None or token_transport is not None):
@@ -437,6 +544,8 @@ def scout(store: Store, name: str, *, search: bool = True, search_days: float = 
         for ch in chans:
             if ch["platform"] == "instagram":
                 _ig_uploads(run, ch, ch_progress)
+            elif ch["platform"] == "pornhub":
+                _ph_uploads(run, ch, ch_progress)
             elif ch in yt:
                 _uploads(run, ch, ch_progress)
         after = now_iso(now - timedelta(days=search_days))
@@ -461,10 +570,10 @@ class SnapshotResult:
     watchlist: str
     taken_at: str
     videos: int  # Reference snapshotted this run
-    missing: list[str] = field(default_factory=list)  # gone from YouTube (deleted or private)
+    missing: list[str] = field(default_factory=list)  # gone from YouTube or Pornhub (deleted or private)
     calls: dict[str, int] = field(default_factory=dict)
     stopped: str | None = None
-    errors: list[str] = field(default_factory=list)  # Instagram channels whose page failed
+    errors: list[str] = field(default_factory=list)  # Instagram channels whose page failed, Pornhub videos whose call did
     skipped: str | None = None  # why the YouTube part did not run (no key) while Instagram did
 
     def to_dict(self) -> dict:
@@ -484,20 +593,25 @@ def _ig_snapshot(run: _Run, ch: dict, since: str) -> int:
 
 
 def snapshot(store: Store, name: str, *, transport: youtube.Transport | None = None,
-             ig_transport: instagram.Transport | None = None, now: datetime | None = None) -> SnapshotResult:
+             ig_transport: instagram.Transport | None = None, ph_transport: pornhub.Transport | None = None,
+             now: datetime | None = None) -> SnapshotResult:
     """Record views, likes and comments of every Reference of the Watchlist (its channels' videos
     and its search hits), one snapshot per video, ``videos.list`` in batches of 50.
 
     Instagram: one Business Discovery page (two when the first does not reach back
     ``IG_SNAPSHOT_DAYS``) per Instagram Reference channel and per owner of a reel the
     Author picked, which snapshots every reel on those pages.
+    Pornhub: one ``video_by_id`` per Reference of a Watchlist channel published in the last
+    ``PH_SNAPSHOT_DAYS``, per pick and per own video, except one with a snapshot from the last hour (a scout
+    or pick just read it; it counts as done); a video the API no longer has is ``missing``, another failure
+    goes to ``errors``. The quota is checked for one call up front; a short one stops the run midway.
     Raises ``QuotaExceeded`` before any call when the least run does not fit (today's
     YouTube quota, the last hour's Instagram calls).
     """
     w = watchlists.row(store, name)
     now = now or datetime.now(timezone.utc)
     run = _Run(store, transport, now_iso(now))
-    run.ig_transport = ig_transport
+    run.ig_transport, run.ph_transport = ig_transport, ph_transport
     ids = [r["external_id"] for r in store.query(
         "SELECT v.external_id FROM video v WHERE v.platform = 'youtube' AND (v.channel_id IN "
         "(SELECT channel_id FROM watchlist_channel WHERE watchlist_id = :wid) OR v.id IN "
@@ -509,19 +623,28 @@ def snapshot(store: Store, name: str, *, transport: youtube.Transport | None = N
         "AND (c.id IN (SELECT channel_id FROM watchlist_channel WHERE watchlist_id = :wid) OR c.id IN "
         "(SELECT v.channel_id FROM watchlist_pick p JOIN video v ON v.id = p.video_id WHERE p.watchlist_id = :wid)) "
         "ORDER BY c.id", {"wid": w["id"]})
+    ph_rows = store.query(
+        "SELECT v.external_id, EXISTS (SELECT 1 FROM snapshot s WHERE s.video_id = v.id AND s.taken_at >= :fresh) "
+        "AS fresh FROM video v WHERE v.platform = 'pornhub' AND ((v.channel_id IN "
+        "(SELECT channel_id FROM watchlist_channel WHERE watchlist_id = :wid) AND (v.published_at >= :since "
+        "OR v.own = 1)) OR v.id IN (SELECT video_id FROM watchlist_pick WHERE watchlist_id = :wid)) "
+        "ORDER BY v.published_at DESC, v.id", {"wid": w["id"], "since": now_iso(now - timedelta(days=PH_SNAPSHOT_DAYS)),
+                                               "fresh": now_iso(now - timedelta(hours=1))})
+    ph = [r["external_id"] for r in ph_rows if not r["fresh"]]
+    ph_fresh = len(ph_rows) - len(ph)
     skipped = None
     if ids and transport is None and not env.api_key():
-        if not ig:
+        if not (ig or ph_rows):
             raise youtube.YouTubeError(env.KEY_HELP)
         skipped = f"YouTube part skipped ({len(ids)} References): {env.KEY_HELP}"
         ids = []
     if ig and ig_transport is None and not (env.ig_token() and env.ig_user_id()):
         raise instagram.InstagramError(env.IG_HELP)
     batches = [ids[i:i + youtube.MAX_IDS] for i in range(0, len(ids), youtube.MAX_IDS)]
-    plan = {"videos.list": len(batches), "ig.business_discovery": len(ig)}
+    plan = {"videos.list": len(batches), "ig.business_discovery": len(ig), "ph.video_by_id": min(len(ph), 1)}
     if any(plan.values()):
         quota.check(store, {m: n for m, n in plan.items() if n})
-    done, missing, stopped, errors = 0, [], None, []
+    done, missing, stopped, errors = ph_fresh, [], None, []
     since = now_iso(now - timedelta(days=IG_SNAPSHOT_DAYS))
     try:
         for batch in batches:
@@ -533,6 +656,17 @@ def snapshot(store: Store, name: str, *, transport: youtube.Transport | None = N
                 done += _ig_snapshot(run, ch, since)
             except instagram.InstagramError as exc:
                 errors.append(f"{ch['handle']}: {exc}")
+        for vk in ph:
+            try:
+                v = run.call("ph.video_by_id", pornhub.video_by_id, vk)
+            except pornhub.PornhubError as exc:
+                if pornhub.missing(exc):
+                    missing.append(vk)
+                else:
+                    errors.append(f"{vk}: {exc}")
+                continue
+            ingest.ingest_ph_videos(store, None, [v], fetched_at=run.taken_at, taken_at=run.taken_at)
+            done += 1
     except quota.QuotaExceeded as exc:
         stopped = str(exc)
     return SnapshotResult(name, run.taken_at, done, missing, dict(run.calls), stopped, errors, skipped)

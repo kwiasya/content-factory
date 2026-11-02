@@ -1,0 +1,43 @@
+{
+ "id": "model/sample-maker/videos",
+ "_type": "playlist",
+ "webpage_url": "https://www.pornhub.com/model/sample-maker/videos",
+ "extractor": "PornHubPagedVideoList",
+ "entries": [
+  {
+   "ie_key": "PornHub",
+   "title": "Synthetic upload 5",
+   "_type": "url",
+   "url": "http://www.pornhub.com/view_video.php?viewkey=6a00000000005",
+   "__x_forwarded_for_ip": null
+  },
+  {
+   "ie_key": "PornHub",
+   "title": "Synthetic upload 4",
+   "_type": "url",
+   "url": "http://www.pornhub.com/view_video.php?viewkey=6a00000000004",
+   "__x_forwarded_for_ip": null
+  },
+  {
+   "ie_key": "PornHub",
+   "title": "Synthetic upload 3",
+   "_type": "url",
+   "url": "http://www.pornhub.com/view_video.php?viewkey=6a00000000003",
+   "__x_forwarded_for_ip": null
+  },
+  {
+   "ie_key": "PornHub",
+   "title": "Synthetic upload 2",
+   "_type": "url",
+   "url": "http://www.pornhub.com/view_video.php?viewkey=6a00000000002",
+   "__x_forwarded_for_ip": null
+  },
+  {
+   "ie_key": "PornHub",
+   "title": "Synthetic upload 1",
+   "_type": "url",
+   "url": "http://www.pornhub.com/view_video.php?viewkey=6a00000000001",
+   "__x_forwarded_for_ip": null
+  }
+ ]
+}

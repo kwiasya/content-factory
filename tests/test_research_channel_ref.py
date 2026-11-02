@@ -52,6 +52,35 @@ class ParseChannelRefTest(unittest.TestCase):
                     parse_channel_ref(text)
                 self.assertIn(why, str(cm.exception))
 
+    def test_pornhub_channels(self):
+        cases = {
+            "https://www.pornhub.com/model/Sample-Maker": ChannelRef("id", "model/sample-maker", "pornhub"),
+            "https://www.pornhub.com/model/sample-maker/videos": ChannelRef("id", "model/sample-maker", "pornhub"),
+            "pornhub.com/channels/sample-studio/videos?o=mr": ChannelRef("id", "channels/sample-studio", "pornhub"),
+            "https://rt.pornhub.com/pornstar/sample-star": ChannelRef("id", "pornstar/sample-star", "pornhub"),
+            "https://www.pornhub.com/users/sample_user": ChannelRef("id", "users/sample_user", "pornhub"),
+            "ph:model/Sample-Maker": ChannelRef("id", "model/sample-maker", "pornhub"),
+            " PH:channels/sample-studio ": ChannelRef("id", "channels/sample-studio", "pornhub"),
+        }
+        for text, want in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(parse_channel_ref(text), want)
+
+    def test_pornhub_refused_forms_say_why(self):
+        cases = {
+            "https://www.pornhub.com/view_video.php?viewkey=6a1b2c3d4e5f0": "watchlist add-reference",
+            "ph:6a1b2c3d4e5f0": "watchlist add-reference",
+            "https://www.pornhub.com/": "no Pornhub channel",
+            "https://www.pornhub.com/categories/amateur": "no Pornhub channel",
+            "ph:model/": "no Pornhub channel",
+            "ph:model/bad slug": "no Pornhub channel",
+        }
+        for text, why in cases.items():
+            with self.subTest(text=text):
+                with self.assertRaises(WatchlistError) as cm:
+                    parse_channel_ref(text)
+                self.assertIn(why, str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

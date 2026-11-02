@@ -14,7 +14,7 @@ Turns what worked in a Watchlist's Reference into Idea rows for the author's Cha
 3. Get the input: `.venv/bin/python -m cf.research ideas candidates <name> --json` (analyzed Reference of the last 30 days that no Idea uses yet, best Outlier score first; `--days`, `--min-outlier 2` for a strict pick, `--limit`, default 10). If it is empty, stop: say so and point to `/scout-references` for fresh outliers and `/analyze-reference` for the ones marked `без разбора` in the feed.
 4. Read the evidence: `.venv/bin/python -m cf.research card show <id> --json` for every candidate (summary, idea analysis, hook, storytelling format, measured numbers), and `.venv/bin/python -m cf.research ideas list <name> --json` so no new Idea repeats one already in the inbox, shortlist or a Brief.
 5. Write 3–7 Ideas into one JSON file, a list of objects, in the scratchpad (not the repo). An Idea may draw on several candidates that share an idea seed. Each object:
-   - `sources`: the candidates' YouTube ids it comes from.
+   - `sources`: the candidates' ids it comes from (YouTube id, Instagram shortcode or Pornhub viewkey). A Pornhub candidate's card has no transcript: base its Idea on the packaging and timing the card and `traits` show, not on speech.
    - `title`: the video the author would make, not the Reference's title.
    - `summary`: what the video is and why it should work, 1–2 sentences, citing the Outlier score or the measured evidence that backs it.
    - `content_positioning`: the unique angle, moved to the author's Channel.

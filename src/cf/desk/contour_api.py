@@ -57,12 +57,22 @@ def _pending(store: Store, analysis: dict | None) -> list[dict]:
     return out
 
 
-def _proxy(shared: Path, external_id: str) -> str | None:
+def _reference_file(shared: Path, external_id: str, name: str) -> str | None:
     for d in card.reference_dirs(external_id, shared):
-        rel = (d / "proxy.mp4").relative_to(shared).as_posix()
+        rel = (d / name).relative_to(shared).as_posix()
         if media.resolve(shared, shared, rel):
             return rel
     return None
+
+
+def _proxy(shared: Path, external_id: str) -> str | None:
+    return _reference_file(shared, external_id, "proxy.mp4")
+
+
+def _images(shared: Path, external_id: str) -> dict:
+    """The thumbnail and preview-frame sheet of a Reference fetched without its video (Pornhub, ADR 0015)."""
+    return {"thumb": _reference_file(shared, external_id, "thumb.jpg"),
+            "frames": _reference_file(shared, external_id, "frames.jpg")}
 
 
 def _detail(e: Exception) -> str:
@@ -168,7 +178,7 @@ def router(db_path: Path, shared: Path, local: Path) -> APIRouter:
                 row["outlier"] = round(row["outlier"], 2)
             return {"external_id": v["external_id"], "reference": row, "card": c,
                     "sections": c["measured"].get("sections") or [], "proposed": _pending(s, c["analysis"]),
-                    "media": _proxy(shared, v["external_id"])}
+                    "media": _proxy(shared, v["external_id"]), "images": _images(shared, v["external_id"])}
 
     @api.get("/watchlists/{name}/summary/{what}")
     def get_summary(name: str, what: str, days: float = summary.DEFAULT_DAYS) -> dict:

@@ -6,7 +6,8 @@ when none has); the Outlier score is computed at query time by ``outlier`` and n
 A Watchlist's Reference are its channels' videos, its search hits and the
 References the Author picked by hand (``watchlist_pick``: shown whatever their
 age, also when their owner is unknown). Each row carries its ``platform``; an
-Instagram row's title is its caption's first line and its link the permalink.
+Instagram row's title is its caption's first line and its link the permalink; a
+Pornhub row carries its latest ``rating`` (share of up votes, percent).
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ class FeedRow:
     platform: str = "youtube"
     pick: bool = False  # the Author picked it into the Watchlist by hand
     outlier_basis: str | None = None  # views, or likes for an Instagram reel without views
+    rating: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -55,7 +57,8 @@ _SELECT = """
 SELECT v.id, v.external_id, v.platform, v.title, v.url, v.kind, v.duration_s, v.published_at, v.own,
        c.handle, c.title AS channel_title,
        EXISTS (SELECT 1 FROM card WHERE card.video_id = v.id AND card.analysis IS NOT NULL) AS analyzed,
-       s.views, s.likes, s.comments
+       s.views, s.likes, s.comments,
+       CASE WHEN v.platform = 'pornhub' THEN json_extract(v.raw, '$.rating') END AS rating
 FROM video v
 LEFT JOIN channel c ON c.id = v.channel_id
 LEFT JOIN snapshot s ON s.id = (SELECT id FROM snapshot WHERE video_id = v.id
@@ -70,7 +73,7 @@ def _row(r: dict, outlier: float | None, candidate: bool = False, pick: bool = F
         views=r["views"], title=r["title"], handle=r["handle"], url=r["url"], analyzed=bool(r["analyzed"]),
         kind=r["kind"], duration_s=r["duration_s"], published_at=r["published_at"],
         channel_title=r["channel_title"], likes=r["likes"], comments=r["comments"], own=bool(r["own"]),
-        candidate=candidate, platform=r["platform"], pick=pick, outlier_basis=basis)
+        candidate=candidate, platform=r["platform"], pick=pick, outlier_basis=basis, rating=r["rating"])
 
 
 def reference(store: Store, external_id: str, platform: str | None = None) -> FeedRow | None:
@@ -163,18 +166,21 @@ def outlier_text(score: float | None) -> str:
     return "—" if score is None else f"{score:.1f}".replace(".", ",") + "x"
 
 
-PLATFORM_MARKS = {"instagram": "Instagram"}
+PLATFORM_MARKS = {"instagram": "Instagram", "pornhub": "Pornhub"}
 
 
 def report_line(n: int, row: FeedRow) -> str:
-    """One feed row in the Sandcastles report shape: number, outlier, views, date, title, handle, link,
+    """One feed row in the Sandcastles report shape: number, outlier, views (a Pornhub row adds its rating),
+    date, title, handle, link,
     then ``по лайкам`` (an Instagram score from likes), ``без разбора`` (no analysis yet, measured or
     not), ``кандидат``, ``от автора`` (picked by the Author) and the Platform when it is not YouTube."""
     title = " ".join((row.title or "без названия").split())
-    who = row.handle or row.channel_title or ("владелец неизвестен" if row.platform == "instagram" else "без хэндла")
+    who = row.handle or row.channel_title or ("без хэндла" if row.platform == "youtube" else "владелец неизвестен")
     views = views_text(row.views)
     if row.views is None and row.likes is not None and row.platform == "instagram":
         views += f" ({row.likes:,} лайков)".replace(",", " ")
+    if row.rating is not None:
+        views += f", рейтинг {_decimal(row.rating)} %"
     parts = [f"{n}. **{outlier_text(row.outlier)}**", views, row.date or "—", f"«{title}»", who, row.url or "—"]
     if row.outlier is not None and row.outlier_basis == "likes":
         parts.append("по лайкам")

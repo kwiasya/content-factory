@@ -1,13 +1,21 @@
 import { getJson, saveText, sendOrThrow } from "../api";
 
-export type Platform = "youtube" | "instagram";
+export type Platform = "youtube" | "instagram" | "pornhub";
+
+export const PLATFORMS: Platform[] = ["youtube", "instagram", "pornhub"];
+
+const PLATFORM_NAMES: Record<Platform, [string, string]> = {
+  youtube: ["YouTube", "YT"],
+  instagram: ["Instagram", "IG"],
+  pornhub: ["Pornhub", "PH"],
+};
 
 export function platformName(platform: Platform | undefined): string {
-  return platform === "instagram" ? "Instagram" : "YouTube";
+  return (PLATFORM_NAMES[platform as Platform] ?? PLATFORM_NAMES.youtube)[0];
 }
 
 export function platformShort(platform: Platform | undefined): string {
-  return platform === "instagram" ? "IG" : "YT";
+  return (PLATFORM_NAMES[platform as Platform] ?? PLATFORM_NAMES.youtube)[1];
 }
 
 export function channelUrl(c: {
@@ -15,6 +23,9 @@ export function channelUrl(c: {
   handle: string | null;
   platform?: Platform;
 }): string {
+  if (c.platform === "pornhub") {
+    return `https://www.pornhub.com/${c.external_id}`;
+  }
   return c.platform === "instagram" && c.handle
     ? `https://www.instagram.com/${c.handle.replace(/^@/, "")}/`
     : `https://www.youtube.com/channel/${c.external_id}`;
@@ -63,6 +74,7 @@ export interface FeedRow {
   candidate: boolean;
   platform?: Platform;
   outlier_basis?: "views" | "likes";
+  rating?: number | null;
 }
 
 export interface FeedFilters {
@@ -72,6 +84,7 @@ export interface FeedFilters {
   kind: string;
   max_duration: string;
   limit: string;
+  platform: string;
 }
 
 export const DEFAULT_FILTERS: FeedFilters = {
@@ -81,6 +94,7 @@ export const DEFAULT_FILTERS: FeedFilters = {
   kind: "",
   max_duration: "",
   limit: "20",
+  platform: "",
 };
 
 export interface Span {
@@ -118,6 +132,44 @@ export interface Measured {
   chapters?: Chapter[] | null;
   heatmap_peaks?: Peak[] | null;
   notes?: Record<string, string> | null;
+  platform?: Platform;
+  packaging?: Packaging;
+  published?: Published;
+  counts?: Counts;
+}
+
+export interface Packaging {
+  title: string | null;
+  title_chars: number;
+  title_words: number;
+  caps_share: number | null;
+  emoji: number;
+  digits: number;
+  brackets: boolean;
+  pov: boolean;
+  tags: string[];
+  categories: string[];
+  pornstars: string[];
+  segment: string | null;
+  thumb: string | null;
+  frames: string | null;
+}
+
+export interface Published {
+  at: string | null;
+  weekday: string | null;
+  hour_utc: number | null;
+  weekday_local: string | null;
+  hour_local: number | null;
+}
+
+export interface Counts {
+  taken_at: string | null;
+  views: number | null;
+  likes: number | null;
+  votes?: number | null;
+  rating?: number | null;
+  comments?: number | null;
 }
 
 export type Analysis = Record<string, unknown>;
@@ -129,6 +181,7 @@ export interface CardDetail {
   sections: Section[];
   proposed: { kind: string; value: string }[];
   media: string | null;
+  images?: { thumb: string | null; frames: string | null };
 }
 
 export type SummaryKind = "hooks" | "formats" | "topics";

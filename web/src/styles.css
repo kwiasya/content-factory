@@ -198,6 +198,35 @@ pre {
   border-color: #e02d2d;
 }
 
+.badge.platform-pornhub {
+  color: #c77400;
+  border-color: #c77400;
+}
+
+.card-images {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.card-images figure {
+  margin: 0;
+}
+
+.card-images img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+@media (max-width: 720px) {
+  .card-images {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .git-modified,
 .git-added,
 .git-renamed,

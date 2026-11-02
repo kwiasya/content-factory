@@ -1,4 +1,5 @@
-"""References the Author picks by hand into a Watchlist: an Instagram reel or post link, with her Note.
+"""References the Author picks by hand into a Watchlist: an Instagram reel or post link, or a Pornhub
+video link (``ph:<viewkey>``), with her Note.
 
 Business Discovery cannot look a reel up by its shortcode, so ``add_reference``
 finds the owner in this order (ADR 0010):
@@ -18,6 +19,11 @@ Instagram refused ``MAX_REFUSALS`` times in a row; later picks of the run go
 straight to steps 1 and 3. Tracking parameters (``igsh``, ``stkn``…) are
 dropped: the stored link is the canonical one. The Note is stored verbatim as a
 ``card`` Note keyed by the shortcode (``notes``), once.
+
+A Pornhub pick (ADR 0015) is read through the Webmasters API (fresh counts and a
+snapshot). The API names no uploader, so the owner is the scouted channel the
+store has the viewkey under (``store``), else none (``unresolved``) until a scout
+of its channel brings it.
 """
 
 from __future__ import annotations
@@ -28,9 +34,9 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Callable
 
-from cf.research import ingest, instagram, notes
+from cf.research import ingest, instagram, notes, pornhub
 from cf.research import watchlist as watchlists
-from cf.research.fetch import FetchError
+from cf.research.fetch import FetchError, pornhub_ref
 from cf.research.store import Store, StoreError, dumps, now_iso
 from cf.research.watchlist import WatchlistError
 
@@ -154,13 +160,52 @@ def _bare(store: Store, code: str, url: str, reel: bool, ts: str) -> int:
                                        "kind": "short" if reel else None, "fetched_at": ts}, None, 0)
 
 
+def _keep(store: Store, w: dict, key: str, video_id: int, note: str | None, ts: str) -> int | None:
+    """Link the pick to the Watchlist and store the Note once; the Note id."""
+    with store.transaction() as c:
+        c.execute("INSERT OR IGNORE INTO watchlist_pick (watchlist_id, video_id, added_at) VALUES (?, ?, ?)",
+                  (w["id"], video_id, ts))
+    if not (note and note.strip()):
+        return None
+    same = [n for n in notes.list(store, kind="card", key=key, include_resolved=True) if n.text == note]
+    return same[0].id if same else notes.add(store, "card", key, note).id
+
+
+def _add_pornhub(store: Store, w: dict, vk: str, note: str | None,
+                 transport: pornhub.Transport | None) -> Pick:
+    try:
+        video = pornhub.video_by_id(store, vk, transport=transport)
+    except pornhub.PornhubError as exc:
+        if pornhub.missing(exc):
+            raise WatchlistError(f"no Pornhub video {vk} (deleted, private or never there)") from None
+        raise
+    ts = now_iso()
+    vid = ingest.ingest_ph_videos(store, None, [video], fetched_at=ts, taken_at=ts)[0]
+    found = store.one("SELECT v.title, c.handle FROM video v LEFT JOIN channel c ON c.id = v.channel_id "
+                      "WHERE v.id = ?", (vid,))
+    note_id = _keep(store, w, vk, vid, note, ts)
+    if found["handle"]:
+        return Pick(vk, ingest.ph_url(vk), "store", found["handle"], vid, found["title"], note_id)
+    return Pick(vk, ingest.ph_url(vk), "unresolved", None, vid, found["title"], note_id,
+                "the Pornhub API names no uploader; scout its channel (add-channel) to link it")
+
+
 def add_reference(store: Store, name: str, ref: str, *, note: str | None = None,
-                  resolver: YtDlpResolver | None = None, ig_transport: instagram.Transport | None = None) -> Pick:
-    """Pick an Instagram reel or post link into Watchlist ``name`` with the Author's ``note`` (verbatim)."""
+                  resolver: YtDlpResolver | None = None, ig_transport: instagram.Transport | None = None,
+                  ph_transport: pornhub.Transport | None = None) -> Pick:
+    """Pick an Instagram reel or post link, or a Pornhub video, into Watchlist ``name`` with the Author's
+    ``note`` (verbatim)."""
     w = watchlists.row(store, name)
+    try:
+        vk = pornhub_ref(ref or "")
+    except FetchError as exc:
+        raise WatchlistError(str(exc)) from None
+    if vk is not None:
+        return _add_pornhub(store, w, vk, note, ph_transport)
     code = ingest.instagram_shortcode(ref or "")
     if code is None:
-        raise WatchlistError(f"{ref!r} is not an Instagram reel or post link (instagram.com/reel/<code>/ or /p/<code>/)")
+        raise WatchlistError(f"{ref!r} is not an Instagram reel or post link (instagram.com/reel/<code>/ or /p/<code>/) "
+                             f"or a Pornhub video (view_video.php?viewkey=…, ph:<viewkey>)")
     segs = ingest.instagram_segments(ref) or []
     reel = "p" not in segs
     url = ingest.instagram_url(code, "REELS" if reel else "FEED")
@@ -206,13 +251,7 @@ def add_reference(store: Store, name: str, ref: str, *, note: str | None = None,
             status = "unresolved"
             detail = why or "yt-dlp named no owner"
     found = _video(store, code)
-    with store.transaction() as c:
-        c.execute("INSERT OR IGNORE INTO watchlist_pick (watchlist_id, video_id, added_at) VALUES (?, ?, ?)",
-                  (w["id"], found["id"], ts))
-    note_id = None
-    if note and note.strip():
-        same = [n for n in notes.list(store, kind="card", key=code, include_resolved=True) if n.text == note]
-        note_id = same[0].id if same else notes.add(store, "card", code, note).id
+    note_id = _keep(store, w, code, found["id"], note, ts)
     owner = found["handle"]
     if owner is None and status == "ytdlp":
         raw = store.one("SELECT raw FROM video WHERE id = ?", (found["id"],))["raw"] or "{}"

@@ -229,15 +229,25 @@ def category_problem(store: Store, kind: str, raw: str) -> str | None:
 
 
 def video(store: Store, ref: int | str) -> dict:
-    """``{"id", "external_id"}`` of a video given by store id, YouTube id or URL, or Instagram
-    reel/post link or shortcode (YouTube wins when a bare id is both).
+    """``{"id", "external_id"}`` of a video given by store id, YouTube id or URL, Instagram
+    reel/post link or shortcode, or Pornhub video link, ``ph:<viewkey>`` or viewkey (YouTube wins when a
+    bare id is both).
 
     Only an int (not a bool) or a str is a reference; anything else is a ``CardError``."""
     if type(ref) is not int and not isinstance(ref, str):
-        raise CardError(f"{ref!r} is not a Reference: give a store id, YouTube id or URL, or an Instagram link")
+        raise CardError(f"{ref!r} is not a Reference: give a store id, YouTube id or URL, an Instagram link "
+                        f"or a Pornhub link")
     from cf.research import ingest
-    if type(ref) is int or (ref.isdigit() and len(ref) != 11):
+    if type(ref) is int or (ref.isdigit() and len(ref) not in (11, 13)):
         row = store.one("SELECT id, external_id FROM video WHERE id = ?", (int(ref),))
+    elif ingest.VIEWKEY_RE.fullmatch(ref.strip()) or ref.strip().lower().startswith("ph:") \
+            or ingest.pornhub_segments(ref) is not None:
+        from cf.research.fetch import FetchError, pornhub_ref
+        try:
+            vk = pornhub_ref(ref)
+        except FetchError as exc:
+            raise CardError(str(exc)) from exc
+        row = store.one("SELECT id, external_id FROM video WHERE platform = 'pornhub' AND external_id = ?", (vk,))
     elif ingest.instagram_segments(ref) is not None:
         code = ingest.instagram_shortcode(ref)
         if code is None:

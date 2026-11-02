@@ -3,7 +3,7 @@
 Paths are relative to a root: `references/` and `library/` to the shared root, `packs/<pack id>/` to that Pack's
 folder, everything else to the local root. Only these subtrees are served; everything else, `raw/` included, is 404:
 `videos/<slug>/{renders,overlays,sources}/**`, `<footage>/proxy/*`, `<footage>/reels/<reel>/**`,
-`references/<watchlist>/<id>/proxy.mp4`, the Library cache `library/<pack>/{previews,keyed,converted,png,sheets}/*`
+`references/<watchlist>/<id>/{proxy.mp4,thumb.jpg,frames.jpg}`, the Library cache `library/<pack>/{previews,keyed,converted,png,sheets}/*`
 and, from a registered Pack's own folder, `packs/<pack id>/<path in the Pack>` for files its index lists (media
 suffixes only, ADR 0007).
 """
@@ -24,6 +24,7 @@ from cf.library.scan import AUDIO, FONT, IMAGE, VIDEO
 
 VIDEO_SUBTREES = {"renders", "overlays", "sources"}
 CACHE_SUBTREES = {"previews", "keyed", "converted", "png", "sheets"}
+REFERENCE_FILES = {"proxy.mp4", "thumb.jpg", "frames.jpg"}
 MEDIA_SUFFIXES = frozenset("." + e for e in AUDIO | VIDEO | IMAGE | FONT)
 CONTENT_TYPES = {".jfif": "image/jpeg", ".ttf": "font/ttf", ".otf": "font/otf", ".webm": "video/webm",
                  ".avif": "image/avif", ".m4a": "audio/mp4", ".webp": "image/webp", ".mkv": "video/x-matroska",
@@ -35,7 +36,7 @@ def _allowlisted(parts: tuple[str, ...]) -> bool:
         return False
     if len(parts) >= 4 and parts[0] == "videos" and parts[2] in VIDEO_SUBTREES:
         return True
-    if len(parts) == 4 and parts[0] == "references" and parts[3] == "proxy.mp4":
+    if len(parts) == 4 and parts[0] == "references" and parts[3] in REFERENCE_FILES:
         return True
     if len(parts) == 4 and parts[0] == "library" and parts[2] in CACHE_SUBTREES:
         return Path(parts[3]).suffix.lower() in MEDIA_SUFFIXES
