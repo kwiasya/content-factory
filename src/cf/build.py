@@ -901,17 +901,23 @@ class Builder:
             hold = tuple(h for g in group for h in (eff[g][0].hold_s or ()))
             res = fw.choose_window(union, w, hold)
             if hold:
-                r.notes.append(f"{'+'.join(group)}: follow window must hold the person at {list(hold)} s: "
-                               + (f"held {res.held}" if res.fallback != "hold" else
-                                  "impossible (no window holds all of them, or no frame sampled there); hold dropped"))
+                if res.fallback != "hold":
+                    how = f"held {res.held} whole, tightest margin {res.held_margin_pct:g} % of the width"
+                elif res.held:
+                    how = (f"cannot hold all of them whole: window centred on them, holds {res.held} whole "
+                           f"(tightest margin {res.held_margin_pct:g} % of the width)")
+                else:
+                    how = ("cannot hold any of them whole (box wider than the window, or no frame sampled "
+                           "there): window centred on the held person")
+                r.notes.append(f"{'+'.join(group)}: follow window must hold the person at {list(hold)} s: {how}")
             for g in group:
                 self.follow_x[g] = res.x
                 cov, n = fw.coverage(boxes[g], res.left, w)
                 self.follow_rows[g] = {**res.to_dict(), "group": group,
                                        "shot_covered": cov, "shot_detected": n,
                                        "shot_coverage_pct": round(100.0 * cov / n, 1) if n else 0.0}
-            if res.fallback:
-                r.notes.append(f"{'+'.join(group)}: follow: {res.fallback} fallback (no window holds the whole "
+            if res.fallback == "overlap":
+                r.notes.append(f"{'+'.join(group)}: follow: overlap fallback (no window holds the whole "
                                f"person in any frame; best overlap window at x {res.x:g})")
             elif res.coverage_pct < 100:
                 r.notes.append(f"{'+'.join(group)}: follow window x {res.x:g} holds the whole person in "
