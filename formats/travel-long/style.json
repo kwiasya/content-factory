@@ -1,0 +1,32 @@
+{
+  "schema": "cf-style/1",
+  "name": "travel-long-v1",
+  "status": "incomplete draft: fields not set here are undecided, not inherited; phase 3 fills in the full profile before any reader uses it",
+  "_doc": "Style profile of the Travel long Format (ADR 0009), one full profile with no inheritance. Only the author's decisions so far are set: canvas, speech, pacing, ending, audio, render; fields not set here are undecided, not taken from the root style.json (the Walk Reel profile). No code reads this file yet: cf.build, cf.render, cf.canvas, cf.render_check, cf.script_schema, Desk Script validation (cf/desk/videos_api.py) and overlays/render.mjs read the root style.json until phase 3. canvas.fps 29.97 is fractional; cf.canvas.Canvas.fps is an int today and would truncate it to 29, so phase 3 makes fps fractional first.",
+  "canvas": {
+    "width": 3840,
+    "height": 2160,
+    "fps": 29.97,
+    "reference_width": 1920
+  },
+  "speech": {
+    "on_camera_allowed": true,
+    "off_camera_allowed": true
+  },
+  "pacing": {
+    "shot_s": {"min": 2, "max": 8},
+    "target_length_s": null
+  },
+  "ending": {
+    "default": "verdict"
+  },
+  "audio": {
+    "target_lufs": -14,
+    "true_peak_dbtp": -1
+  },
+  "render": {
+    "format": "mp4",
+    "codec": "H264",
+    "bitrate_mbps": 45
+  }
+}

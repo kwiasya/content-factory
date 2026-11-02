@@ -23,7 +23,7 @@
 - Remotion бесплатен для одного человека, ставится через официальные Agent Skills, не через MCP (тот закрыт).
 - Запасной путь: HyperFrames (тот же контракт: MOV с альфой) или свои Fusion Text+ шаблоны для титров, которые хочется править вживую в Resolve.
 - Переходы, фейды, скорость делаются нативно через API 21.1. Whip pan и zoom punch: пререндер или руками.
-- Safe zone для 1080×1920: верх 269 px, низ 672 px, бока 65 px, плюс правая колонка 230 px ниже y≈1150. Это правило Style profile.
+- Safe zone для 1080×1920: верх 269 px, низ 672 px, бока 130 px (не 65 px по Meta: на телефоне 19.5:9 Instagram растягивает 9:16 по высоте и срезает ~98 px с каждого бока, + 32 px запаса; пост «Офис — нишевые слова для парня», 2026-10-19), плюс правая колонка 230 px ниже y≈1150. Это правило Style profile.
 - Style profile хранится как `style.json` в git: шрифты, цвета, safe zone, пресеты анимаций, карта переходов. Remotion и Resolve-скрипты читают один файл.
 
 ### Цвет: один color-managed проект, тег на клип, SDR на выходе
@@ -43,7 +43,7 @@
 - Уровень 2, облако: Gemini Flash-класса через Files API описывает клип, предлагает лучшие моменты и идеи оверлеев. Около $0.4–0.6 за прогулку из 60 клипов. Claude видео не принимает, ему только contact sheets отобранных моментов.
 - Главный агент кадры не смотрит. Скрипт пишет JSON, агент рассуждает над JSON.
 - Результат: `shotlog/<clip>.json` по схеме из ресерча 04 (per-second метрики, события, сегменты-кандидаты с оценками, описание от LLM). Кандидаты зеркалятся в маркеры Resolve.
-- Не делаем: локальные видео-LLM на 8 ГБ, TransNetV2, Lighthouse, Gyroflow для Osmo Pocket (гиро не экспортируется).
+- Не делаем: локальные видео-LLM (отвергнуты на прежнем MacBook Air M2 8 ГБ; на MacBook Pro M5 Max 36 ГБ не перепроверялись), TransNetV2, Lighthouse, Gyroflow для Osmo Pocket (гиро не экспортируется).
 
 ### Музыка и звук: трек выбирается в монтаже, нарезка по даунбитам
 
@@ -88,7 +88,7 @@
 | S6 | `SetClipProperty('Input Color Space', …)` с кандидатами строк (`Rec.2100 HLG (Scene)`, `Apple Log`, `Rec.709 Gamma 2.4`), `Input Gamma` отдельно при `separateColorSpaceAndGamma=1`, `Input LUT` как свойство клипа | Ресерч 03 считает гамму нераздельной, стаб говорит иначе |
 | S7 | `SetProperty('AudioVolume', -20)`, `SetFades` на аудио, `NormalizeAudioLevel` | Ресерч 05 считает это нескриптуемым |
 | S8 | Рендер-пресет H.264 1080×1920 с `GammaTag='Rec.709-A'`, ffprobe выходного файла: 1-1-1, yuv420p | Правило экспорта |
-| S9 | Remotion: пустой проект, рендер 3-секундного оверлея ProRes 4444 с альфой, импорт в Resolve, на V2, проверка прозрачности и памяти | Основной путь оверлеев на 8 ГБ |
+| S9 | Remotion: пустой проект, рендер 3-секундного оверлея ProRes 4444 с альфой, импорт в Resolve, на V2, проверка прозрачности и памяти | Основной путь оверлеев |
 | S10 | `AddMarker` с `customData` JSON на таймлайн и на клип, read-back | Кандидаты shot-log и заметки агента |
 
 ## 4. Что ставим (после утверждения)
@@ -108,7 +108,7 @@
 | Фаза | Вход → выход | Скилл |
 |---|---|---|
 | 0. Окружение | smoke-тесты S1–S10, по одному файлу с каждого устройства → `docs/research/smoke-results.md`, таблица детекта цвета как данные | — |
-| 1. Ingest | `~/Movies/content-factory/<walk>/raw/` → `clip_manifest.json` (устройство, fps, VFR, цветовой профиль с confidence, время), прокси 540p | `ingest-walk` |
+| 1. Ingest | `~/Movies/content-factory/<footage-id>/raw/` → `clip_manifest.json` (устройство, fps, VFR, цветовой профиль с confidence, время), прокси 540p | `ingest-footage` |
 | 2. Shot-log | прокси → `shotlog/<clip>.json` (только локальные метрики) | `analyze-clips` |
 | 3. Script | shot-logs + `style.json` + music brief → `reels/<reel>/script.json`, валидатор | `write-script` |
 | 4. Бит | трек от пользователя (файл) → `beats.json` → `cuts.json` по сетке энергии | `beat-grid` |
@@ -138,15 +138,15 @@ content-factory/
 ├── tools/vision-score/        # Swift CLI
 ├── overlays/                  # Remotion-проект
 ├── tests/smoke/               # S1–S10
-└── .claude/skills/            # ingest-walk, analyze-clips, write-script, beat-grid, build-reel, render-reel
+└── .claude/skills/            # ingest-footage, analyze-clips, write-script, beat-grid, build-reel, render-reel
 ```
 
-Данные (`raw/`, прокси, shot-logs, рендеры) живут вне репо в `~/Movies/content-factory/<walk>/`, в репо только `script.json` и лицензионный лог музыки.
+Данные (`raw/`, прокси, shot-logs, рендеры) живут вне репо в `~/Movies/content-factory/<footage-id>/`, в репо только `script.json` и лицензионный лог музыки.
 
 ## 7. Риски
 
 1. **Дрейф API и молчаливые частичные записи.** Read-back везде, smoke-тесты после каждого обновления Resolve, версия Resolve зафиксирована.
-2. **8 ГБ памяти.** Прокси вместо 4K HEVC, анализ последовательно, Remotion при простаивающем Resolve с concurrency 2, без Magic Mask и тяжёлого Fusion в автоматическом пути.
+2. **Память и нагрузка.** Ограничения ниже заданы под прежний MacBook Air M2 8 ГБ; сейчас фабрика работает на MacBook Pro M5 Max, 36 ГБ, и они пока действуют, но не перемерены: прокси вместо 4K HEVC для анализа (они же быстрее и дешевле для метрик), анализ последовательно, Remotion при простаивающем Resolve с concurrency 2, без Magic Mask и тяжёлого Fusion в автоматическом пути. Ослаблять их по замерам на новой машине.
 3. **Цвет ломается невидимо для API.** Детерминированная таблица метаданные → тег, SDR-выход, кадры-стопы на проверку глазами.
 4. **D-Log M не детектится.** Конвенция папки, иначе снимать HLG.
 5. **«Вкус» при выборе моментов не решён.** Ожидать правки трети выборов, логировать правки как few-shot примеры.

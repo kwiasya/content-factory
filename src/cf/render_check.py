@@ -1,7 +1,8 @@
 """Verify a rendered Reel file for Instagram: color tags, format, frame rate, loudness.
 
     python -m cf.render_check <file.mp4> [--target-lufs -14] [--target-tp -1]
-                              [--expect-duration S] [--fix-loudness] [--canvas WxH]
+                              [--expect-duration S] [--fix-loudness] [--canvas WxH] [--hdr]
+                              [--silent] [--format ID]
 
 Checks (docs/research/03-color-iphone-osmo/result-a.md Section D, and
 docs/research/05-music-and-sound/result-a.md for loudness): ffprobe says
@@ -11,6 +12,15 @@ bt709/bt709/bt709, color_range tv, yuv420p, the canvas size and fps (``--canvas`
 AAC 48 kHz audio; ffmpeg ``loudnorm`` (print mode) gives integrated loudness within
 ``--lufs-tolerance`` LU of the target and true peak at or below the target.
 Prints a PASS/FAIL table and exits 1 on any FAIL.
+
+``--silent`` (or a Format profile whose ``audio.music`` is false: ``--format meme-cut``, or a
+``cf-memecut/1`` ``script.json`` next to ``out/``) expects a silent track instead of -14 LUFS: the
+Format has no music and the author adds the sound in Instagram; any sound in the file fails. A YouTube
+Shorts cut (``<reel>.shorts[...].mp4``, with music for YouTube) is checked at -14 LUFS all the same.
+
+``--hdr`` checks a Rec.2100 HLG render (``cf.render --hdr``) instead: hevc Main 10 with the
+``hvc1`` tag (iOS and Instagram need it), ``yuv420p10le``, bt2020 / arib-std-b67 / bt2020nc,
+limited range; the other rows are the same. The SDR default is unchanged.
 
 ``--fix-loudness`` runs the two-pass ``loudnorm`` into ``<name>.normalized.mp4`` with the
 video stream copied (``-c:v copy``), repeating the second pass on its own output (at most
@@ -56,15 +66,29 @@ BASE_EXPECTED = {
     "audio_codec": "aac",
     "sample_rate": 48000,
 }
+# Rec.2100 HLG delivery (cf.render --hdr): what differs from BASE_EXPECTED.
+HDR_EXPECTED = {
+    "pix_fmt": "yuv420p10le",
+    "color_primaries": "bt2020",
+    "color_transfer": "arib-std-b67",
+    "color_space": "bt2020nc",
+    "video_codec": "hevc",
+    "profile": "Main 10",
+    "codec_tag": "hvc1",
+}
 NORMALIZED_SUFFIX = ".normalized"
 AUDIO_BITRATE = "256k"
 TP_MARGIN = 0.5  # dB of true-peak headroom kept for the AAC encode
 MAX_ROUNDS = 3
+SILENCE_LUFS = -70.0  # loudnorm's absolute gate: at or below this the track is silent
+FORMATS_DIR = REPO_ROOT / "formats"
+MEMECUT_SCHEMA = "cf-memecut/1"
 
 
-def expected_for(canvas: Canvas) -> dict:
-    """The checked facts for a file rendered at ``canvas``."""
-    return {"width": canvas.width, "height": canvas.height, "fps": float(canvas.fps), **BASE_EXPECTED}
+def expected_for(canvas: Canvas, hdr: bool = False) -> dict:
+    """The checked facts for a file rendered at ``canvas`` (``hdr``: Rec.2100 HLG HEVC)."""
+    return {"width": canvas.width, "height": canvas.height, "fps": float(canvas.fps), **BASE_EXPECTED,
+            **(HDR_EXPECTED if hdr else {})}
 
 
 def style_canvas(override: str | None = None, script_canvas: str | None = None) -> Canvas:
@@ -74,6 +98,36 @@ def style_canvas(override: str | None = None, script_canvas: str | None = None) 
     except (OSError, ValueError):
         style = {}
     return for_reel(style, script_canvas, override)
+
+
+def silent_for(style: dict) -> bool:
+    """A Format profile without music (``audio.music`` false) delivers a silent track."""
+    return (style.get("audio") or {}).get("music") is False
+
+
+def music_cut(path: Path) -> bool:
+    """A YouTube Shorts cut (``<reel>.shorts[...].mp4``) carries music even in a Format without it."""
+    return ".shorts" in path.name
+
+
+def format_profile(fmt: str) -> dict:
+    """``formats/<fmt>/style.json``; ValueError when there is none."""
+    path = FORMATS_DIR / fmt / "style.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"no Format profile {path}: {exc}") from exc
+
+
+def format_for(path: Path) -> str | None:
+    """The Format read from the Script next to ``out/``; only a Meme cut Script (``cf-memecut/1``) names one."""
+    for script in (path.parent.parent / "script.json", path.parent / "script.json"):
+        try:
+            schema = json.loads(script.read_text()).get("schema")
+        except (OSError, ValueError, AttributeError):
+            continue
+        return "meme-cut" if schema == MEMECUT_SCHEMA else None
+    return None
 
 
 def script_canvas_for(path: Path) -> str | None:
@@ -122,6 +176,7 @@ def parse_probe(j: dict) -> dict:
     fmt = j.get("format") or {}
     return {
         "video_codec": v.get("codec_name"),
+        "codec_tag": v.get("codec_tag_string"),
         "profile": v.get("profile"),
         "width": v.get("width"),
         "height": v.get("height"),
@@ -165,9 +220,9 @@ def parse_loudnorm(stderr: str) -> dict:
 
 def evaluate(facts: dict, loud: dict | None, target_lufs: float = TARGET_LUFS, target_tp: float = TARGET_TP,
              lufs_tolerance: float = LUFS_TOLERANCE, expect_duration: float | None = None,
-             expected: dict | None = None) -> list[Check]:
+             expected: dict | None = None, silent: bool = False) -> list[Check]:
     """One Check per rule; ``ok`` is the verdict for that row. ``expected`` defaults to the
-    style.json canvas (``expected_for``)."""
+    style.json canvas (``expected_for``). ``silent``: the track must be silent (a Format without music)."""
     exp = expected or expected_for(style_canvas())
     rows: list[Check] = []
 
@@ -175,6 +230,10 @@ def evaluate(facts: dict, loud: dict | None, target_lufs: float = TARGET_LUFS, t
         rows.append(Check(name, exp[key], facts.get(key), facts.get(key) == exp[key]))
 
     eq("video codec", "video_codec")
+    if "profile" in exp:
+        eq("video profile", "profile")
+    if "codec_tag" in exp:
+        eq("codec tag", "codec_tag")
     rows.append(Check("resolution", f"{exp['width']}x{exp['height']}",
                       f"{facts.get('width')}x{facts.get('height')}",
                       (facts.get("width"), facts.get("height")) == (exp["width"], exp["height"])))
@@ -196,6 +255,12 @@ def evaluate(facts: dict, loud: dict | None, target_lufs: float = TARGET_LUFS, t
     else:
         rows.append(Check("duration (s)", f"{expect_duration:.3f} ±{DURATION_TOLERANCE}", dur,
                           dur is not None and abs(dur - expect_duration) <= DURATION_TOLERANCE))
+    if silent:
+        i = None if loud is None else loud.get("input_i")
+        quiet = isinstance(i, float) and i <= SILENCE_LUFS
+        rows.append(Check("silent track (LUFS)", f"<= {SILENCE_LUFS:g} (no music)",
+                          "not measured" if loud is None else i, quiet))
+        return rows
     if loud is None:
         rows.append(Check("integrated loudness (LUFS)", target_lufs, "not measured", False))
         rows.append(Check("true peak (dBTP)", f"<= {target_tp}", "not measured", False))
@@ -307,32 +372,46 @@ def fix_loudness(path: Path, measured: dict, target_lufs: float = TARGET_LUFS, t
             if abs(meas["input_i"] - target_lufs) <= lufs_tolerance / 2 and meas["input_tp"] <= tp + 0.1:
                 break
         res = subprocess.run([FFMPEG, "-v", "error", "-y", "-i", str(path), "-i", str(cur), "-map", "0:v:0",
-                              "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", AUDIO_BITRATE, "-ar", "48000",
-                              "-movflags", "+faststart", str(out)], capture_output=True, text=True)
+                              "-map", "1:a:0", "-c:v", "copy", *video_tag_args(path), "-c:a", "aac",
+                              "-b:a", AUDIO_BITRATE, "-ar", "48000", "-movflags", "+faststart", str(out)],
+                             capture_output=True, text=True)
         if res.returncode:
             raise RuntimeError(f"ffmpeg mux failed: {res.stderr[-800:]}")
     return out, rounds
 
 
+def tag_args_for(video_codec: str | None) -> list[str]:
+    """Extra mux arguments for a stream copy: ffmpeg's mp4 muxer tags copied HEVC ``hev1``,
+    which iOS Photos and Instagram do not play; ``hvc1`` keeps the HLG file playable."""
+    return ["-tag:v", "hvc1"] if video_codec == "hevc" else []
+
+
+def video_tag_args(path: Path) -> list[str]:
+    return tag_args_for(parse_probe(ffprobe(path)).get("video_codec"))
+
+
 def check_file(path: Path, target_lufs: float = TARGET_LUFS, target_tp: float = TARGET_TP,
                lufs_tolerance: float = LUFS_TOLERANCE, expect_duration: float | None = None,
-               expected: dict | None = None) -> tuple[list[Check], dict, dict | None]:
+               expected: dict | None = None, silent: bool = False) -> tuple[list[Check], dict, dict | None]:
     facts = parse_probe(ffprobe(path))
     loud = measure_loudness(path, target_lufs, target_tp) if facts.get("audio_codec") else None
-    return evaluate(facts, loud, target_lufs, target_tp, lufs_tolerance, expect_duration, expected), facts, loud
+    return (evaluate(facts, loud, target_lufs, target_tp, lufs_tolerance, expect_duration, expected, silent),
+            facts, loud)
 
 
 def run(path: Path, target_lufs: float = TARGET_LUFS, target_tp: float = TARGET_TP,
         lufs_tolerance: float = LUFS_TOLERANCE, expect_duration: float | None = None,
-        fix: bool = False, report: Path | None = None, expected: dict | None = None) -> int:
+        fix: bool = False, report: Path | None = None, expected: dict | None = None, silent: bool = False) -> int:
     """Check ``path`` (and with ``fix`` its normalized copy); print tables; 0 when the final file passes."""
     expected = expected or expected_for(style_canvas())
-    rows, facts, loud = check_file(path, target_lufs, target_tp, lufs_tolerance, expect_duration, expected)
+    rows, facts, loud = check_file(path, target_lufs, target_tp, lufs_tolerance, expect_duration, expected, silent)
     print(format_table(path, rows, facts, loud))
     result: dict[str, Any] = {"file": str(path), "pass": passed(rows), "checks": [asdict(r) for r in rows],
                               "facts": facts, "loudness": loud}
     final_ok = passed(rows)
-    if fix:
+    if fix and silent:
+        print("\n--fix-loudness: the track is meant to be silent, nothing to normalize")
+    elif fix:
         loud_rows = [r for r in rows if "loudness" in r.name or "peak" in r.name]
         if loud is None:
             print("\n--fix-loudness: no audio stream to normalize")
@@ -368,10 +447,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--report", help="also write the results as JSON here")
     ap.add_argument("--canvas", help="expected canvas: preset (portrait, landscape) or WxH; default the Script's "
                                      "canvas (<reel>/script.json next to out/), else style.json canvas")
+    ap.add_argument("--silent", action="store_true",
+                    help="expect a silent track (a Format without music) instead of -14 LUFS")
+    ap.add_argument("--format", help="Format id: canvas and the silent rule from formats/<id>/style.json "
+                                     "(default: meme-cut for a cf-memecut/1 script.json next to out/)")
+    ap.add_argument("--hdr", action="store_true",
+                    help="expect a Rec.2100 HLG render: hevc Main 10 hvc1, yuv420p10le, bt2020/arib-std-b67/bt2020nc")
     args = ap.parse_args(argv)
     path = Path(args.file).expanduser().resolve()
+    silent = args.silent
     try:
-        expected = expected_for(style_canvas(args.canvas, script_canvas_for(path)))
+        fmt = args.format or format_for(path)
+        if fmt:
+            profile = format_profile(fmt)
+            silent = silent or (silent_for(profile) and not music_cut(path))
+            expected = expected_for(for_reel(profile, None, args.canvas), hdr=args.hdr)
+        else:
+            expected = expected_for(style_canvas(args.canvas, script_canvas_for(path)), hdr=args.hdr)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 2
@@ -379,7 +471,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no such file: {path}", file=sys.stderr)
         return 2
     return run(path, args.target_lufs, args.target_tp, args.lufs_tolerance, args.expect_duration,
-               args.fix_loudness, Path(args.report) if args.report else None, expected)
+               args.fix_loudness, Path(args.report) if args.report else None, expected, silent)
 
 
 if __name__ == "__main__":

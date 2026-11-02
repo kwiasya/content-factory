@@ -1,0 +1,46 @@
+{
+  "name": "day-warm-film",
+  "description": "Warm film for sunny daytime: golden highlights, softer yellow-greens, gentle contrast, warm natural skin, a touch of milk in the blacks.",
+  "exposure": -0.15,
+  "contrast": {
+    "amount": 1.15,
+    "pivot": 0.18,
+    "toe_stops": 2.5,
+    "shoulder_stops": 1.5,
+    "per_channel": 0.15
+  },
+  "saturation": {
+    "amount": 1.08,
+    "vibrance": 0.1,
+    "highlight_start": 1.0,
+    "highlight_end": 4.0,
+    "highlight_floor": 0.85,
+    "skin": {
+      "hue": 22,
+      "width": 14,
+      "protect": 0.6
+    },
+    "bands": [
+      {
+        "hue": 75,
+        "width": 18,
+        "gain": 0.82,
+        "shift": -4
+      }
+    ]
+  },
+  "split_tone": {
+    "highlights": {
+      "hue": 40,
+      "strength": 0.32
+    },
+    "shadows": {
+      "hue": 28,
+      "strength": 0.06
+    },
+    "balance": -0.5,
+    "highlight_range": 3.0,
+    "shadow_range": 4.0
+  },
+  "black_lift": 0.004
+}

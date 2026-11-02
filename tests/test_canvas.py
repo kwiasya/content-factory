@@ -38,7 +38,7 @@ class CanvasTest(unittest.TestCase):
 
     def test_safe_zone_scales_from_reference(self):
         z = scaled_safe_zone(STYLE, from_style(STYLE))
-        self.assertEqual((z["top"], z["bottom"], z["left"], z["right"]), (538, 1344, 130, 130))
+        self.assertEqual((z["top"], z["bottom"], z["left"], z["right"]), (538, 1344, 260, 260))
         self.assertEqual(z["right_rail"], {"width": 460, "from_y": 2300})
         self.assertEqual(scaled_safe_zone(STYLE, from_style(STYLE, "1080x1920"))["top"], 269)
 

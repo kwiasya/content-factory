@@ -1,0 +1,45 @@
+{
+  "kind": "youtube#videoListResponse",
+  "etag": "i9J0k1L2",
+  "pageInfo": {"totalResults": 2, "resultsPerPage": 2},
+  "items": [
+    {
+      "kind": "youtube#video",
+      "etag": "m3N4o5P6",
+      "id": "dQw4w9WgXcQ",
+      "snippet": {
+        "publishedAt": "2026-10-09T16:00:12Z",
+        "channelId": "UCxR9mXyZbC1dEf2GhIjKlMn",
+        "title": "Lisbon Alfama at Golden Hour — 4K Walk",
+        "description": "Start: Miradouro de Santa Luzia\n00:00 Intro\n01:12 Alfama stairs\n...",
+        "thumbnails": {"maxres": {"url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg", "width": 1280, "height": 720}},
+        "channelTitle": "Slow Walks",
+        "tags": ["lisbon", "walking tour", "4k walk", "portugal"],
+        "categoryId": "19",
+        "liveBroadcastContent": "none",
+        "defaultAudioLanguage": "en",
+        "localized": {"title": "Lisbon Alfama at Golden Hour — 4K Walk", "description": "..."}
+      },
+      "contentDetails": {"duration": "PT41M7S", "dimension": "2d", "definition": "hd", "caption": "false", "licensedContent": true, "contentRating": {}, "projection": "rectangular"},
+      "statistics": {"viewCount": "184022", "likeCount": "5310", "favoriteCount": "0", "commentCount": "402"},
+      "topicDetails": {"topicCategories": ["https://en.wikipedia.org/wiki/Tourism"]}
+    },
+    {
+      "kind": "youtube#video",
+      "etag": "q7R8s9T0",
+      "id": "Ab3dEf6hIj0",
+      "snippet": {
+        "publishedAt": "2026-10-07T12:30:00Z",
+        "channelId": "UCxR9mXyZbC1dEf2GhIjKlMn",
+        "title": "POV: you found the quietest street in Lisbon",
+        "description": "#lisbon #shorts",
+        "thumbnails": {"high": {"url": "https://i.ytimg.com/vi/Ab3dEf6hIj0/hqdefault.jpg", "width": 480, "height": 360}},
+        "channelTitle": "Slow Walks",
+        "categoryId": "19",
+        "liveBroadcastContent": "none"
+      },
+      "contentDetails": {"duration": "PT58S", "dimension": "2d", "definition": "hd", "caption": "false", "licensedContent": false, "contentRating": {}, "projection": "rectangular"},
+      "statistics": {"viewCount": "1203344", "likeCount": "88120", "favoriteCount": "0"}
+    }
+  ]
+}

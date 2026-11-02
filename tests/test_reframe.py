@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STYLE = json.loads((ROOT / "style.json").read_text())
 CW, CH = 2160, 3840
 MANIFEST = {
-    "walk": "w",
+    "footage": "w",
     "clips": [
         {"file": "DJI.mp4", "fps": 29.97, "duration_s": 100.0, "width": 3840, "height": 2160,
          "display_width": 3840, "display_height": 2160},
@@ -31,7 +31,7 @@ MANIFEST = {
 
 def script(shots, ending="reveal_last"):
     return from_dict({
-        "schema": "cf-script/1", "walk": "w", "concept": "c", "format": "pov", "target_length_s": 2.5 * len(shots),
+        "schema": "cf-script/1", "footage": "w", "concept": "c", "format": "pov", "target_length_s": 2.5 * len(shots),
         "hook": {"type": "pov", "text": "one two three four five", "clip": shots[0]["clip"]},
         "shots": shots, "ending": ending, "location_tag": "x",
     })

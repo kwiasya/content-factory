@@ -1,4 +1,4 @@
-"""Probe a folder of raw Clips and write clip_manifest.json for the Walk.
+"""Probe a folder of raw Clips and write clip_manifest.json for the Footage.
 
 Usage: python -m cf.probe <raw_dir> [-o clip_manifest.json]
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -329,6 +330,19 @@ def probe_clip(path: Path, exif: dict) -> dict:
     return clip
 
 
+def probe_file(path: Path) -> dict:
+    """Manifest-style entry for one media file outside a Footage folder (e.g. a downloaded Reference).
+
+    exiftool is best effort here: without it (or without tags) the entry still carries
+    ffprobe's fps, duration, rotation and color tags; device and GPS stay empty.
+    """
+    try:
+        exif = run_exiftool([path]).get(path.name, {})
+    except (OSError, RuntimeError, ValueError):
+        exif = {}
+    return probe_clip(path, exif)
+
+
 # --------------------------------------------------------------------------
 # CLI
 
@@ -339,15 +353,19 @@ def list_clips(raw_dir: Path) -> list[Path]:
     )
 
 
+def dangling_links(raw_dir: Path) -> list[Path]:
+    return sorted(p for p in raw_dir.iterdir() if p.is_symlink() and not p.exists() and not p.name.startswith("."))
+
+
 def build_manifest(raw_dir: Path) -> dict:
     raw_dir = raw_dir.resolve()
     clips = list_clips(raw_dir)
     exif_by_name = run_exiftool(clips)
     entries = [probe_clip(p, exif_by_name.get(p.name, {})) for p in clips]
-    walk = raw_dir.parent.name if raw_dir.name == "raw" else raw_dir.name
+    footage = raw_dir.parent.name if raw_dir.name == "raw" else raw_dir.name
     return {
         "schema": MANIFEST_SCHEMA,
-        "walk": walk,
+        "footage": footage,
         "raw_dir": str(raw_dir),
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "clips": entries,
@@ -388,6 +406,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.raw_dir.is_dir():
         ap.error(f"not a directory: {args.raw_dir}")
+    dangling = dangling_links(args.raw_dir)
+    if dangling:
+        print(f"{len(dangling)} links in {args.raw_dir} point at missing files; clip_manifest.json is not written. "
+              "Re-point them to where the footage is now (or plug the drive back in), then probe again:",
+              file=sys.stderr)
+        for p in dangling:
+            print(f"  {p.name} -> {os.readlink(p)}", file=sys.stderr)
+        return 2
     manifest = build_manifest(args.raw_dir)
     if not manifest["clips"]:
         print(f"no video files in {args.raw_dir}", file=sys.stderr)

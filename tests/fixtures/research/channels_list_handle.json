@@ -1,0 +1,26 @@
+{
+  "kind": "youtube#channelListResponse",
+  "etag": "x7A1b2C3",
+  "pageInfo": {"totalResults": 1, "resultsPerPage": 5},
+  "items": [{
+    "kind": "youtube#channel",
+    "etag": "p9Q8r7S6",
+    "id": "UCxR9mXyZbC1dEf2GhIjKlMn",
+    "snippet": {
+      "title": "Slow Walks",
+      "description": "4K walking tours of European old towns.",
+      "customUrl": "@slowwalks",
+      "publishedAt": "2019-03-14T09:21:07Z",
+      "thumbnails": {"default": {"url": "https://yt3.ggpht.com/abc=s88", "width": 88, "height": 88}},
+      "defaultLanguage": "en",
+      "localized": {"title": "Slow Walks", "description": "4K walking tours of European old towns."},
+      "country": "DE"
+    },
+    "contentDetails": {"relatedPlaylists": {"likes": "", "uploads": "UUxR9mXyZbC1dEf2GhIjKlMn"}},
+    "statistics": {"viewCount": "48213977", "subscriberCount": "312000", "hiddenSubscriberCount": false, "videoCount": "418"},
+    "topicDetails": {
+      "topicIds": ["/m/07bxq", "/m/019_rr"],
+      "topicCategories": ["https://en.wikipedia.org/wiki/Tourism", "https://en.wikipedia.org/wiki/Lifestyle_(sociology)"]
+    }
+  }]
+}

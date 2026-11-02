@@ -368,7 +368,7 @@ def test_speech_analyze_without_raw_or_audio(tmp_path):
     assert speech.analyze(tmp_path / "missing.MOV", 2.0)["_error"] == "raw source not found"
 
 
-def test_find_raw_prefers_manifest_path_then_walk_raw(tmp_path):
+def test_find_raw_prefers_manifest_path_then_footage_raw(tmp_path):
     (tmp_path / "raw").mkdir()
     raw = tmp_path / "raw" / "IMG_1621.mov"
     raw.write_bytes(b"")
@@ -476,10 +476,10 @@ def test_segment_levels_and_noise_floor():
     assert segs[1]["level_dbfs"] == pytest.approx(-63.0, abs=0.5)
 
 
-def test_walk_reference_is_median_of_loudest():
-    assert speech_side.walk_reference([-40, -20, -16, -22, None, -30]) == -20.0
-    assert speech_side.walk_reference([-35.0]) == -35.0
-    assert speech_side.walk_reference([]) is None
+def test_footage_reference_is_median_of_loudest():
+    assert speech_side.footage_reference([-40, -20, -16, -22, None, -30]) == -20.0
+    assert speech_side.footage_reference([-35.0]) == -35.0
+    assert speech_side.footage_reference([]) is None
 
 
 def test_face_stats_window_and_mouth_variance():
@@ -500,29 +500,29 @@ def _seg(level, face=0.0, mouth_sd=None, med=None, prob=0.9):
 
 def test_side_operator_is_near():
     # loud, well above the floor, nobody in frame: the author behind the camera
-    c = speech_side.classify(_seg(-21.0), noise_floor=-60.0, walk_ref=-19.0)
+    c = speech_side.classify(_seg(-21.0), noise_floor=-60.0, footage_ref=-19.0)
     assert c["side"] == "near" and c["side_confidence"] > 0.8
     assert not speech_side.is_on_camera(_seg(-21.0) | c)
 
 
 def test_side_quiet_voice_with_visible_face_is_on_camera():
     # 20 dB under the operator, close to the floor, a face looking at the camera
-    c = speech_side.classify(_seg(-39.0, face=0.052, med=0.049), noise_floor=-44.0, walk_ref=-19.0)
+    c = speech_side.classify(_seg(-39.0, face=0.052, med=0.049), noise_floor=-44.0, footage_ref=-19.0)
     assert c["side"] == "far" and c["side_confidence"] >= speech_side.MIN_CONF
     # the same voice with nobody visible stays a soft flag (capped)
-    c2 = speech_side.classify(_seg(-39.0), noise_floor=-44.0, walk_ref=-19.0)
+    c2 = speech_side.classify(_seg(-39.0), noise_floor=-44.0, footage_ref=-19.0)
     assert c2["side"] == "far" and c2["side_confidence"] <= speech_side.AUDIO_ONLY_CAP
     # low Whisper probability (likely noise) lowers the confidence
-    c3 = speech_side.classify(_seg(-39.0, face=0.052, med=0.049, prob=0.05), noise_floor=-44.0, walk_ref=-19.0)
+    c3 = speech_side.classify(_seg(-39.0, face=0.052, med=0.049, prob=0.05), noise_floor=-44.0, footage_ref=-19.0)
     assert c3["side_confidence"] < c["side_confidence"]
 
 
 def test_side_mouth_movement_beats_face_size():
     # big face, mid level, lips still (smiling while the operator talks): near
-    still = speech_side.classify(_seg(-38.0, face=0.14, mouth_sd=0.009), noise_floor=-60.0, walk_ref=-19.0)
+    still = speech_side.classify(_seg(-38.0, face=0.14, mouth_sd=0.009), noise_floor=-60.0, footage_ref=-19.0)
     assert still["side"] == "near"
     # selfie: loud (the speaker holds the camera) but a big face with a moving mouth: on camera
-    talking = speech_side.classify(_seg(-30.0, face=0.2, mouth_sd=0.025), noise_floor=-50.0, walk_ref=-19.0)
+    talking = speech_side.classify(_seg(-30.0, face=0.2, mouth_sd=0.025), noise_floor=-50.0, footage_ref=-19.0)
     assert talking["side"] == "far" and talking["side_confidence"] >= speech_side.MIN_CONF
     # mouth landmarks on a tiny face are not trusted
     ev = speech_side.evidence(_seg(-30.0, face=0.04, mouth_sd=0.03), -50.0, -19.0)
@@ -536,8 +536,9 @@ def test_classify_speech_marks_on_camera_seconds():
         {"start": 1.9, "end": 2.96, "text": "Снимаешь?", **_seg(-39.0, face=0.052, med=0.049)},
         {"start": 5.2, "end": 5.6, "text": "Ближе.", **_seg(-20.0)},
     ]
-    classify_speech(data, walk_ref=-19.0)
+    classify_speech(data, footage_ref=-19.0)
     assert [s["side"] for s in data["speech_segments"]] == ["far", "near"]
+    assert data["provenance"]["notes"]["speech_side"]["footage_ref_dbfs"] == -19.0
     # 1.9-2.96 padded 0.3 s -> 1.6-3.26: seconds 1, 2, 3
     assert data["per_second"]["speech_on_camera"] == [False, True, True, True, False, False]
     out = finalize(data)

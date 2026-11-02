@@ -19,12 +19,16 @@ export type FontSpec = {
 export type Anchor =
   | "center"
   | "middle-left"
+  | "top-right"
   | "top-left"
   | "top-center"
   | "bottom-left"
   | "bottom-center";
 
 export type OverlayPosition = { anchor: Anchor; x?: number; y: number };
+
+/** Explicit placement: anchor type plus reference-px x/y ("top-right": x = right edge). */
+export type AnchorSpec = { anchor: Anchor; x?: number; y: number; align?: "left" | "center" | "right" };
 
 export type Style = {
   /** Output pixels. `reference_width` (default 1080) is the width every other pixel
@@ -64,6 +68,8 @@ export type Style = {
     text_shadow?: string;
     accent?: string;
     backdrop: string;
+    /** Named key-word colours for inline marks "{words|name}" (layout.ts parseMarks). */
+    key_words?: Record<string, string>;
   };
   overlay_positions: Record<OverlayType, OverlayPosition>;
   animation: {
@@ -80,13 +86,21 @@ export type OverlayProps = {
   style: Style;
   /** Overrides style.typography.preset for this render. */
   preset?: string;
-  /** Named placement from slots.json; overrides the role's own anchor/x/y/align. */
-  anchor?: string;
+  /** Named placement from slots.json, or an explicit placement in reference px
+   * (e.g. from a frame-aware picker); overrides the role's own anchor/x/y/align. */
+  anchor?: string | AnchorSpec;
+  /** Reference-px point a role with `arrow` points at (e.g. the person). */
+  arrowTo?: [number, number];
   /** Overrides the role's scrim strength (0..1). */
   scrim?: number;
+  /** Overrides the role's font size, reference px. */
+  size?: number;
   /** Measurement only: "background" hides the glyphs (keeps scrim and boxes),
    * "glyphs" shows only the glyph fill. Default "all". */
   layers?: "all" | "background" | "glyphs";
+  /** A font file in the render's public dir (render.mjs copies the Library font there):
+   * replaces the family of every role; sizes, case and boxes stay. */
+  fontFile?: string;
 };
 
 export const fontRoleFor = (type: OverlayType): "display" | "body" =>

@@ -42,12 +42,49 @@ class ChooseWindowTest(unittest.TestCase):
         self.assertLess(held.coverage_pct, free.coverage_pct)
         self.assertLessEqual(held.left, 0.30 - 0.08 + 1e-9)
 
-    def test_hold_s_that_cannot_fit_is_dropped(self):
+    def test_hold_s_that_cannot_fit_centres_on_the_held_boxes(self):
         b = boxes(0.1, 0.9, width=0.1)  # 0.8 apart: no window holds both
         r = choose_window(b, W, hold_s=(0.0, 0.2))
+        self.assertEqual((r.fallback, r.held, r.held_margin_pct), ("hold", [], None))
+        self.assertAlmostEqual(r.left + r.width / 2, 0.5, places=4)  # centred on the union of the two
+        r = choose_window(b, W, hold_s=(5.0,))  # no frame sampled near 5 s: that hold is ignored
         self.assertEqual((r.fallback, r.held), ("hold", []))
-        r = choose_window(b, W, hold_s=(5.0,))  # no frame sampled near 5 s
-        self.assertEqual(r.fallback, "hold")
+        self.assertEqual(r.covered, 1)
+
+    def test_hold_on_a_box_wider_than_the_window_centres_on_it(self):
+        # Close shot at the end, arms out: her box is wider than the window at the hold time.
+        b = boxes(0.7, 0.7, 0.7, 0.7, 0.4, width=0.1)[:4] + [Box(t=0.8, x1=0.2, x2=0.65)]
+        free = choose_window(b, W)
+        self.assertEqual(free.covered, 4)
+        r = choose_window(b, W, hold_s=(0.8,))
+        self.assertEqual((r.fallback, r.held, r.held_margin_pct), ("hold", [], None))
+        self.assertAlmostEqual(r.left + r.width / 2, 0.425, places=4)
+        self.assertNotEqual(r.x, free.x)
+
+    def test_hold_s_gives_the_held_box_the_margin(self):
+        # Mallorca reel-01 s06 (dji ...191500, 53.8-57.133 s): the real 5 fps subject boxes. She walks
+        # from the right towards the lens and turns left; the free optimum holds the last 9 frames with
+        # the 55.3 s box FLUSH against the window's right edge (her arm on the boundary), and
+        # hold_s [55.3, 56.3] used to return that same window. Now the window is centred on the held
+        # boxes within the range that still holds the 9 frames.
+        raw = [(53.921, 0.527, 0.719), (54.121, 0.521, 0.700), (54.321, 0.516, 0.709), (54.521, 0.509, 0.723),
+               (54.721, 0.485, 0.711), (54.922, 0.445, 0.674), (55.122, 0.423, 0.641), (55.322, 0.392, 0.600),
+               (55.522, 0.355, 0.549), (55.722, 0.311, 0.496), (55.923, 0.296, 0.472), (56.123, 0.299, 0.467),
+               (56.323, 0.307, 0.473), (56.523, 0.306, 0.478), (56.723, 0.334, 0.500), (56.924, 0.370, 0.515)]
+        b = [Box(t, x1, x2) for t, x1, x2 in raw]
+        free = choose_window(b, W)
+        self.assertEqual((free.covered, free.fallback), (9, None))
+        self.assertLess(free.left + free.width - 0.600, 0.01)  # flush: under 1 % of the width
+        held = choose_window(b, W, hold_s=(55.3, 56.3))
+        self.assertEqual((held.held, held.fallback, held.covered), ([55.32, 56.32], None, 9))
+        self.assertGreater(held.x, free.x)
+        self.assertGreater(held.held_margin_pct, 1.0)
+        self.assertGreaterEqual(held.left + held.width - 0.600, 0.01)   # 55.3 s box: margin on the right
+        self.assertGreaterEqual(0.307 - held.left, 0.01)                # 56.3 s box: margin on the left
+        # Holding 55.0 s as well is impossible (0.674 - 0.307 > the window): centred on the union, reported.
+        forced = choose_window(b, W, hold_s=(55.0, 56.3))
+        self.assertEqual(forced.fallback, "hold")
+        self.assertAlmostEqual(forced.left + forced.width / 2, (0.307 + 0.674) / 2, places=3)
 
     def test_window_never_leaves_the_source(self):
         r = choose_window(boxes(0.02, 0.03, 0.04, width=0.04), W)
@@ -109,7 +146,7 @@ class SubjectBoxesTest(unittest.TestCase):
 
 
 class SeamGroupTest(unittest.TestCase):
-    MANIFEST = {"walk": "w", "clips": [
+    MANIFEST = {"footage": "w", "clips": [
         {"file": "DJI.mp4", "fps": 30.0, "duration_s": 100.0, "display_width": 3840, "display_height": 2160},
         {"file": "B.mp4", "fps": 30.0, "duration_s": 100.0, "display_width": 3840, "display_height": 2160}]}
 
@@ -117,7 +154,7 @@ class SeamGroupTest(unittest.TestCase):
         last = {"clip": "DJI.mp4", "in_s": 8, "out_s": 10, "role": "loop"}
         if last_reframe:
             last["reframe"] = last_reframe
-        return from_dict({"schema": "cf-script/1", "walk": "w", "concept": "c", "format": "pov", "target_length_s": 7,
+        return from_dict({"schema": "cf-script/1", "footage": "w", "concept": "c", "format": "pov", "target_length_s": 7,
                           "hook": {"type": "pov", "text": "one two three four five", "clip": "DJI.mp4"},
                           "shots": [{"clip": "DJI.mp4", "in_s": 10, "out_s": 12.5, "role": "hook"},
                                     {"clip": "B.mp4", "in_s": 1, "out_s": 3.5, "role": "build"}, last],

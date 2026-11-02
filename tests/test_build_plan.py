@@ -3,14 +3,14 @@
 import unittest
 from pathlib import Path
 
-from cf.build import (BuildError, append_infos, beat_marker_plan, loop_seam, overlay_specs, plan_shots,
-                      plan_track, source_end, still_stats, timecode, video_track_names)
+from cf.build import (BuildError, append_infos, beat_marker_plan, loop_seam, overlay_specs, plan_shots, plan_track,
+                      source_end, still_stats, timecode)
 from cf import frames
 from cf.script_schema import from_dict
 
 START = 108000  # 01:00:00:00 at 30 fps (read from GetStartFrame() in a real build)
 MANIFEST = {
-    "walk": "w",
+    "footage": "w",
     "clips": [
         {"file": "A60.MOV", "fps": 60.0, "duration_s": 13.1, "nb_frames": 786, "path": "/raw/A60.MOV"},
         {"file": "B24.MOV", "fps": 24.0, "duration_s": 29.2, "nb_frames": 701, "path": "/raw/B24.MOV"},
@@ -23,7 +23,7 @@ MANIFEST = {
 
 def script(shots, **extra):
     return from_dict({
-        "schema": "cf-script/1", "walk": "w", "concept": "c", "format": "pov", "target_length_s": 10,
+        "schema": "cf-script/1", "footage": "w", "concept": "c", "format": "pov", "target_length_s": 10,
         "hook": {"type": "pov", "text": "one two three four five", "clip": shots[0]["clip"]},
         "shots": shots, "ending": "reveal_last", "location_tag": "x", **extra,
     })
@@ -213,8 +213,54 @@ class OverlaySpanTest(unittest.TestCase):
         self.assertTrue(any("runs past the last shot" in n for n in notes))
 
 
+class OverlaySpecTest(unittest.TestCase):
+    def test_specs_pass_preset_anchor_and_fades_through(self):
+        a = {"anchor": "top-left", "x": 80, "y": 284}
+        s = script([shot("C30.mov", 0.0, 2.0, role="hook", overlay={"text": "one two three four five", "type": "line"}),
+                    shot("C30.mov", 5.0, 6.5, overlay={"text": "my type:\ntall", "type": "line", "preset": "clean-list",
+                                                       "anchor": a, "in_frames": 0, "out_frames": 0}),
+                    shot("C30.mov", 7.0, 8.0),
+                    shot("B24.MOV", 1.0, 2.5, overlay={"text": "Lake", "type": "place", "anchor": "upper-center",
+                                                      "span": 1})])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        specs = overlay_specs(s, plan, 30, "/repo/style.json")
+        self.assertEqual(list(specs), ["s01-1", "s02-1", "s04-1"])
+        self.assertEqual(specs["s01-1"], {"text": "one two three four five", "type": "hook", "duration_s": 2.0,
+                                        "style_path": "/repo/style.json"})
+        self.assertEqual(specs["s02-1"], {"text": "my type:\ntall", "type": "line", "duration_s": 1.5,
+                                        "style_path": "/repo/style.json", "preset": "clean-list", "anchor": a,
+                                        "in_frames": 0, "out_frames": 0})
+        self.assertEqual((specs["s04-1"]["anchor"], specs["s04-1"]["duration_s"]), ("upper-center", 1.5))
+        self.assertNotIn("preset", specs["s04-1"])
+        self.assertEqual(overlay_specs(s, plan, 30, "s.json", "landscape")["s01-1"]["canvas"], "landscape")
+
+    def test_span_length_in_the_spec(self):
+        s = script([shot("C30.mov", 0.0, 1.0, role="hook"),
+                    shot("C30.mov", 2.0, 3.0, overlay={"text": "Column: Siegessäule", "type": "place", "span": 2}),
+                    shot("B24.MOV", 1.0, 2.5)])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        self.assertEqual(overlay_specs(s, plan, 30, "s.json")["s02-1"]["duration_s"], 2.5)
+
+    def test_one_spec_per_overlay_named_shot_n(self):
+        s = script([shot("C30.mov", 0.0, 2.0, role="hook",
+                         overlay={"text": "one two three four five", "type": "line"}),
+                    shot("C30.mov", 3.0, 4.4, role="payoff", overlays=[OverlayTracksTest.PLACE,
+                                                                        OverlayTracksTest.JOKE]),
+                    shot("C30.mov", 5.0, 6.0)])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        specs = overlay_specs(s, plan, 30, "/repo/style.json")
+        self.assertEqual(list(specs), ["s01-1", "s02-1", "s02-2"])
+        self.assertEqual(specs["s02-1"], {"text": "Cathedral: Berliner Dom", "type": "place", "duration_s": 2.4,
+                                          "style_path": "/repo/style.json", "anchor": "lower-left-loose"})
+        self.assertEqual((specs["s02-2"]["type"], specs["s02-2"]["anchor"], specs["s02-2"]["duration_s"]),
+                         ("line", "upper-center", 2.4))
+        # render.mjs takes round(duration_s * fps) frames: exactly the planned length.
+        for o in (o for p in plan for o in p.overlays):
+            self.assertEqual(round(specs[o.name]["duration_s"] * 30), o.frames)
+
+
 class OverlayTracksTest(unittest.TestCase):
-    """Each overlay is its own file on its own video track (V2, V3, ...); none is merged."""
+    """Each overlay is its own file on its own video track (V2, V3); none is merged."""
 
     PLACE = {"text": "Cathedral: Berliner Dom", "type": "place", "span": 2, "anchor": "lower-left-loose"}
     JOKE = {"text": "me pretending I'm not freezing 🫠", "type": "line", "span": 2, "anchor": "upper-center"}
@@ -228,7 +274,7 @@ class OverlayTracksTest(unittest.TestCase):
         self.assertEqual([(o.name, o.track) for o in (a, b)], [("s02-1", 2), ("s02-2", 3)])
         for o in (a, b):  # both span s02+s03, from s02's record frame
             self.assertEqual((o.record_frame, o.frames), (START + 60, 42 + 30))
-        self.assertEqual((a.anchor, b.anchor), ("lower-left-loose", "upper-center"))
+        self.assertEqual((a.overlay.anchor, b.overlay.anchor), ("lower-left-loose", "upper-center"))
         self.assertEqual(plan[1].overlay_text, "Cathedral: Berliner Dom / me pretending I'm not freezing 🫠")
 
     def test_single_overlay_form_plans_as_the_first_entry(self):
@@ -247,43 +293,13 @@ class OverlayTracksTest(unittest.TestCase):
         self.assertEqual([(o.name, o.track) for p in plan for o in p.overlays],
                          [("s01-1", 2), ("s02-1", 3), ("s03-1", 2)])
 
-    def test_three_at_once_add_a_fourth_video_track(self):
+    def test_three_at_once_is_a_build_error(self):
+        # V4/V5 are the Asset cue lanes, so overlays have V2-V3 only.
         three = [{"text": t, "type": "line", "anchor": a}
                  for t, a in (("one", "upper-center"), ("two", "mid-center"), ("three", "lower-center"))]
         s = script([shot("C30.mov", 0.0, 2.0, role="hook", overlays=three)])
-        plan, _ = plan_shots(s, MANIFEST, START, 30)
-        self.assertEqual([o.track for o in plan[0].overlays], [2, 3, 4])
-        self.assertEqual(video_track_names(4), {1: "shots", 2: "overlays", 3: "overlays 2", 4: "overlays 3"})
-        self.assertEqual(video_track_names(3), {1: "shots", 2: "overlays", 3: "overlays 2"})
-
-
-class OverlaySpecsTest(unittest.TestCase):
-    def test_one_spec_per_overlay_named_shot_n(self):
-        s = script([shot("C30.mov", 0.0, 2.0, role="hook",
-                         overlay={"text": "one two three four five", "type": "line"}),
-                    shot("C30.mov", 3.0, 4.4, role="payoff", overlays=[OverlayTracksTest.PLACE,
-                                                                        OverlayTracksTest.JOKE]),
-                    shot("C30.mov", 5.0, 6.0)])
-        plan, _ = plan_shots(s, MANIFEST, START, 30)
-        specs = overlay_specs(s, plan, 30, "/repo/style.json")
-        self.assertEqual(list(specs), ["s01-1", "s02-1", "s02-2"])
-        self.assertEqual(specs["s01-1"], {"text": "one two three four five", "type": "hook", "duration_s": 2.0,
-                                          "style_path": "/repo/style.json"})
-        self.assertEqual(specs["s02-1"], {"text": "Cathedral: Berliner Dom", "type": "place", "duration_s": 2.4,
-                                          "style_path": "/repo/style.json", "anchor": "lower-left-loose"})
-        self.assertEqual((specs["s02-2"]["type"], specs["s02-2"]["anchor"], specs["s02-2"]["duration_s"]),
-                         ("line", "upper-center", 2.4))
-        # render.mjs takes round(duration_s * fps) frames: exactly the planned length.
-        for o in (o for p in plan for o in p.overlays):
-            self.assertEqual(round(specs[o.name]["duration_s"] * 30), o.frames)
-
-    def test_canvas_is_written_only_when_set(self):
-        s = script([shot("C30.mov", 0.0, 2.0, role="hook", overlay={"text": "Lake", "type": "place"})])
-        plan, _ = plan_shots(s, MANIFEST, START, 30)
-        self.assertNotIn("canvas", overlay_specs(s, plan, 30, "style.json")["s01-1"])
-        self.assertEqual(overlay_specs(s, plan, 30, "style.json", "landscape")["s01-1"]["canvas"], "landscape")
-        # A line on the first shot that is not the hook text stays a line.
-        self.assertEqual(overlay_specs(s, plan, 30, "style.json")["s01-1"]["type"], "place")
+        with self.assertRaises(BuildError):
+            plan_shots(s, MANIFEST, START, 30)
 
 
 class LoopSeamTest(unittest.TestCase):
@@ -355,8 +371,8 @@ class TrackPlanTest(unittest.TestCase):
 
     def test_in_point_from_script_snapped_to_a_frame(self):
         s = script([shot("C30.mov", 0.0, 3.0)], track="track/source.wav", track_in_s=2.12)
-        tp, notes = plan_track(s, "/walk/reels/r", START, 475, 30, self.BEATS)
-        self.assertEqual(tp.path, "/walk/reels/r/track/source.wav")
+        tp, notes = plan_track(s, "/footage/reels/r", START, 475, 30, self.BEATS)
+        self.assertEqual(tp.path, "/footage/reels/r/track/source.wav")
         self.assertEqual((tp.src_start, tp.src_end, tp.record_frame, tp.duration), (64, 539, START, 475))
         self.assertEqual(tp.fade_out, 18)  # 0.6 s default
         self.assertTrue(any("snapped" in n for n in notes))
@@ -388,7 +404,7 @@ class TrackPlanTest(unittest.TestCase):
 class AppendInfosTest(unittest.TestCase):
     def test_append_dicts(self):
         s = script([shot("A60.MOV", 2.0, 5.0, role="hook"), shot("B24.MOV", 1.0, 3.5)])
-        plan, _ = plan_shots(s, MANIFEST, START, 30, raw_dir="/walk/raw")
+        plan, _ = plan_shots(s, MANIFEST, START, 30, raw_dir="/footage/raw")
         items = {"A60.MOV": "<item A>", "B24.MOV": "<item B>"}
         video = append_infos(plan, items, media_type=1)
         self.assertEqual(video, [
@@ -400,7 +416,7 @@ class AppendInfosTest(unittest.TestCase):
         audio = append_infos(plan, items, media_type=2)
         self.assertEqual([a["mediaType"] for a in audio], [2, 2])
         self.assertEqual([a["recordFrame"] for a in audio], [v["recordFrame"] for v in video])
-        self.assertEqual(plan[0].path, "/walk/raw/A60.MOV")
+        self.assertEqual(plan[0].path, "/footage/raw/A60.MOV")
 
     def test_timecode(self):
         self.assertEqual(timecode(108000, 30), "01:00:00:00")
@@ -450,6 +466,34 @@ class LandscapeStillStatsTest(unittest.TestCase):
             small = st["at_proxy_size"]
             self.assertEqual((small["width"], small["height"]), (960, 540))
             self.assertAlmostEqual(small["mean_luma"], st["mean_luma"], delta=0.5)
+
+
+class DeliveryModeTest(unittest.TestCase):
+    def test_sdr_default_keeps_rec709_and_the_cdl(self):
+        from cf.build import COLOR_SETTINGS, HLG_NORMALIZE_CDL, color_settings, hlg_cdl
+
+        self.assertEqual(color_settings(), COLOR_SETTINGS)
+        self.assertEqual(color_settings("sdr")["colorSpaceOutput"], "Rec.709 Gamma 2.4")
+        self.assertEqual(hlg_cdl(), HLG_NORMALIZE_CDL)
+        self.assertIsNone(hlg_cdl("sdr", "none"))
+
+    def test_hdr_hlg_outputs_hlg_without_cdl(self):
+        from cf.build import COLOR_SETTINGS, color_settings, hlg_cdl
+
+        hdr = color_settings("hdr-hlg")
+        self.assertEqual(hdr["colorSpaceOutput"], "Rec.2020 HLG ARIB STD-B67")
+        # Same working space and DRTs as SDR: only the output changes.
+        self.assertEqual({k: v for k, v in hdr.items() if k != "colorSpaceOutput"},
+                         {k: v for k, v in COLOR_SETTINGS.items() if k != "colorSpaceOutput"})
+        self.assertIsNone(hlg_cdl("hdr-hlg", "cdl"))
+
+    def test_unknown_modes_raise(self):
+        from cf.build import color_settings, hlg_cdl
+
+        with self.assertRaises(ValueError):
+            color_settings("hdr10")
+        with self.assertRaises(ValueError):
+            hlg_cdl("sdr", "half")
 
 if __name__ == "__main__":
     unittest.main()

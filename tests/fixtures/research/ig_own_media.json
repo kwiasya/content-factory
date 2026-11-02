@@ -1,0 +1,24 @@
+{
+ "data": [
+  {"id": "18100000000000002", "media_product_type": "REELS", "media_type": "VIDEO", "like_count": 61,
+   "comments_count": 3, "timestamp": "2026-10-10T15:51:07+0000",
+   "permalink": "https://www.instagram.com/reel/DeOwnReel02/", "caption": "Therapy? I have a field 🌾\n#potsdam",
+   "insights": {"data": [
+     {"name": "reach", "period": "lifetime", "values": [{"value": 1571}], "id": "18100000000000002/insights/reach/lifetime"},
+     {"name": "views", "period": "lifetime", "values": [{"value": 2043}], "id": "18100000000000002/insights/views/lifetime"},
+     {"name": "saved", "period": "lifetime", "values": [{"value": 14}], "id": "18100000000000002/insights/saved/lifetime"},
+     {"name": "shares", "period": "lifetime", "values": [{"value": 63}], "id": "18100000000000002/insights/shares/lifetime"},
+     {"name": "total_interactions", "period": "lifetime", "values": [{"value": 129}], "id": "18100000000000002/insights/total_interactions/lifetime"},
+     {"name": "ig_reels_avg_watch_time", "period": "lifetime", "values": [{"value": 6329}], "id": "18100000000000002/insights/ig_reels_avg_watch_time/lifetime"},
+     {"name": "ig_reels_video_view_total_time", "period": "lifetime", "values": [{"value": 10829895}], "id": "18100000000000002/insights/ig_reels_video_view_total_time/lifetime"}
+   ]}},
+  {"id": "18100000000000001", "media_product_type": "FEED", "media_type": "CAROUSEL_ALBUM", "like_count": 40,
+   "comments_count": 1, "timestamp": "2026-10-09T09:00:00+0000",
+   "permalink": "https://www.instagram.com/p/DeOwnPost01/", "caption": "Berlin dump",
+   "insights": {"data": [
+     {"name": "reach", "period": "lifetime", "values": [{"value": 193}]},
+     {"name": "views", "period": "lifetime", "values": [{"value": 545}]}
+   ]}}
+ ],
+ "paging": {"cursors": {"before": "b", "after": "a"}}
+}
