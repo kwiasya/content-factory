@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from cf import memecut as mc
@@ -281,7 +282,9 @@ class ValidateTest(unittest.TestCase):
         s["caption"] = "line one\nline two"
         self.assertTrue(any("caption" in p for p in problems(s)))
         s = script()
-        s["location_tag"] = ""
+        s.pop("location_tag")
+        self.assertFalse(any("location_tag" in p for p in problems(s)))
+        s["location_tag"] = 5
         self.assertTrue(any("location_tag" in p for p in problems(s)))
 
     def test_ending_is_last_meme_and_reveal_last_is_its_old_name(self):
@@ -629,6 +632,157 @@ class SilentRenderCheckTest(unittest.TestCase):
             self.assertIsNone(rc.format_for(folder / "out" / "meme-x.mp4"))
 
 
+def own_script() -> dict:
+    """A literal-reading cut in two blocks: her setup, her own punch shot with its own line, then two memes."""
+    s = script()
+    s["situation"] = "неловкость"
+    s["setup"].update(footage="berlin-2026-10-17", clip="IMG_1144.MOV", in_s=8.2, dur_s=2.5,
+                      text="him: i'll bring my {wood} tonight 😏")
+    s["own"] = [{"clip": "IMG_1167.MOV", "in_s": 0.0, "dur_s": 2.4, "text": "me, {ready}:",
+                 "anchor": {"anchor": "top-center", "y": 520, "align": "center"}}]
+    s["punch"] = {"text": "{him|cyan}:"}
+    s["inserts"] = [{"ref": "@meme/wide-eyed-dog", "in_s": 0.5, "dur_s": 1.0, "shows": "a dog staring, stunned"},
+                    {"ref": "@meme/confused-travolta", "in_s": 0.4, "dur_s": 1.5, "shows": "Travolta lost"}]
+    return s
+
+
+class OwnShotTest(unittest.TestCase):
+    """Two blocks: her own footage (the setup, then up to 2 own shots), then the meme run; never interleaved."""
+
+    def sources(self):
+        src = {"setup": mc.Source(Path("/m/IMG_1144.mov"), 2160, 3840, 20.7),
+               "own1": mc.Source(Path("/m/IMG_1167.mov"), 2160, 3840, 2.4)}
+        for ref, (w, h, d) in DIMS.items():
+            src[ref] = mc.Source(Path(f"/m/{ref[6:]}.mp4"), w, h, d)
+        src["@meme/wide-eyed-dog"] = mc.Source(Path("/m/wide-eyed-dog.gif"), 630, 640, 7.39)
+        return src
+
+    def test_an_own_shot_after_the_setup_is_valid_and_counted(self):
+        s = own_script()
+        self.assertEqual(s["punch"]["text"], "{him|cyan}:")
+        self.assertEqual(problems(s), [])
+        self.assertEqual(warnings(s), [])
+        r = mc.validate(s, profile())
+        self.assertEqual(r.frames["own"], [72])
+        self.assertEqual(r.frames["total"], 75 + 72 + 30 + 45)
+
+    def test_old_scripts_have_no_own_block(self):
+        self.assertEqual(mc.validate(script(), profile()).frames["own"], [])
+        self.assertEqual(problems(old_script()), [])
+
+    def test_at_most_two_own_shots_of_one_to_three_seconds(self):
+        pr = profile()["pacing"]
+        self.assertEqual((pr["own_s"]["min"], pr["own_s"]["max"], pr["own"]["max"]), (1.0, 3.0, 2))
+        for dur, ok in ((0.9, False), (1.0, True), (3.0, True), (3.1, False)):
+            s = own_script()
+            s["own"][0]["dur_s"] = dur
+            with self.subTest(dur=dur):
+                self.assertEqual(not [p for p in problems(s) if "own[0]" in p], ok, problems(s))
+        s = own_script()
+        s["own"] = [dict(s["own"][0], dur_s=1.0, text="me:") for _ in range(3)]
+        self.assertTrue(any(p.startswith("own:") for p in problems(s)), problems(s))
+        s["own"] = {"clip": "IMG_1167.MOV"}
+        self.assertTrue(any(p.startswith("own:") for p in problems(s)), problems(s))
+
+    def test_her_clip_in_the_meme_run_is_impossible(self):
+        s = own_script()
+        s["inserts"].insert(1, {"footage": "berlin-2026-10-17", "clip": "IMG_1167.MOV", "in_s": 0, "dur_s": 1.0,
+                                "shows": "her in the blocks"})
+        got = problems(s)
+        self.assertTrue(any("inserts[1]" in p and "'own'" in p and "never interleave" in p for p in got), got)
+        s = old_script()
+        s["finale"]["clip"] = "IMG_8645.MOV"
+        self.assertTrue(any(p.startswith("finale:") and "'own'" in p for p in problems(s)), problems(s))
+
+    def test_the_own_shot_names_its_clip_and_takes_the_setups_footage_by_default(self):
+        s = own_script()
+        del s["own"][0]["clip"]
+        self.assertTrue(any("own[0].clip" in p for p in problems(s)))
+        s = own_script()
+        s["own"][0]["footage"] = ""
+        self.assertTrue(any("own[0].footage" in p for p in problems(s)))
+        s = own_script()
+        s["own"][0]["walk"] = "x"
+        self.assertTrue(any("own[0]: unknown keys" in p for p in problems(s)))
+        seen = []
+        with tempfile.TemporaryDirectory() as t, \
+                unittest.mock.patch.object(mc, "probe", lambda path: mc.Source(Path(path), 2160, 3840, 9.0)), \
+                unittest.mock.patch.object(mc, "setup_source",
+                                           lambda root, part, where="setup": seen.append((where, dict(part))) or
+                                           Path(t) / part["clip"]):
+            src, probs = mc.resolve_sources(own_script(), Path(t), lambda ref: None)
+        self.assertEqual(probs, [])
+        self.assertEqual(seen[1], ("own[0]", {"footage": "berlin-2026-10-17", "clip": "IMG_1167.MOV"}))
+        self.assertEqual(sorted(src), ["own1", "setup"])
+
+    def test_the_own_line_is_optional_with_one_key_word_in_yellow(self):
+        s = own_script()
+        del s["own"][0]["text"]
+        self.assertTrue(any("own[0].anchor" in p and "only with a text" in p for p in problems(s)), problems(s))
+        del s["own"][0]["anchor"]
+        self.assertEqual(problems(s), [])
+        s = own_script()
+        s["own"][0]["text"] = "me, ready:"
+        self.assertTrue(any("own[0].text" in w and "key word" in w for w in warnings(s)), warnings(s))
+        s["own"][0]["text"] = "Me, {Ready}!"
+        self.assertTrue(any("own[0].text" in p for p in problems(s)), problems(s))
+        s["own"][0]["text"] = "me, {ready} 🪵:"   # the setup already has the cut's one emoji
+        self.assertTrue(any("emoji" in p for p in problems(s)), problems(s))
+        s["own"][0]["text"] = "me, ready and not even a little bit {nervous}:"
+        self.assertTrue(any("own[0].text" in p and "words" in p for p in problems(s)), problems(s))
+
+    def test_with_an_own_shot_the_meme_run_may_be_two(self):
+        s = own_script()
+        self.assertEqual(len(s["inserts"]), 2)
+        self.assertEqual(problems(s), [])
+        del s["own"]
+        s["setup"]["dur_s"] = 3.0
+        s["inserts"][0]["dur_s"] = 1.2
+        self.assertTrue(any(p.startswith("inserts:") for p in problems(s)), problems(s))
+
+    def test_the_plan_plays_her_block_first_then_the_memes(self):
+        plan = mc.build_plan(own_script(), profile(), Canvas(W, H, 30), self.sources())
+        self.assertEqual(plan.problems, [])
+        ids = [x.id for x in plan.segments]
+        self.assertEqual(ids, ["setup", "own1", "m1", "m2"])
+        hers = [mc.is_hers(i) for i in ids]
+        self.assertEqual(hers, sorted(hers, reverse=True))   # her shots are a prefix: no interleaving
+        self.assertEqual([x.frames for x in plan.segments], [75, 72, 30, 45])
+        self.assertEqual(plan.segments[1].placement.fit, "fill")
+        self.assertEqual(list(plan.texts), ["setup", "own1", "punch"])
+        self.assertEqual(plan.texts["setup"]["text"], "him: i'll bring my {wood|pink} tonight 😏")
+        self.assertEqual(plan.texts["own1"]["text"], "me, {ready|yellow}:")
+        self.assertEqual(plan.texts["own1"]["frames"], 72)
+        self.assertEqual(plan.texts["own1"]["anchor"]["y"], 520)
+        self.assertEqual(plan.texts["punch"]["frames"], 75)   # the memes only, not her own shot
+        self.assertEqual(plan.texts["punch"]["text"], "{him|cyan}:")
+        s = own_script()
+        del s["own"][0]["text"], s["own"][0]["anchor"]
+        plan = mc.build_plan(s, profile(), Canvas(W, H, 30), self.sources())
+        self.assertEqual(list(plan.texts), ["setup", "punch"])
+        s["own"][0].update(text="me, {ready}:")
+        plan = mc.build_plan(s, profile(), Canvas(W, H, 30), self.sources())
+        self.assertEqual(plan.texts["own1"]["anchor"], {"anchor": "top-center", "y": 480, "align": "center"})
+
+    def test_filtergraph_keeps_her_block_10_bit_and_under_its_own_lines(self):
+        plan = mc.build_plan(own_script(), profile(), Canvas(W, H, 30), self.sources())
+        ov = {"setup": Path("/o/setup.mov"), "own1": Path("/o/own1.mov"), "punch": Path("/o/punch.mov")}
+        args = mc.ffmpeg_args(plan, Path("/o/out.mp4"), overlays=ov)
+        fc = args[args.index("-filter_complex") + 1]
+        ins = [args[i + 1] for i, a in enumerate(args) if a == "-i"]
+        self.assertEqual(ins[:4], ["/m/IMG_1144.mov", "/m/IMG_1167.mov", "/m/wide-eyed-dog.gif",
+                                   "/m/confused-travolta.mp4"])
+        self.assertEqual(ins[4:7], ["/o/setup.mov", "/o/own1.mov", "/o/punch.mov"])
+        self.assertIn("[1:v]setpts=PTS-STARTPTS,fps=30,trim=end_frame=72,format=yuv444p10le", fc)
+        self.assertIn("[s0][4:v]overlay", fc)
+        self.assertIn("[s1][5:v]overlay", fc)
+        self.assertIn("[s2][s3]concat=n=2:v=1:a=0[mm];[mm][6:v]overlay", fc)
+        self.assertIn("[h0][h1][mt]concat=n=3", fc)
+        self.assertEqual(args[args.index("-frames:v") + 1], "222")
+        args = mc.ffmpeg_args(plan, Path("/o/out.mp4"), overlays={"setup": Path("/o/setup.mov")})
+        self.assertIn("[s1]null[h1];", args[args.index("-filter_complex") + 1])
+
+
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg and ffprobe are needed")
 class ComposeTest(unittest.TestCase):
     """A real ffmpeg compose at a 216x384 canvas from synthetic sources; the file passes render_check."""
@@ -663,6 +817,21 @@ class ComposeTest(unittest.TestCase):
             rows, facts, _ = rc.check_file(out, expected=exp, expect_duration=210 / 30, silent=True)
             self.assertTrue(rc.passed(rows), rc.format_table(out, rows, facts))
             self.assertEqual(facts["nb_frames"], 210)
+
+            # two blocks: her setup and her own shot, then the memes
+            s = own_script()
+            s["setup"]["in_s"] = 0.2
+            s["own"][0].update(in_s=0.5, dur_s=2.0)
+            src = {"setup": mc.Source(setup, 108, 192, 4.0), "own1": mc.Source(setup, 108, 192, 4.0)}
+            for i in s["inserts"]:
+                src[i["ref"]] = mc.Source(meme, 64, 36, 3.0)
+            plan = mc.build_plan(s, profile(), canvas, src)
+            self.assertEqual(plan.problems, [])
+            out = t / "own.mp4"
+            mc.compose(plan, out, overlays=None)
+            rows, facts, _ = rc.check_file(out, expected=exp, expect_duration=210 / 30, silent=True)
+            self.assertTrue(rc.passed(rows), rc.format_table(out, rows, facts))
+            self.assertEqual(facts["nb_frames"], 75 + 60 + 30 + 45)
 
 
 if __name__ == "__main__":
