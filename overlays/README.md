@@ -2,8 +2,9 @@
 
 Remotion project that renders one text overlay for a Reel as a transparent
 ProRes 4444 `.mov` (canvas from style.json, 2160×3840 by default, timeline fps,
-alpha). `build-reel` step 2 calls it once per shot that has an overlay; the files go
-on V2/V3 in Resolve.
+alpha). `build-reel` step 2 calls it once per overlay (`overlays/specs/<shot>-<n>.json`
+from `python -m cf.build <reel> --overlay-specs` → `overlays/<shot>-<n>.mov`); each file
+goes on its own video track (V2, V3, …) in Resolve.
 
 ## Canvas and scale
 

@@ -3,6 +3,7 @@
     python -m cf.build <reel_dir> [--walk <walk_dir>] [--project-name NAME] [--no-stills]
                        [--look <file.cube>|none] [--stills-only [--stills-dir DIR]] [--script FILE]
                        [--no-track] [--ambience-db DB] [--canvas WxH] [--no-superscale]
+    python -m cf.build <reel_dir> --overlay-specs
 
 Rules: ``docs/resolve-rules.md``; contract: ``.claude/skills/build-reel/SKILL.md``;
 decision to rebuild rather than patch: ``docs/adr/0001-timeline-rebuilt-from-plan.md``.
@@ -22,6 +23,12 @@ the timeline start for the picture's length, source in-point ``script.track_in_s
 (default 0.6 s); the A1 ambience sits at ``style.audio.ambience_db``. ``cuts.json``
 ``beat_markers`` become timeline markers (downbeats Blue, other beats Cyan).
 
+Overlays: every entry of a shot's ``overlays`` is its own file ``overlays/<shot>-<n>.mov``
+(a lone overlay may still be the older ``overlays/<shot>.mov``) on its own video track from
+V2 up: each overlay takes the lowest track free at its record frame, and tracks are added as
+needed, so two overlays on one shot are never merged into one file. ``--overlay-specs`` writes
+their render specs to ``overlays/specs/<shot>-<n>.json`` without touching Resolve.
+
 The project and timeline resolution come from ``--canvas`` (a ``style.json`` ``canvases``
 name or WxH, e.g. ``1080x1920`` for a comparison build), else the Script's ``canvas``
 (``landscape`` = 3840x2160), else ``style.json`` ``canvas`` (2160x3840); ``cf.canvas.for_reel``. Source clips whose display height
@@ -39,9 +46,9 @@ with more than 8 px of black at an edge fails the build. ``smart`` (opt-in) runs
 ``GetSmartReframeStatus()``. The Smart Reframe keyframes do not show in ``GetProperties()``
 (Pan reads 0), so the still is its read-back. ``x_end`` is not animated (no keyframe API).
 
-The planning part (``plan_shots``, ``plan_track``, ``beat_marker_plan``, ``append_infos``,
-``source_end``, ``plan_reframes``) is pure and has no Resolve dependency, so it is unit-tested
-in ``tests/test_build_plan.py`` and ``tests/test_reframe.py``.
+The planning part (``plan_shots``, ``assign_overlay_tracks``, ``overlay_specs``, ``plan_track``,
+``beat_marker_plan``, ``append_infos``, ``source_end``, ``plan_reframes``) is pure and has no Resolve
+dependency, so it is unit-tested in ``tests/test_build_plan.py`` and ``tests/test_reframe.py``.
 """
 
 from __future__ import annotations
@@ -106,6 +113,7 @@ ROLE_MARKER_COLOR = {"hook": "Red", "build": "Green", "payoff": "Yellow", "loop"
 DOWNBEAT_MARKER_COLOR = "Blue"
 BEAT_MARKER_COLOR = "Cyan"
 VIDEO_TRACK_NAMES = {1: "shots", 2: "overlays", 3: "overlays 2"}
+FIRST_OVERLAY_TRACK = 2
 AUDIO_TRACK_NAMES = {1: "ambience", 2: "music"}
 DEFAULT_TRACK_FADE_OUT_S = 0.6
 SMART_REFRAME_TIMEOUT_S = 600
@@ -119,6 +127,28 @@ class BuildError(RuntimeError):
 
 # -- pure planning ---------------------------------------------------------------
 @dataclass
+class PlannedOverlay:
+    shot: str                   # shot id it starts on
+    n: int                      # 1-based position in the shot's overlays
+    text: str
+    type: str                   # script overlay type (place, fact, line)
+    anchor: str | None          # slot name; None = the preset's placement for the type
+    span: int                   # shots it covers, its own first (clipped at the last shot)
+    record_frame: int           # absolute: the start shot's record frame
+    frames: int                 # to the end of the last spanned shot
+    track: int = FIRST_OVERLAY_TRACK  # video track index (V2, V3, ...)
+
+    @property
+    def name(self) -> str:
+        """``<shot>-<n>``: the spec ``overlays/specs/<name>.json`` and the file ``overlays/<name>.mov``."""
+        return f"{self.shot}-{self.n}"
+
+    @property
+    def record_end(self) -> int:
+        return self.record_frame + self.frames
+
+
+@dataclass
 class PlannedShot:
     id: str
     clip: str
@@ -126,7 +156,6 @@ class PlannedShot:
     role: str
     speed: float
     transition: str
-    overlay_text: str | None
     clip_fps: float
     record_offset: int          # timeline frames from the timeline start
     record_frame: int           # absolute (timeline start + offset)
@@ -136,12 +165,16 @@ class PlannedShot:
     src_end_after_speed: float  # exclusive; the source range once SetSpeed applies
     fade_in: int = 0
     fade_out: int = 0
-    overlay_span: int = 1       # shots the overlay covers, this one first (script overlay.span)
-    overlay_frames: int = 0     # V2 length: from this shot's record frame to the end of the last spanned shot
+    overlays: list[PlannedOverlay] = field(default_factory=list)  # the overlays starting on this shot
 
     @property
     def record_end(self) -> int:
         return self.record_frame + self.duration
+
+    @property
+    def overlay_text(self) -> str | None:
+        """The overlays' texts for the shot marker's note."""
+        return " / ".join(o.text for o in self.overlays) or None
 
 
 def _frac(x: float) -> Fraction:
@@ -225,8 +258,7 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
         next_off = off + dur
         path = str(Path(raw_dir) / s.clip) if raw_dir else c.get("path") or s.clip
         out.append(PlannedShot(
-            id=s.id, clip=s.clip, path=path, role=s.role, speed=s.speed, transition=s.transition,
-            overlay_text=s.overlay.text if s.overlay else None, clip_fps=cfps,
+            id=s.id, clip=s.clip, path=path, role=s.role, speed=s.speed, transition=s.transition, clip_fps=cfps,
             record_offset=off, record_frame=start_frame + off, duration=dur, src_start=src_start,
             src_end=source_end(src_start, dur, cfps, fps),
             src_end_after_speed=source_end(src_start, dur, cfps, fps, s.speed),
@@ -240,14 +272,15 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
         if b.record_offset < a.record_offset + a.duration:
             raise BuildError(f"shots {a.id} and {b.id} overlap on V1")
     for i, (s, p) in enumerate(zip(script.shots, out)):
-        if s.overlay is None:
-            continue
-        span = max(1, int(s.overlay.span))
-        last = min(i + span, len(out)) - 1
-        if i + span > len(out):
-            notes.append(f"{p.id}: overlay span {span} runs past the last shot; it ends with {out[last].id}")
-        p.overlay_span = last - i + 1
-        p.overlay_frames = out[last].record_end - p.record_frame
+        for n, o in enumerate(s.overlays, 1):
+            span = max(1, int(o.span))
+            last = min(i + span, len(out)) - 1
+            if i + span > len(out):
+                notes.append(f"{p.id}-{n}: overlay span {span} runs past the last shot; it ends with {out[last].id}")
+            p.overlays.append(PlannedOverlay(
+                shot=p.id, n=n, text=o.text, type=o.type, anchor=o.anchor, span=last - i + 1,
+                record_frame=p.record_frame, frames=out[last].record_end - p.record_frame))
+    assign_overlay_tracks([o for p in out for o in p.overlays])
     if script.ending == "loop_seamless" and len(out) > 1:
         first, last = out[0], out[-1]
         if first.clip == last.clip and abs(first.speed - 1) < 1e-9 and abs(last.speed - 1) < 1e-9:
@@ -262,6 +295,49 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
                 last.src_end = source_end(want, last.duration, last.clip_fps, fps)
                 last.src_end_after_speed = last.src_end
     return out, notes
+
+
+def assign_overlay_tracks(overlays: list[PlannedOverlay]) -> int:
+    """Put every overlay on its own video track, V2 upward: each takes the lowest track that is
+    free from its record frame on (in timeline order), so overlays that are on screen together
+    (two on one shot, or one inside another's span) sit on different tracks and none is merged.
+    Returns the highest track used (``FIRST_OVERLAY_TRACK`` when there are none)."""
+    ends: list[int] = []  # per track from V2: the record frame where its last overlay ends
+    for o in sorted(overlays, key=lambda o: (o.record_frame, o.shot, o.n)):
+        t = next((k for k, end in enumerate(ends) if end <= o.record_frame), len(ends))
+        if t == len(ends):
+            ends.append(0)
+        ends[t] = o.record_end
+        o.track = FIRST_OVERLAY_TRACK + t
+    return FIRST_OVERLAY_TRACK + max(len(ends) - 1, 0)
+
+
+def video_track_names(count: int) -> dict[int, str]:
+    """Names for V1..V<count>: "shots", "overlays", "overlays 2", "overlays 3", ..."""
+    return {**VIDEO_TRACK_NAMES, **{k: f"overlays {k - 1}" for k in range(4, count + 1)}}
+
+
+def overlay_specs(script: Script, shots: list[PlannedShot], fps: float, style_path: str | Path,
+                  canvas: str | None = None) -> dict[str, dict]:
+    """One ``overlays/render.mjs`` spec per overlay, keyed by its name ``<shot>-<n>``.
+
+    ``duration_s`` is the overlay's planned length (its spanned shots) in whole timeline frames.
+    A ``line`` overlay on the first shot that carries the hook text renders as ``type: hook``.
+    ``anchor`` and ``canvas`` (the canvas spec, e.g. ``landscape``) are written only when set;
+    the preset comes from style.json ``typography.preset``.
+    """
+    out: dict[str, dict] = {}
+    for i, p in enumerate(shots):
+        for o in p.overlays:
+            is_hook = i == 0 and o.text.strip() == script.hook.text.strip()
+            spec = {"text": o.text, "type": "hook" if is_hook else o.type,
+                    "duration_s": round(o.frames / fps, 6), "style_path": str(style_path)}
+            if o.anchor:
+                spec["anchor"] = o.anchor
+            if canvas:
+                spec["canvas"] = canvas
+            out[o.name] = spec
+    return out
 
 
 def loop_seam(shots: list[PlannedShot], fps: float = 30) -> dict:
@@ -761,7 +837,8 @@ class Builder:
         r.notes.extend(notes)
         self.plan = shots
 
-        d.ensure_tracks(tl, "video", 3, VIDEO_TRACK_NAMES)
+        n_video = max([3, *(o.track for s in shots for o in s.overlays)])
+        d.ensure_tracks(tl, "video", n_video, video_track_names(n_video))
         d.ensure_tracks(tl, "audio", 1, {1: AUDIO_TRACK_NAMES[1]})
 
         vids = d.append(append_infos(shots, items, media_type=1, track_index=1))
@@ -1074,15 +1151,22 @@ class Builder:
         r.timeline["audio_spill"] = {"tracks_created_by_append": n, "items_removed": spilled}
         r.check("audio tracks after spill cleanup", 1, int(d.call(tl.GetTrackCount, "audio")))
 
+    def overlay_file(self, s: PlannedShot, o: PlannedOverlay) -> Path:
+        """``overlays/<shot>-<n>.mov``; a shot's lone overlay may still be the older ``overlays/<shot>.mov``."""
+        f = self.reel_dir / "overlays" / f"{o.name}.mov"
+        legacy = self.reel_dir / "overlays" / f"{s.id}.mov"
+        if not f.exists() and len(s.overlays) == 1 and legacy.exists():
+            self.r.notes.append(f"{o.name}: using the older file name {legacy.name}; render it as {f.name}")
+            return legacy
+        return f
+
     def overlays(self) -> None:
         d, r = self.d, self.r
         placed, missing = [], []
-        for s in self.plan:
-            if not s.overlay_text:
-                continue
-            f = self.reel_dir / "overlays" / f"{s.id}.mov"
+        for s, o in ((s, o) for s in self.plan for o in s.overlays):
+            f = self.overlay_file(s, o)
             if not f.exists():
-                missing.append({"shot": s.id, "text": s.overlay_text, "expected_file": str(f)})
+                missing.append({"overlay": o.name, "text": o.text, "expected_file": str(f)})
                 continue
             (mpi,) = d.import_media([f], bin_name=f"{self.walk} overlays")
             frames = int(float((d.call(mpi.GetClipProperty) or {}).get("Frames") or 0))
@@ -1094,30 +1178,59 @@ class Builder:
             old = frames
             frames = int(float((d.call(mpi.GetClipProperty) or {}).get("Frames") or 0))
             if on_disk and old != on_disk:
-                r.notes.append(f"{s.id}: overlay pool item had {old} frames, file has {on_disk}; "
+                r.notes.append(f"{o.name}: overlay pool item had {old} frames, file has {on_disk}; "
                                f"ReplaceClip returned {ok}, now {frames}")
             elif not ok:
-                r.notes.append(f"{s.id}: ReplaceClip returned {ok}")
-            r.check(f"{s.id} overlay pool frames = file frames", on_disk or frames, frames)
+                r.notes.append(f"{o.name}: ReplaceClip returned {ok}")
+            r.check(f"{o.name} overlay pool frames = file frames", on_disk or frames, frames)
             res = (d.call(mpi.GetClipProperty) or {}).get("Resolution")
             if res and res != f"{self.width}x{self.height}":
-                r.notes.append(f"{s.id}: overlay is {res}, the canvas {self.width}x{self.height}; Resolve scales "
+                r.notes.append(f"{o.name}: overlay is {res}, the canvas {self.width}x{self.height}; Resolve scales "
                                "it to fit (soft text when upscaled): re-render the overlay at the canvas size")
-            want = s.overlay_frames or s.duration
-            if frames != want:
-                span = f" ({s.overlay_span} shots)" if s.overlay_span > 1 else ""
-                r.notes.append(f"{s.id}: overlay is {frames} frames, the shot{span} {want}; "
+            if frames != o.frames:
+                span = f" ({o.span} shots)" if o.span > 1 else ""
+                r.notes.append(f"{o.name}: overlay is {frames} frames, the shot{span} {o.frames}; "
                                "re-render the overlay with that duration")
-            r.check(f"{s.id} overlay frames = spanned duration", want, frames)
+            r.check(f"{o.name} overlay frames = spanned duration", o.frames, frames)
             (it,) = d.append([{"mediaPoolItem": mpi, "startFrame": 0, "endFrame": frames, "mediaType": 1,
-                               "trackIndex": 2, "recordFrame": s.record_frame}])
+                               "trackIndex": o.track, "recordFrame": o.record_frame}])
             got = [int(d.call(it.GetStart)), int(d.call(it.GetEnd))]
-            r.check(f"{s.id} overlay on V2", [s.record_frame, s.record_frame + frames], got)
-            placed.append({"shot": s.id, "file": str(f), "frames": frames, "start": got[0], "end": got[1]})
+            r.check(f"{o.name} overlay on V{o.track}", [o.record_frame, o.record_frame + frames], got)
+            placed.append({"overlay": o.name, "track": o.track, "file": str(f), "frames": frames,
+                           "start": got[0], "end": got[1]})
+        # Read back each overlay track: exactly the overlays planned on it (none merged, none stacked).
+        for t in sorted({p["track"] for p in placed}):
+            on_track = d.call(self.tl.GetItemListInTrack, "video", t) or []
+            want = sorted([p["start"], p["end"]] for p in placed if p["track"] == t)
+            r.check(f"V{t} overlay items", want, sorted([int(d.call(it.GetStart)), int(d.call(it.GetEnd))]
+                                                        for it in on_track))
         r.overlays = {"placed": placed, "missing": missing}
         if missing:
             r.notes.append(f"{len(missing)} overlay file(s) missing, skipped: "
-                           + ", ".join(m["shot"] for m in missing))
+                           + ", ".join(m["overlay"] for m in missing))
+
+    def write_overlay_specs(self) -> int:
+        """Write ``overlays/specs/<shot>-<n>.json`` for every overlay (no Resolve) and print the renders.
+
+        Lengths come from the plan with the manifest fps; Resolve reads some clips at another
+        rate (59.94 as 60), which can move a frame without ``cuts.json``: the build's
+        "overlay frames" check catches that."""
+        problems = validate(self.script, self.manifest, self.style)
+        if problems:
+            print("script.json does not validate:\n- " + "\n- ".join(problems), file=sys.stderr)
+            return 1
+        shots, _ = plan_shots(self.script, self.manifest, 0, self.fps, self.cuts)
+        specs = overlay_specs(self.script, shots, self.fps, STYLE_PATH, self.r.canvas.get("spec"))
+        spec_dir = self.reel_dir / "overlays" / "specs"
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        tracks = {o.name: o.track for s in shots for o in s.overlays}
+        for name, spec in specs.items():
+            path = spec_dir / f"{name}.json"
+            path.write_text(json.dumps(spec, ensure_ascii=False) + "\n")
+            print(f"V{tracks[name]} {name}: {spec['type']} {spec['duration_s']:g} s {spec['text']!r}\n"
+                  f"   node overlays/render.mjs --spec {path} --out {self.reel_dir / 'overlays' / (name + '.mov')}")
+        print(f"{len(specs)} overlay spec(s) in {spec_dir}")
+        return 0
 
     def look(self) -> None:
         d, r = self.d, self.r
@@ -1615,6 +1728,8 @@ def main(argv: list[str] | None = None) -> int:
                                      "canvas and style.json canvas; e.g. 1080x1920 for a comparison build")
     ap.add_argument("--no-superscale", action="store_true",
                     help="Super Scale off (1) on every clip instead of style.json upscale on the low-res ones")
+    ap.add_argument("--overlay-specs", action="store_true",
+                    help="no Resolve: write overlays/specs/<shot>-<n>.json (one per overlay) and print the renders")
     args = ap.parse_args(argv)
     if args.canvas:
         from cf.canvas import resolve  # noqa: PLC0415
@@ -1637,10 +1752,11 @@ def main(argv: list[str] | None = None) -> int:
         print("--stills-only and --no-stills contradict each other", file=sys.stderr)
         return 2
     stills_dir = Path(args.stills_dir).expanduser().resolve() if args.stills_dir else None
-    return Builder(reel_dir, walk_dir, args.project_name, stills=not args.no_stills, look=args.look,
-                   stills_only=args.stills_only, stills_dir=stills_dir, script_path=script_path,
-                   use_track=not args.no_track, ambience_db=args.ambience_db, canvas=args.canvas,
-                   superscale=not args.no_superscale).run()
+    builder = Builder(reel_dir, walk_dir, args.project_name, stills=not args.no_stills, look=args.look,
+                      stills_only=args.stills_only, stills_dir=stills_dir, script_path=script_path,
+                      use_track=not args.no_track, ambience_db=args.ambience_db, canvas=args.canvas,
+                      superscale=not args.no_superscale)
+    return builder.write_overlay_specs() if args.overlay_specs else builder.run()
 
 
 if __name__ == "__main__":

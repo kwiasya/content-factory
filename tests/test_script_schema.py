@@ -127,11 +127,11 @@ class BadScriptTest(unittest.TestCase):
         d["target_length_s"] = 3
         self.assertViolation(d, "overlay holds 1.50 s over 2 shots")
 
-    def test_spanned_shot_must_not_carry_its_own_overlay(self):
+    def test_spanned_shot_must_not_carry_a_second_label_in_the_same_place(self):
         d = good()
         d["shots"][1]["overlay"]["span"] = 2
         d["shots"][2]["overlay"] = {"text": "Neues Palais", "type": "place"}
-        self.assertViolation(d, "(s03): has its own overlay inside the span of s02's overlay")
+        self.assertViolation(d, "(s03): overlay overlaps s02's overlay at the same anchor (default for place)")
 
     def test_overlay_span_past_the_last_shot(self):
         d = good()
@@ -144,6 +144,12 @@ class BadScriptTest(unittest.TestCase):
             d["shots"][1]["overlay"]["span"] = bad
             with self.assertRaises(ScriptError, msg=repr(bad)):
                 from_dict(d)
+
+    def test_line_inside_a_span_at_another_anchor_is_fine(self):
+        d = good()
+        d["shots"][1]["overlay"]["span"] = 2
+        d["shots"][2]["overlay"] = {"text": "my feet after 5 castles 💀", "type": "line", "anchor": "upper-center"}
+        self.assertEqual(problems(d), [])
 
     def test_shot_too_short_and_too_long(self):
         d = good()
@@ -229,6 +235,101 @@ class BadScriptTest(unittest.TestCase):
         d["shots"] = []
         with self.assertRaises(ScriptError):
             from_dict(d)
+
+
+PLACE = {"text": "Sanssouci, Potsdam", "type": "place", "anchor": "lower-left-loose"}
+JOKE = {"text": "me pretending I'm not freezing 🫠", "type": "line", "anchor": "upper-center"}
+
+
+class OverlaysListTest(unittest.TestCase):
+    """`overlays: [...]`: several overlays on one shot, each validated on its own."""
+
+    def with_overlays(self, *ovs) -> dict:
+        d = good()
+        del d["shots"][1]["overlay"]
+        d["shots"][1]["overlays"] = [copy.deepcopy(o) for o in ovs]
+        return d
+
+    def assertViolation(self, d: dict, needle: str):
+        found = problems(d)
+        self.assertTrue(any(needle in p for p in found), f"{needle!r} not in {found}")
+
+    def test_place_label_and_self_ironic_line_on_one_shot(self):
+        d = self.with_overlays(PLACE, JOKE)
+        self.assertEqual(problems(d), [])
+        sh = from_dict(d).shots[1]
+        self.assertEqual([(o.text, o.type, o.anchor, o.span) for o in sh.overlays],
+                         [("Sanssouci, Potsdam", "place", "lower-left-loose", 1),
+                          ("me pretending I'm not freezing 🫠", "line", "upper-center", 1)])
+        self.assertIs(sh.overlay, sh.overlays[0])  # `overlay` is the first entry
+
+    def test_single_overlay_form_is_a_one_entry_list(self):
+        sh = from_dict(good()).shots[1]
+        self.assertEqual(len(sh.overlays), 1)
+        self.assertEqual((sh.overlay.text, sh.overlay.anchor), ("Sanssouci, Potsdam", None))
+        self.assertEqual(from_dict(good()).shots[0].overlays, [])
+
+    def test_empty_list_is_no_overlay(self):
+        d = self.with_overlays()
+        self.assertEqual(from_dict(d).shots[1].overlay, None)
+        self.assertEqual(problems(d), [])
+
+    def test_overlay_and_overlays_together_is_an_error(self):
+        d = self.with_overlays(PLACE)
+        d["shots"][1]["overlay"] = JOKE
+        with self.assertRaisesRegex(ScriptError, "both 'overlay' and 'overlays'"):
+            from_dict(d)
+
+    def test_overlays_must_be_a_list_of_objects(self):
+        for bad in ({"text": "x", "type": "line"}, ["x"], [{"type": "line"}]):
+            d = good()
+            d["shots"][1]["overlays"] = bad
+            del d["shots"][1]["overlay"]
+            with self.assertRaises(ScriptError, msg=repr(bad)):
+                from_dict(d)
+
+    def test_each_overlay_is_checked_for_words_type_and_hold(self):
+        long = dict(JOKE, text="one two three four five six seven eight nine")
+        self.assertViolation(self.with_overlays(PLACE, long), "(s02): overlays[1] has 9 words")
+        self.assertViolation(self.with_overlays(PLACE, dict(JOKE, type="joke")), "overlays[1].type 'joke'")
+        d = self.with_overlays(PLACE, JOKE)
+        d["shots"][1]["out_s"] = 3.8  # 1.8 s
+        d["target_length_s"] = 8
+        found = problems(d)
+        for n in (0, 1):
+            self.assertTrue(any(f"overlays[{n}] holds 1.80 s" in p for p in found), found)
+
+    def test_span_lifts_the_hold_per_overlay(self):
+        d = self.with_overlays(PLACE, JOKE)
+        d["shots"][1]["out_s"] = 3.8
+        d["target_length_s"] = 8
+        for o in d["shots"][1]["overlays"]:
+            o["span"] = 2
+        self.assertEqual(problems(d), [])
+        d["shots"][1]["overlays"][1]["span"] = 3
+        self.assertViolation(d, "overlays[1] span 3 runs past the last shot")
+
+    def test_two_overlays_at_the_same_anchor_on_one_shot(self):
+        self.assertViolation(self.with_overlays(PLACE, dict(JOKE, anchor="lower-left-loose")),
+                             "(s02): overlays[1] overlaps s02's overlays[0] at the same anchor (lower-left-loose)")
+
+    def test_two_overlays_without_anchor(self):
+        # Both fall back to the preset's place for their type: same type = same spot.
+        self.assertViolation(self.with_overlays(dict(PLACE, anchor=None), dict(PLACE, anchor=None, text="Park")),
+                             "at the same anchor (default for place)")
+        self.assertEqual(problems(self.with_overlays({"text": "Sanssouci", "type": "place"},
+                                                     {"text": "me again 🫠", "type": "line"})), [])
+
+    def test_same_anchor_through_a_span(self):
+        d = self.with_overlays(dict(JOKE, span=2))
+        d["shots"][2]["overlay"] = dict(PLACE, anchor="upper-center")
+        self.assertViolation(d, "(s03): overlay overlaps s02's overlay at the same anchor (upper-center)")
+        d["shots"][2]["overlay"]["anchor"] = "lower-left-loose"
+        self.assertEqual(problems(d), [])
+
+    def test_unknown_anchor(self):
+        self.assertViolation(self.with_overlays(PLACE, dict(JOKE, anchor="top-middle")),
+                             "overlays[1].anchor 'top-middle' is not a slot")
 
 
 def seamless() -> dict:
@@ -325,6 +426,14 @@ class LoopSeamlessTest(unittest.TestCase):
         # The hook overlay on the first shot is fine: it fades in after the seam.
         d = seamless()
         d["shots"][0]["overlay"] = {"text": "This lake hides a whole palace", "type": "line"}
+        self.assertEqual(self.found(d), [])
+
+    def test_no_overlays_list_on_the_last_shot(self):
+        d = seamless()
+        del d["shots"][-1]["overlay"]
+        d["shots"][-1]["overlays"] = [JOKE]
+        self.assertSeam(d, "s04 must have overlay null")
+        d["shots"][-1]["overlays"] = []
         self.assertEqual(self.found(d), [])
 
     def test_needs_two_shots(self):

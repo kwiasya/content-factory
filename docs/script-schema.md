@@ -16,8 +16,10 @@ A Script is the text plan of one Reel, written before anything touches Resolve. 
 | `hook.type` | enum | `visual_payoff` · `pov` · `list` · `contrast` · `question` · `curiosity` |
 | `hook.text` | string | ≤8 words, on screen from frame 0 |
 | `hook.clip` | clip id | The most striking Clip, not the chronologically first |
-| `shots[]` | list | Ordered. Each: `clip`, `in_s`, `out_s`, `role` (`hook` · `build` · `payoff` · `loop`), `speed` (1.0 default), `overlay` (`{text, type}` or `null`, type ∈ `place` · `fact` · `line`), `transition` (`cut` · `dissolve` · `dip`), `beat_index` (int or null) |
-| `shots[].id` | string, optional | Shot id used for markers, `cuts.json` and `overlays/<id>.mov`; defaults to `s01`, `s02`, … by position |
+| `shots[]` | list | Ordered. Each: `clip`, `in_s`, `out_s`, `role` (`hook` · `build` · `payoff` · `loop`), `speed` (1.0 default), `overlays` (see below), `transition` (`cut` · `dissolve` · `dip`), `beat_index` (int or null) |
+| `shots[].overlays` | list, optional | The shot's text overlays, each `{text, type, span, anchor}`: `type` ∈ `place` · `fact` · `line`; `span` int ≥ 1 (default 1, see the writing rules); `anchor` optional, a slot name from `overlays/src/slots.json` (or the canvas preset's `slots`), e.g. `upper-center`, `lower-left-loose`; absent = the preset's own place for that type. Each overlay is its own spec `overlays/specs/<id>-<n>.json` and file `overlays/<id>-<n>.mov` (n from 1) and goes on its own video track (V2, V3, …; cf.build adds tracks as needed), so a place label and the self-ironic line on one shot are never merged into one file |
+| `shots[].overlay` | object or null, optional | The single-overlay form, same fields: `overlay: {…}` is `overlays: [{…}]`, `null` is no overlay. A shot has `overlay` or `overlays`, not both |
+| `shots[].id` | string, optional | Shot id used for markers, `cuts.json` and `overlays/<id>-<n>.mov`; defaults to `s01`, `s02`, … by position |
 | `shots[].reframe` | object, optional | How a clip wider than the canvas (landscape on the 9:16 canvas) fills it: `{mode, x, x_end, zoom, hold_s}`. `mode` ∈ `follow` (a static window placed on the person by the build) · `center` · `pan` (a fixed window at `x`) · `smart` (Resolve Smart Reframe; opt-in only, it leaves black bands). `x` −1..1, pan only and required for it: −1 = window at the left edge of the source, 1 = right edge. `x_end` (pan only, −1..1) is recorded but not animated: the API cannot keyframe Pan, so the build applies a static pan at `x`. `zoom` ≥ 1 (default 1): extra zoom over "source height fills the canvas height". Default when absent: `style.json` `reframe.default` (`follow`) for a clip wider than the canvas, none otherwise. Only allowed on a clip whose aspect differs from the canvas, and only for clips wider than it. See Reframe below |
 | `shots[].fade_in_s`, `fade_out_s` | number, optional | Fade from/to black on picture and sound, seconds (default 0) |
 | `ending` | enum | `loop_seamless` (default: the last shot is the run-up into the first shot's first source frame, see below) · `loop_match` (weaker: the last shot ends in a similar pose or move to frame 0) · `reveal_last` · `question_overlay`. Default from `style.ending.default` |
@@ -37,8 +39,9 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 
 - Hook text is 5–8 words and sits inside the safe zone from `style.json`; `hook.clip` is the first shot's clip.
 - A shot's `transition` is the one into that shot (on the first shot: from black). Durations are timeline seconds: `(out_s − in_s) / speed`.
-- One overlay per scene or location change; each overlay holds ≥2 s; ≤8 words.
-- `overlay.span` (int ≥ 1, default 1) stretches one overlay over this shot and the next span−1 shots (one label for a place cut into short shots): it starts at this shot's record frame and lasts the spanned shots' summed duration (from `cuts.json` record frames when present), which is what the ≥2 s hold checks; the spanned shots carry no overlay of their own, and a span never reaches the last shot of a `loop_seamless` Reel.
+- One place overlay per scene or location change; every overlay (each entry of `overlays`) holds ≥2 s; ≤8 words.
+- `span` (int ≥ 1, default 1) stretches one overlay over this shot and the next span−1 shots (one label for a place cut into short shots): it starts at this shot's record frame and lasts the spanned shots' summed duration (from `cuts.json` record frames when present), which is what the ≥2 s hold checks. A span never reaches the last shot of a `loop_seamless` Reel.
+- Two overlays never sit on the same anchor at the same time: when their shot ranges (start shot to the end of its span) intersect, they need different `anchor`s. Two overlays without an `anchor` share a spot when they have the same `type` (the preset places them by type), so a spanned shot carries no second place label unless it is anchored elsewhere.
 - A `place` overlay says what the place is, not only its name: "Hotel: FlipFlop Cala Romantica", "Beach: Cala Romántica", "Park Babelsberg" is fine only when the name already says it (author rule, 2026-10-11).
 - Shots are ordered for impact: the Script reorders Clips freely, chronology is one option among many.
 - Every `in_s`/`out_s` lies inside the Clip's duration and the shot lasts 1.5–5 s, longer only for `payoff`.
@@ -46,7 +49,7 @@ Positive rules, each one checkable by the validator (`src/cf/script_schema.py`):
 - A number in the hook comes with the mechanism in the same line.
 - The stake comes before any name: say what the viewer gets, then name the place.
 - Text reads without sound: overlays carry the story.
-- One self-ironic line about the author per Reel (beauty + self-irony is what people subscribe for), as a `line` overlay at the start or near the end, e.g. "me pretending I'm not freezing 🫠", "my feet after 5 castles 💀" (author rule, 2026-10-12).
+- One self-ironic line about the author per Reel (beauty + self-irony is what people subscribe for), as a `line` overlay at the start or near the end (often a second entry in `overlays` next to a place label, at its own `anchor`), e.g. "me pretending I'm not freezing 🫠", "my feet after 5 castles 💀" (author rule, 2026-10-12).
 - Time-limited events get urgency in the caption with the end date verified on the official site that year, e.g. "Festival ends on 18 October — go this weekend".
 - Only the user's own footage; no watermarks.
 - No on-camera speech: a shot never overlaps a second flagged `speech_on_camera` in the Shot log (until the voiceover phase). Off-camera speech (the author filming) is allowed; music covers it.
@@ -68,6 +71,6 @@ Every Reel loops: Instagram replays it without a gap, so the last frame should b
 - In frames, as Resolve places them (`src/cf/frames.py`): the last shot, continued by one timeline frame, shows the first shot's first source frame. At equal rates (and 60 on 30) that is `shots[-1].out_s == shots[0].in_s`. For a 29.97 clip on the 30 fps timeline the run-up starts one source frame later than the seconds say: its `in_s` is `run_up_start(P, n) / fps` and its `out_s` = `in_s + n / 30` ends a frame past P. The validator prints the in-point to use; cf.build derives it the same way.
 - Both shots at `speed` 1.0.
 - `shots[0].transition` is `cut` and `shots[0].fade_in_s` is 0; `shots[-1].fade_out_s` is 0. The first play starts with a hard cut from black; the loop has no black.
-- `shots[-1].overlay` is null. An overlay fills its shot, so one on the last shot would vanish at the seam. The hook overlay on the first shot is fine: it fades in after the seam.
+- `shots[-1]` has no overlay (`overlay` null, `overlays` empty). An overlay fills its shot, so one on the last shot would vanish at the seam. The hook overlay on the first shot is fine: it fades in after the seam.
 
 Choose the hook from a Clip whose preceding seconds are usable, so the last shot (1–1.5 s, about 3 beats) can be the run-up. On a beat grid, end the last shot on a downbeat; its `in_s` is P minus its frame count, so the build lays it exactly up to the hook's first source frame (`cf.build` checks the seam in its read-back). The music cannot loop seamlessly: it restarts at `track_in_s` when the picture does.

@@ -3,8 +3,8 @@
 import unittest
 from pathlib import Path
 
-from cf.build import (BuildError, append_infos, beat_marker_plan, loop_seam, plan_shots, plan_track,
-                      source_end, still_stats, timecode)
+from cf.build import (BuildError, append_infos, beat_marker_plan, loop_seam, overlay_specs, plan_shots,
+                      plan_track, source_end, still_stats, timecode, video_track_names)
 from cf import frames
 from cf.script_schema import from_dict
 
@@ -180,8 +180,9 @@ class OverlaySpanTest(unittest.TestCase):
         s = script([shot("C30.mov", 0.0, 2.0, role="hook", overlay={"text": "Lake", "type": "place"}),
                     shot("C30.mov", 5.0, 6.0)])
         plan, _ = plan_shots(s, MANIFEST, START, 30)
-        self.assertEqual((plan[0].overlay_span, plan[0].overlay_frames), (1, 60))
-        self.assertEqual(plan[1].overlay_frames, 0)
+        (o,) = plan[0].overlays
+        self.assertEqual((o.name, o.span, o.frames, o.track, o.record_frame), ("s01-1", 1, 60, 2, START))
+        self.assertEqual(plan[1].overlays, [])
 
     def test_span_sums_the_spanned_shots(self):
         s = script([shot("C30.mov", 0.0, 1.0, role="hook"),
@@ -189,7 +190,8 @@ class OverlaySpanTest(unittest.TestCase):
                     shot("B24.MOV", 1.0, 2.5), shot("C30.mov", 9.0, 10.0)])
         plan, _ = plan_shots(s, MANIFEST, START, 30)
         self.assertEqual(plan[1].record_frame, START + 30)
-        self.assertEqual((plan[1].overlay_span, plan[1].overlay_frames), (2, 30 + 45))
+        (o,) = plan[1].overlays
+        self.assertEqual((o.span, o.frames, o.record_end), (2, 30 + 45, plan[2].record_end))
 
     def test_span_takes_record_frames_from_cuts_json(self):
         s = script([shot("C30.mov", 0.0, 1.0, role="hook",
@@ -201,14 +203,87 @@ class OverlaySpanTest(unittest.TestCase):
             {"id": "s03", "record_frame_offset": 61, "duration_frames": 41},
             {"id": "s04", "record_frame_offset": 102, "duration_frames": 30}]}
         plan, _ = plan_shots(s, MANIFEST, START, 30, cuts=cuts)
-        self.assertEqual((plan[0].overlay_span, plan[0].overlay_frames), (3, 102))
+        self.assertEqual((plan[0].overlays[0].span, plan[0].overlays[0].frames), (3, 102))
 
     def test_span_past_the_end_is_clipped_and_noted(self):
         s = script([shot("C30.mov", 0.0, 1.0, role="hook"),
                     shot("C30.mov", 2.0, 3.0, overlay={"text": "Lake", "type": "place", "span": 4})])
         plan, notes = plan_shots(s, MANIFEST, START, 30)
-        self.assertEqual((plan[1].overlay_span, plan[1].overlay_frames), (1, 30))
+        self.assertEqual((plan[1].overlays[0].span, plan[1].overlays[0].frames), (1, 30))
         self.assertTrue(any("runs past the last shot" in n for n in notes))
+
+
+class OverlayTracksTest(unittest.TestCase):
+    """Each overlay is its own file on its own video track (V2, V3, ...); none is merged."""
+
+    PLACE = {"text": "Cathedral: Berliner Dom", "type": "place", "span": 2, "anchor": "lower-left-loose"}
+    JOKE = {"text": "me pretending I'm not freezing 🫠", "type": "line", "span": 2, "anchor": "upper-center"}
+
+    def test_two_overlays_on_one_shot_go_on_v2_and_v3(self):
+        s = script([shot("C30.mov", 0.0, 2.0, role="hook"),
+                    shot("C30.mov", 3.0, 4.4, role="payoff", overlays=[self.PLACE, self.JOKE]),
+                    shot("C30.mov", 5.0, 6.0), shot("C30.mov", 9.0, 10.0)])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        a, b = plan[1].overlays
+        self.assertEqual([(o.name, o.track) for o in (a, b)], [("s02-1", 2), ("s02-2", 3)])
+        for o in (a, b):  # both span s02+s03, from s02's record frame
+            self.assertEqual((o.record_frame, o.frames), (START + 60, 42 + 30))
+        self.assertEqual((a.anchor, b.anchor), ("lower-left-loose", "upper-center"))
+        self.assertEqual(plan[1].overlay_text, "Cathedral: Berliner Dom / me pretending I'm not freezing 🫠")
+
+    def test_single_overlay_form_plans_as_the_first_entry(self):
+        s = script([shot("C30.mov", 0.0, 2.0, role="hook", overlay={"text": "Lake", "type": "place"})])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        self.assertEqual([(o.name, o.track) for o in plan[0].overlays], [("s01-1", 2)])
+
+    def test_a_track_is_reused_once_its_overlay_ends(self):
+        # s01's label spans s01+s02; s02's line sits inside that span (V3); s03's label starts
+        # after both end and goes back on V2.
+        s = script([shot("C30.mov", 0.0, 1.0, role="hook", overlay={"text": "Lake", "type": "place", "span": 2}),
+                    shot("C30.mov", 2.0, 4.0, overlays=[{"text": "my feet 💀", "type": "line",
+                                                          "anchor": "upper-center"}]),
+                    shot("C30.mov", 5.0, 7.0, overlay={"text": "Palace", "type": "place"})])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        self.assertEqual([(o.name, o.track) for p in plan for o in p.overlays],
+                         [("s01-1", 2), ("s02-1", 3), ("s03-1", 2)])
+
+    def test_three_at_once_add_a_fourth_video_track(self):
+        three = [{"text": t, "type": "line", "anchor": a}
+                 for t, a in (("one", "upper-center"), ("two", "mid-center"), ("three", "lower-center"))]
+        s = script([shot("C30.mov", 0.0, 2.0, role="hook", overlays=three)])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        self.assertEqual([o.track for o in plan[0].overlays], [2, 3, 4])
+        self.assertEqual(video_track_names(4), {1: "shots", 2: "overlays", 3: "overlays 2", 4: "overlays 3"})
+        self.assertEqual(video_track_names(3), {1: "shots", 2: "overlays", 3: "overlays 2"})
+
+
+class OverlaySpecsTest(unittest.TestCase):
+    def test_one_spec_per_overlay_named_shot_n(self):
+        s = script([shot("C30.mov", 0.0, 2.0, role="hook",
+                         overlay={"text": "one two three four five", "type": "line"}),
+                    shot("C30.mov", 3.0, 4.4, role="payoff", overlays=[OverlayTracksTest.PLACE,
+                                                                        OverlayTracksTest.JOKE]),
+                    shot("C30.mov", 5.0, 6.0)])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        specs = overlay_specs(s, plan, 30, "/repo/style.json")
+        self.assertEqual(list(specs), ["s01-1", "s02-1", "s02-2"])
+        self.assertEqual(specs["s01-1"], {"text": "one two three four five", "type": "hook", "duration_s": 2.0,
+                                          "style_path": "/repo/style.json"})
+        self.assertEqual(specs["s02-1"], {"text": "Cathedral: Berliner Dom", "type": "place", "duration_s": 2.4,
+                                          "style_path": "/repo/style.json", "anchor": "lower-left-loose"})
+        self.assertEqual((specs["s02-2"]["type"], specs["s02-2"]["anchor"], specs["s02-2"]["duration_s"]),
+                         ("line", "upper-center", 2.4))
+        # render.mjs takes round(duration_s * fps) frames: exactly the planned length.
+        for o in (o for p in plan for o in p.overlays):
+            self.assertEqual(round(specs[o.name]["duration_s"] * 30), o.frames)
+
+    def test_canvas_is_written_only_when_set(self):
+        s = script([shot("C30.mov", 0.0, 2.0, role="hook", overlay={"text": "Lake", "type": "place"})])
+        plan, _ = plan_shots(s, MANIFEST, START, 30)
+        self.assertNotIn("canvas", overlay_specs(s, plan, 30, "style.json")["s01-1"])
+        self.assertEqual(overlay_specs(s, plan, 30, "style.json", "landscape")["s01-1"]["canvas"], "landscape")
+        # A line on the first shot that is not the hook text stays a line.
+        self.assertEqual(overlay_specs(s, plan, 30, "style.json")["s01-1"]["type"], "place")
 
 
 class LoopSeamTest(unittest.TestCase):
