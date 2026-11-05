@@ -49,8 +49,8 @@ Backups: `daily` at the first CLI command of the day (after a passing `quick_che
 
 The Mac `Konstantins-MacBook-Pro.local` (Bonjour name "Konstantin’s MacBook Pro") exports the `Shared` share over SMB 3.0.2; the shared root is its `content-factory/` folder.
 
-- **Access.** File Sharing gives `Shared` "Everyone: Read & Write"; guest login is refused, so "Everyone" means any account on the server. Each person mounts with their own server account: the author's is `madvil2`; Nastya needs her own (a sharing-only user is enough), which is not created yet. The ACLs of A5 belonged to the author's Mac; on the server these File Sharing permissions grant access.
-- **Always on.** The server never sleeps and restarts by itself after a power loss. A sleeping or rebooting server is an unmounted share on both Macs.
+- **Access.** File Sharing gives `Shared` "Everyone: Read & Write"; guest login is refused, so "Everyone" means any account on the server. Each person mounts with their own server account: the author's is `madvil2`; Nastya needs her own (a sharing-only user is enough), which is not created yet. Share permissions apply to the share point, not to the files already in it: after the move, `secrets.env` is mode 600 owned by `madvil2`, `factory.db` 644, folders 755, with no ACLs (`rsync -a` does not copy them). Another account can then neither write the store and its journal nor read `secrets.env`; the inherited ACLs of S6 give both accounts access.
+- **Always on.** The server must never sleep and must start again by itself after a power loss. A sleeping or rebooting server is an unmounted share on both Macs.
 - **Wired Ethernet**, strongly recommended. The current link measured 3.3 MB/s in bulk and 360 KB/s on many small files; `db check` (`quick_check` of the 50 MB store) took over 2 minutes, and the `daily` backup at the first CLI command of the day copies the store over the network, so that first command can take minutes.
 
 ## Move to the server Mac (S), 2026-11-05
@@ -67,9 +67,17 @@ S4. Repoint the canonical path: `ln -sfhn /Volumes/Shared/content-factory /Users
 
 S5. Retire the old store, so a Mac not yet switched fails with the mount hint instead of writing a split copy: `mv /Users/madvil2/Shared/content-factory/factory.db /Users/madvil2/Shared/content-factory/factory.db.retired-pre-server`. The rest of the old folder stays for rollback.
 
-S6. Nastya's switch (pending). **[Nastya]** closes Desk and every `cf.*` command; ejects the author's old `Shared` volume; Finder → Connect to Server → `smb://Konstantins-MacBook-Pro.local/Shared` with her server login (not guest), so it mounts at `/Volumes/Shared`, not `/Volumes/Shared-1`; adds it to Login Items. Then `ln -sfhn /Volumes/Shared/content-factory /Users/Shared/content-factory`; `python -m cf.research db check` passes; `test -r /Users/Shared/content-factory/secrets.env && echo ok` prints `ok`; the write checks of N5; and the lock test N5a, now required because both Macs reach the store over the network (the 2026-10-20 run had the author's processes local). If N5a fails, follow its outcome: one writer at a time.
+S6. Server-side ACLs (pending, once Nastya's server account exists). **[author]** in Terminal on the server Mac; take the real path of the `Shared` share's `content-factory/` folder from the server (Finder → Get Info on the shared folder) for `<server path>`, and Nastya's server account name for `<nastya-server-user>`:
 
-Rollback, with everyone stopped: `mv /Users/madvil2/Shared/content-factory/factory.db.retired-pre-server /Users/madvil2/Shared/content-factory/factory.db`, then `ln -sfhn /Users/madvil2/Shared/content-factory /Users/Shared/content-factory` on the author's Mac, and Nastya mounts the author's Mac again (N1 with the author's Mac name). Writes made on the server since S4 are lost unless its `factory.db` is copied over the old one first.
+```sh
+for u in madvil2 <nastya-server-user>; do chmod -R +a "$u allow read,write,append,delete,delete_child,add_file,add_subdirectory,readattr,writeattr,readextattr,writeextattr,readsecurity,list,search,file_inherit,directory_inherit" "<server path>/content-factory"; done
+```
+
+`-R` covers every file already there, `secrets.env` included; `file_inherit,directory_inherit` covers the files created later. `ls -le "<server path>/content-factory/secrets.env"` lists both accounts.
+
+S7. Nastya's switch (pending, after S6). **[Nastya]** closes Desk and every `cf.*` command; ejects the author's old `Shared` volume; Finder → Connect to Server → `smb://Konstantins-MacBook-Pro.local/Shared` with her server login (not guest), so it mounts at `/Volumes/Shared`, not `/Volumes/Shared-1`; adds it to Login Items. Then `ln -sfhn /Volumes/Shared/content-factory /Users/Shared/content-factory`; `python -m cf.research db check` passes; `wc -c < /Users/Shared/content-factory/secrets.env` prints its size (a read, not a permission error); `touch /Users/Shared/content-factory/.nastya-test && rm /Users/Shared/content-factory/.nastya-test` succeeds; `python -m cf.research notes add general "" "Nastya on the server"` succeeds and the author resolves it; the access checks of N5; and the lock test N5a, now required because both Macs reach the store over the network (the 2026-10-20 run had the author's processes local). If N5a fails, follow its outcome: one writer at a time.
+
+S-rollback, with everyone stopped: `mv /Users/madvil2/Shared/content-factory/factory.db.retired-pre-server /Users/madvil2/Shared/content-factory/factory.db`, then `ln -sfhn /Users/madvil2/Shared/content-factory /Users/Shared/content-factory` on the author's Mac, and Nastya mounts the author's Mac again (N1 with the author's Mac name). Writes made on the server since S4 are lost unless its `factory.db` is copied over the old one first.
 
 ## History: move and merge onto the author's Mac (A), 2026-10-20
 
@@ -147,17 +155,17 @@ A10. Commit the repo changes (the Pack config root) when the author asks. Nothin
 
 ## Nastya's Mac (N)
 
-First run 2026-10-20 against the author's Mac; N4 and N7 were one-off. N1, N2 and N5–N8 are how a Mac connects to the server today; S6 is Nastya's switch.
+First run 2026-10-20 against the author's Mac. One-off steps of that run: N4 and N7, and the store and `secrets.env` parts of N3. How a Mac connects to the server today: N1, N2, the install part of N3, N5, N5a, N6 and N8, after the server-side ACLs of S6. Nastya's switch: S7.
 
 N1. **[Nastya]** Finder → Connect to Server → `smb://Konstantins-MacBook-Pro.local/Shared` with her server login (not guest); it mounts at `/Volumes/Shared` (if `/Volumes/Shared-1` appears, eject the other volume first); add it to Login Items.
 
 N2. `ln -sfhn /Volumes/Shared/content-factory /Users/Shared/content-factory`; `ls -l /Users/Shared/content-factory` must point at `/Volumes/Shared/content-factory`.
 
-N3. `git pull` (the checkout must have store V10), `uv pip install --python .venv/bin/python -e '.[desk,research]'`, `npm --prefix web install && npm --prefix web run build`; `.env` gets `CF_PERSON` only if she wants a name other than her macOS user; **[Nastya]** adds her four `INSTAGRAM_*` lines to `/Users/Shared/content-factory/secrets.env` and deletes them from her `.env` (on the server the File Sharing permissions give her the file; check it with the `test -r` of S6).
+N3. `git pull` (the checkout must have store V10), `uv pip install --python .venv/bin/python -e '.[desk,research]'`, `npm --prefix web install && npm --prefix web run build`; `.env` gets `CF_PERSON` only if she wants a name other than her macOS user; **[Nastya]** adds her four `INSTAGRAM_*` lines to `/Users/Shared/content-factory/secrets.env` and deletes them from her `.env` (the server-side ACLs of S6 give her the file; its 600 mode names only `madvil2`).
 
 N4. Copy her References to the share once (no name clash with the author's Watchlists): `rsync -a ~/Movies/content-factory/references/ /Users/Shared/content-factory/references/`. Her `library/` cache is not copied; `index` rebuilds it after N7. Then `python -m cf.research references relativize` (as in A7) rewrites the `/Users/anastasiiahlushchenko/...` paths in her Reference JSON files.
 
-N5. `python -m cf.research db check`; `watchlist list` (3 rows); `feed me-walks` shows her picks; `card show Dctv4nEslv4`; `notes list --all` shows her 20 Notes. ACLs both ways: she runs `touch /Users/Shared/content-factory/.nastya-test` and the author deletes it; she deletes a file the author made. One write: `python -m cf.research notes add general "" "Nastya connected"`, the author resolves it with `python -m cf.research notes resolve` and the id it printed. Her local store stays in place until N5a passes.
+N5. `python -m cf.research db check`; `watchlist list` (3 rows); `feed me-walks` shows her picks; `card show Dctv4nEslv4`; `notes list --all` shows her 20 Notes. Access both ways (the S6 ACLs): she runs `touch /Users/Shared/content-factory/.nastya-test` and the author deletes it; she deletes a file the author made. One write: `python -m cf.research notes add general "" "Nastya connected"`, the author resolves it with `python -m cf.research notes resolve` and the id it printed. Her local store stays in place until N5a passes.
 
 N5a. Lock test, the go-live gate; run it after her first CLI command of the day (so the `daily` backup does not skew the timing).
 1. The author holds the write lock for 40 s:
@@ -187,7 +195,7 @@ N8. Unmount test: eject the volume; `python -m cf.research watchlist list` exits
 
 ## Rollback and restore
 
-Rollback of the server move: S6. Rollback of the 2026-10-20 move (history), before A8 or later with everyone stopped: move the folders back, remove the five symlinks, put `backups/factory-$TS-author-pre-merge.db` (the `TS` of A2) back as `~/Movies/content-factory/factory.db` (already renumbered; `backups/factory-*-pre-renumber.db` restores the old numbering if an old checkout must read it), restore the Pack `root` and `pack add`, put `CF_SHARED_ROOT` back in `.env`. Nastya keeps her local store until N5a passes, so her side rolls back by pointing `CF_SHARED_ROOT` at her local root.
+Rollback of the server move: S-rollback, after S7. Rollback of the 2026-10-20 move (history), before A8 or later with everyone stopped: move the folders back, remove the five symlinks, put `backups/factory-$TS-author-pre-merge.db` (the `TS` of A2) back as `~/Movies/content-factory/factory.db` (already renumbered; `backups/factory-*-pre-renumber.db` restores the old numbering if an old checkout must read it), restore the Pack `root` and `pack add`, put `CF_SHARED_ROOT` back in `.env`. Nastya keeps her local store until N5a passes, so her side rolls back by pointing `CF_SHARED_ROOT` at her local root.
 
 Hot journal: a `factory.db-journal` left by a crashed writer is rolled back by the next read-write opener (any `cf.research` or `cf.library` command); read-only openers (Desk reads, `db check`, the Notes hook) cannot roll it back and fail with a read-only error until one does. Never delete the journal while any process might run: it holds the pages that undo the half-written transaction.
 
