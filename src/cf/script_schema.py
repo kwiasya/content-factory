@@ -43,6 +43,7 @@ ENDINGS = ("loop_seamless", "loop_match", "reveal_last", "question_overlay")
 
 HOOK_WORDS = (5, 8)
 OVERLAY_MAX_WORDS = 8
+MAX_OVERLAYS_AT_ONCE = 2  # overlay video tracks V2-V3; V4/V5 are the Asset cue lanes
 SHOT_MIN_S = 1.5
 SHOT_MAX_S = 5.0
 TOTAL_TOLERANCE_S = 3.0
@@ -70,6 +71,13 @@ class Overlay:
     in_frames: int | None = None  # fade-in frames for this overlay (0 = cuts on); None = style.animation
     out_frames: int | None = None  # fade-out frames (0 = cuts off); None = style.animation
 
+    @property
+    def slot(self) -> str:
+        """Where it sits on screen: the anchor, else the preset's placement for its type."""
+        if isinstance(self.anchor, dict):
+            return json.dumps(self.anchor, sort_keys=True)
+        return self.anchor or f"default for {self.type}"
+
 
 CUE_KEYS = ("ref", "at_s", "dur_s", "pos", "db")
 
@@ -93,13 +101,18 @@ class Shot:
     out_s: float
     role: str
     speed: float = 1.0
-    overlay: Overlay | None = None
+    overlays: list[Overlay] = field(default_factory=list)  # each on its own file and video track
     transition: str = "cut"
     beat_index: int | None = None
     fade_in_s: float = 0.0
     fade_out_s: float = 0.0
     reframe: Reframe | None = None  # None: the default for the clip (smart for landscape on portrait)
     assets: list[AssetCue] = field(default_factory=list)
+
+    @property
+    def overlay(self) -> Overlay | None:
+        """The first overlay (the single-overlay form ``overlay``), or None."""
+        return self.overlays[0] if self.overlays else None
 
     @property
     def duration_s(self) -> float:
@@ -198,32 +211,46 @@ def cue_from_dict(d: Any, where: str) -> AssetCue:
                     extra=tuple(k for k in d if k not in CUE_KEYS))
 
 
+def overlay_from_dict(ov: Any, where: str) -> Overlay:
+    if not isinstance(ov, dict):
+        raise ScriptError(f"{where}: must be an object")
+    span = ov.get("span", 1)
+    if isinstance(span, bool) or not isinstance(span, int) or span < 1:
+        raise ScriptError(f"{where}: 'span' must be an int >= 1, got {span!r}")
+    preset = ov.get("preset")
+    if preset is not None and (not isinstance(preset, str) or not preset.strip()):
+        raise ScriptError(f"{where}: 'preset' must be a non-empty string, got {preset!r}")
+    anchor = ov.get("anchor")
+    if anchor is not None and not isinstance(anchor, (str, dict)):
+        raise ScriptError(f"{where}: 'anchor' must be a slot name or an object, got {anchor!r}")
+    fades = {}
+    for k in ("in_frames", "out_frames"):
+        f = ov.get(k)
+        if f is not None and (isinstance(f, bool) or not isinstance(f, int) or f < 0):
+            raise ScriptError(f"{where}: {k!r} must be an int >= 0, got {f!r}")
+        fades[k] = f
+    return Overlay(text=_str(ov, "text", where), type=_str(ov, "type", where), span=span, preset=preset,
+                   anchor=anchor, **fades)
+
+
 def shot_from_dict(d: dict, index: int) -> Shot:
     where = f"shots[{index}]"
     if not isinstance(d, dict):
         raise ScriptError(f"{where}: must be an object")
-    ov = d.get("overlay")
-    overlay = None
-    if ov is not None:
+    # `overlays: [...]` (one or more), or the single-overlay form `overlay: {...} | null`; not both.
+    ov, ovs = d.get("overlay"), d.get("overlays")
+    if ov is not None and ovs is not None:
+        raise ScriptError(f"{where}: has both 'overlay' and 'overlays'; put every overlay in 'overlays'")
+    if ovs is not None:
+        if not isinstance(ovs, list):
+            raise ScriptError(f"{where}.overlays: must be a list")
+        overlays = [overlay_from_dict(o, f"{where}.overlays[{n}]") for n, o in enumerate(ovs)]
+    elif ov is not None:
         if not isinstance(ov, dict):
             raise ScriptError(f"{where}.overlay: must be an object or null")
-        span = ov.get("span", 1)
-        if isinstance(span, bool) or not isinstance(span, int) or span < 1:
-            raise ScriptError(f"{where}.overlay: 'span' must be an int >= 1, got {span!r}")
-        preset = ov.get("preset")
-        if preset is not None and (not isinstance(preset, str) or not preset.strip()):
-            raise ScriptError(f"{where}.overlay: 'preset' must be a non-empty string, got {preset!r}")
-        anchor = ov.get("anchor")
-        if anchor is not None and not isinstance(anchor, (str, dict)):
-            raise ScriptError(f"{where}.overlay: 'anchor' must be a slot name or an object, got {anchor!r}")
-        fades = {}
-        for k in ("in_frames", "out_frames"):
-            f = ov.get(k)
-            if f is not None and (isinstance(f, bool) or not isinstance(f, int) or f < 0):
-                raise ScriptError(f"{where}.overlay: {k!r} must be an int >= 0, got {f!r}")
-            fades[k] = f
-        overlay = Overlay(text=_str(ov, "text", f"{where}.overlay"), type=_str(ov, "type", f"{where}.overlay"),
-                          span=span, preset=preset, anchor=anchor, **fades)
+        overlays = [overlay_from_dict(ov, f"{where}.overlay")]
+    else:
+        overlays = []
     try:
         reframe = rf.from_shot(d.get("reframe"), f"{where}.reframe")
     except ValueError as exc:
@@ -241,7 +268,7 @@ def shot_from_dict(d: dict, index: int) -> Shot:
         out_s=_num(d, "out_s", where),
         role=_str(d, "role", where),
         speed=_num(d, "speed", where, 1.0),
-        overlay=overlay,
+        overlays=overlays,
         transition=_str(d, "transition", where, required=False) or "cut",
         beat_index=beat,
         fade_in_s=_num(d, "fade_in_s", where, 0.0),
@@ -367,14 +394,30 @@ def overlay_anchor_problems(anchor: Any, slots: set[str] | None) -> list[str]:
     return out
 
 
-def overlay_cover(shots: list[Shot]) -> dict[int, int]:
-    """Shot index -> index of the earlier shot whose spanning overlay covers it (span > 1 only)."""
-    cover: dict[int, int] = {}
+def overlay_label(shot: Shot, n: int) -> str:
+    """Name of a shot's n-th overlay (0-based) in messages: ``overlay`` for a lone one, else ``overlays[n]``."""
+    return "overlay" if len(shot.overlays) == 1 else f"overlays[{n}]"
+
+
+def overlay_clashes(shots: list[Shot]) -> list[str]:
+    """Overlays on screen at once (their shot ranges, start shot to the end of their span, intersect)
+    that share a slot (the same ``anchor``, or both without one and of the same type, so the preset puts
+    them in the same spot), and shots where more than ``MAX_OVERLAYS_AT_ONCE`` are on screen (the
+    overlay tracks are V2-V3; V4/V5 belong to the Asset cues)."""
+    placed = [(i, min(i + o.span, len(shots)) - 1, o.slot, s.id, overlay_label(s, n))
+              for i, s in enumerate(shots) for n, o in enumerate(s.overlays)]
+    out = []
+    for a, (a0, a1, slot, sid, lab) in enumerate(placed):
+        for b0, b1, slot_b, sid_b, lab_b in placed[a + 1:]:
+            if slot == slot_b and b0 <= a1 and a0 <= b1:
+                out.append(f"shots[{b0}] ({sid_b}): {lab_b} overlaps {sid}'s {lab} at the same anchor ({slot}); "
+                           "give one of them another anchor, or end the earlier one's span sooner")
     for i, s in enumerate(shots):
-        if s.overlay is not None and s.overlay.span > 1:
-            for j in range(i + 1, min(i + s.overlay.span, len(shots))):
-                cover.setdefault(j, i)
-    return cover
+        on = [f"{sid} {lab}" for a0, a1, _, sid, lab in placed if a0 <= i <= a1]
+        if len(on) > MAX_OVERLAYS_AT_ONCE:
+            out.append(f"shots[{i}] ({s.id}): {len(on)} overlays on screen at once ({', '.join(on)}), "
+                       f"at most {MAX_OVERLAYS_AT_ONCE} (overlay tracks V2-V3)")
+    return out
 
 
 @dataclass
@@ -444,7 +487,7 @@ def _problems(script: Script, manifest: dict | None = None, style: dict | None =
         v.append(f"hook.type: {script.hook.type!r} not in {HOOK_TYPES}")
     if script.hook.text is None:
         # An explicit text-free Reel (music only): no overlay anywhere.
-        texted = [s.id for s in script.shots if s.overlay is not None]
+        texted = [s.id for s in script.shots if s.overlays]
         if texted:
             v.append(f"hook.text: null marks a text-free Reel, but {', '.join(texted)} carry an overlay; "
                      "set every overlay to null or give the hook a text")
@@ -460,7 +503,6 @@ def _problems(script: Script, manifest: dict | None = None, style: dict | None =
 
     # Shots.
     seen: set[str] = set()
-    covered = overlay_cover(script.shots)
     for i, s in enumerate(script.shots):
         w = f"shots[{i}] ({s.id})"
         if s.id in seen:
@@ -498,31 +540,31 @@ def _problems(script: Script, manifest: dict | None = None, style: dict | None =
                      + ("" if s.role == "payoff" else " (only payoff may be longer)"))
         if s.fade_in_s < 0 or s.fade_out_s < 0 or s.fade_in_s + s.fade_out_s > d + EPS:
             v.append(f"{w}: fades {s.fade_in_s:g}+{s.fade_out_s:g} s do not fit a {d:.2f} s shot")
-        if s.overlay is not None:
-            if s.overlay.type not in OVERLAY_TYPES:
-                v.append(f"{w}: overlay.type {s.overlay.type!r} not in {OVERLAY_TYPES}")
-            if s.overlay.preset is not None and presets is not None and s.overlay.preset not in presets:
-                v.append(f"{w}: overlay.preset {s.overlay.preset!r} not in overlays/src/presets.ts "
+        for n, o in enumerate(s.overlays):
+            lab = overlay_label(s, n)
+            if o.type not in OVERLAY_TYPES:
+                v.append(f"{w}: {lab}.type {o.type!r} not in {OVERLAY_TYPES}")
+            if o.preset is not None and presets is not None and o.preset not in presets:
+                v.append(f"{w}: {lab}.preset {o.preset!r} not in overlays/src/presets.ts "
                          f"(known: {', '.join(sorted(presets))})")
-            v.extend(f"{w}: {p}" for p in overlay_anchor_problems(s.overlay.anchor, slots))
-            ow = words(s.overlay.text)
+            v.extend(f"{w}: {lab}{p.removeprefix('overlay')}" for p in overlay_anchor_problems(o.anchor, slots))
+            ow = words(o.text)
             if ow == 0 or ow > OVERLAY_MAX_WORDS:
-                v.append(f"{w}: overlay has {ow} words, must be 1-{OVERLAY_MAX_WORDS}: {s.overlay.text!r}")
-            span = s.overlay.span
+                v.append(f"{w}: {lab} has {ow} words, must be 1-{OVERLAY_MAX_WORDS}: {o.text!r}")
+            span = o.span
             last = i + span - 1
             if last >= len(script.shots):
-                v.append(f"{w}: overlay span {span} runs past the last shot ({len(script.shots) - i} shot(s) left)")
+                v.append(f"{w}: {lab} span {span} runs past the last shot ({len(script.shots) - i} shot(s) left)")
             elif span > 1 and script.ending == "loop_seamless" and last == len(script.shots) - 1 \
-                    and s.overlay.type != "line":
-                v.append(f"{w}: overlay span {span} reaches the loop's last shot {script.shots[-1].id}; "
+                    and o.type != "line":
+                v.append(f"{w}: {lab} span {span} reaches the loop's last shot {script.shots[-1].id}; "
                          "only a 'line' overlay may run into it (it ends on the last frame and hands over "
                          "to the hook at frame 0)")
             held = sum(x.duration_s for x in script.shots[i:last + 1])
             if held < min_hold - EPS:
-                v.append(f"{w}: overlay holds {held:.2f} s"
+                v.append(f"{w}: {lab} holds {held:.2f} s"
                          + (f" over {span} shots" if span > 1 else "") + f", must hold >= {min_hold:g} s")
-        if covered.get(i) is not None and s.overlay is not None:
-            v.append(f"{w}: has its own overlay inside the span of {script.shots[covered[i]].id}'s overlay")
+    v.extend(overlay_clashes(script.shots))
 
     if script.ending == "loop_seamless":
         v.extend(loop_seamless_problems(script, clips, style))
@@ -595,10 +637,10 @@ def loop_seamless_problems(script: Script, clips: dict[str, dict], style: dict) 
         v.append(f"{w}: {first.id} fade_in_s must be 0, got {first.fade_in_s:g}")
     if last.fade_out_s > EPS:
         v.append(f"{w}: {last.id} fade_out_s must be 0, got {last.fade_out_s:g}")
-    if last.overlay is not None and last.overlay.type != "line":
-        v.append(f"{w}: {last.id} may only carry a 'line' overlay: it ends on the last frame and hands "
-                 f"over to the hook at frame 0; a {last.overlay.type!r} overlay would vanish at the seam "
-                 f"({last.overlay.text!r})")
+    for o in last.overlays:
+        if o.type != "line":
+            v.append(f"{w}: {last.id} may only carry a 'line' overlay: it ends on the last frame and hands "
+                     f"over to the hook at frame 0; a {o.type!r} overlay would vanish at the seam ({o.text!r})")
     # The window must not jump at the seam: same reframe (explicit or the clip's default), and a
     # pan ends where the first shot's pan starts.
     try:

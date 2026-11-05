@@ -1,7 +1,7 @@
 {
   "schema": "cf-style/1",
-  "name": "meme-cut-v3",
-  "status": "v3 (2026-10-19): text in the tiktok-caption style (TikTok Sans Medium 64, soft shadow, centred), approved by the author after the text-style research (\"ну вот щас мне нравится\"); v2 from the author's corrections of 2026-10-19 on \"Потсдам — effortless\": the cut ends on the last Meme insert (no finale), coloured key words, text inside the safe zone; v1 was the first published Meme cut (\"Свидание — мой мозг\", 2026-10-15) and Kostya's critique of it",
+  "name": "meme-cut-v4",
+  "status": "v4 (2026-10-21): two blocks, her own footage first (the setup, then up to 2 own shots) and only then the memes, never interleaved (author: \"должно быть чётко мои кадры и только потом мемы, не вперемешку\"); v3 (2026-10-19): text in the tiktok-caption style (TikTok Sans Medium 64, soft shadow, centred), approved by the author after the text-style research (\"ну вот щас мне нравится\"); v2 from the author's corrections of 2026-10-19 on \"Потсдам — effortless\": the cut ends on the last Meme insert (no finale), coloured key words, text inside the safe zone; v1 was the first published Meme cut (\"Свидание — мой мозг\", 2026-10-15) and Kostya's critique of it",
   "audience": "a man (18–60+) scrolling Reels who stops for a pretty, self-ironic woman; the joke is relatable and gets sent to friends",
   "_doc": "Style profile of the Meme cut Format (ADR 0009): one full profile, nothing inherited from the root style.json. Readers: cf.memecut (pacing, text, inserts, render, audio, ending, colors.key_words), overlays/render.mjs through the overlay specs cf.memecut writes (canvas, safe_zone, typography, colors incl. key_words, overlay_positions, animation) and cf.render_check (canvas, audio.music false = a silent track passes). Pixel numbers except canvas.width/height are 1080-wide reference px (x2 at 2160x3840), as in the Walk Reel profile. Durations are seconds and are checked in frames at canvas.fps (round(s x fps)).",
   "canvas": {
@@ -75,9 +75,11 @@
     "emoji_max": 1,
     "emoji_note": "emoji on screen in the whole cut (setup and punch together)",
     "setup_max_words": 10,
+    "own_max_words": 6,
     "punch_max_words": 6,
     "size": {
       "setup": 64,
+      "own": 64,
       "punch": 64,
       "min": 60,
       "max": 72,
@@ -87,6 +89,12 @@
       "anchor": "top-center",
       "y": 480,
       "align": "center"
+    },
+    "own_anchor": {
+      "anchor": "top-center",
+      "y": 480,
+      "align": "center",
+      "note": "the default for an own shot's line, as the setup's; pick own[].anchor off the frames, off her face and body (the text-clear check runs on each own shot with a line)"
     },
     "punch_anchor": {
       "anchor": "bottom-center",
@@ -101,6 +109,7 @@
       "per_text": 1,
       "default_color": {
         "setup": "pink",
+        "own": "yellow",
         "punch": "yellow"
       },
       "note": "each text (setup, punch) marks exactly one key word or phrase in the whole text: {words} or {words|<colour>}, a colour name from colors.key_words; a bare mark takes default_color (setup pink, punch yellow). None is a warning, more than one a problem"
@@ -176,6 +185,16 @@
       "max": 3.0,
       "default": 2.5
     },
+    "own_s": {
+      "min": 1.0,
+      "max": 3.0,
+      "default": 2.0,
+      "note": "one of her own shots after the setup (own[]), e.g. a punch shot of her; her block comes first, the memes only after it"
+    },
+    "own": {
+      "max": 2,
+      "note": "at most 2 own shots after the setup; they play before the first Meme insert, never between memes (author, 2026-10-21: \"не вперемешку\")"
+    },
     "insert_s": {
       "min": 0.8,
       "max": 1.2,
@@ -189,8 +208,10 @@
     },
     "inserts": {
       "min": 3,
+      "min_with_own": 2,
       "max": 6,
-      "default": 4
+      "default": 4,
+      "note": "with an own shot the meme run may be 2 inserts: her own shot is a beat of its own"
     },
     "target_length_s": {
       "min": 6,
@@ -255,10 +276,10 @@
     "max_words": 10,
     "lines": 1,
     "hashtags_max": 5,
-    "location_tag": "required",
+    "location_tag": "optional",
     "cta": false,
     "alt_text": false,
-    "note": "one short deadpan line in English (one emoji at most) that adds to the text on screen, up to 5 hashtags, the geotag; no CTA, no alt text"
+    "note": "one short deadpan line in English (one emoji at most) that adds to the text on screen, up to 5 hashtags, no geotag by default (a joke is not about a place); no CTA, no alt text"
   },
   "reframe": {
     "default": "center",

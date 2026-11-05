@@ -3,7 +3,7 @@
 - id: `meme-cut`
 - Platform: Instagram Reels first; YouTube Shorts and TikTok as reposts
 - Length: 6–9 s, vertical 2160×3840 at 30 fps
-- Source: one fitting Clip of the Author (the setup) from any Footage with a clip manifest: a walk, a studio or photo shoot; plus Meme inserts from the Library
+- Source: one fitting Clip of the Author (the setup), optionally 1–2 more of her own shots, from any Footage with a clip manifest: a walk, a studio or photo shoot; plus Meme inserts from the Library
 - Script: `cf-memecut/1`, `script.json` in the Video folder (fields below); the Editor writes it, the Author only approves the finished draft
 - Face and voice: her face and figure in the setup, no voice; the text carries the joke
 - Sound: none. The file has a silent track; the Author adds the sound in Instagram
@@ -15,11 +15,19 @@
 
 ## Structure
 
-1. **Setup**, 2.3–3 s: her own calm, pretty footage (Original colour: an HDR Clip through its Apple SDR mezzanine, no grade), full frame. The setup line is on screen from frame 0.
-2. **Hard cut to the punch line** (`me 1 hour before leaving:`, `my brain:`, `how it actually felt:`), held to the last frame over a run of **3–6 Meme inserts** of about 1 s each.
+Two blocks: her own footage first, then the memes. Her clips and the memes never interleave (author, 2026-10-21: "должно быть чётко мои кадры и только потом мемы, не вперемешку").
+
+1. **Her block.**
+   - **Setup**, 2.3–3 s: her own calm, pretty footage (Original colour: an HDR Clip through its Apple SDR mezzanine, no grade), full frame. The setup line is on screen from frame 0.
+   - **Own shots** (`own`, optional): at most 2 more of her own shots, 1–3 s each (e.g. a punch shot of her), in Original colour. Each may carry its own line (`me, ready:`), placed off her face like the setup's.
+2. **The meme run.** A hard cut to the punch line (`me 1 hour before leaving:`, `my brain:`, `how it actually felt:`), held to the last frame over **3–6 Meme inserts** of about 1 s each (2–6 after an own shot).
 3. **The last Meme insert** is the strongest beat and holds longest (1–1.5 s). The cut ends on it.
 
 The cut from calm footage to chaos at second 2–3 is the joke: how it looked against how it felt.
+
+The order follows the Script's story beat by beat (author, 2026-10-21: "чтобы мемы шли логично, можно миксовать меня из разных папок, если это идёт логично в сценарии"):
+- **Her shots** may come from different Footage (`setup.footage` and each `own[].footage`), whenever that tells the story better. The setup never gives the punch away. For example, "Берлин — wood" opens on the umbrella walk and shows the wooden-blocks room only in the own shot `me, ready:`.
+- **The memes** read as one escalating reaction to what came just before them: the first one reacts, the next one escalates, and the last one lands the beat. Each meme answers its own line, such as `him:` reacting to her `me, ready:` shot. Order them by that logic, not by availability.
 
 The approved cut: setup 2.5 s, three inserts of 1.0 s, the last of 1.5 s, 7.0 s in all.
 
@@ -47,12 +55,12 @@ How it is enforced: the Script names its `situation` as one Library tag (`сви
 - An emoji goes on screen only when it fits the video or the text; at most one in the whole cut.
 - **Style `tiktok-caption`** (`overlays/src/presets.ts`): TikTok Sans Medium 64 px (60–72 allowed), line height 1.2, white, soft shadow `0 3px 10px rgba(0,0,0,.75)`, no outline, no box, centred, at most 820 px wide. Why: it is the natural, native TikTok caption look; the old Nunito Black with outline and heavy shadow (`bold-outline-wide`, now legacy) looked like a meme generator (author, 2026-10-19). Research: `~/Movies/content-factory/research/text-style-2026-10.md`.
 - **Outlined variant**: `"style": "stroke"` on a text gives `tiktok-caption-stroke`, a 2 px black outline in place of the shadow. Only for a line over a bright or white background.
-- **Key word**: exactly one key word or phrase in the whole text, in colour: the setup's pink, the punch's yellow. None is a warning, two a problem.
+- **Key word**: exactly one key word or phrase in the whole text, in colour: the setup's pink, an own shot's and the punch's yellow. None is a warning, two a problem.
 - **Size**: 64 px (reference, 1080 wide); outside 60–72 px the validator fails. A line too wide is broken with `\n`, not set smaller.
 - **Placement**: the setup sits at 24–35 % of the height (top edge at y 461–672), off her face. The punch sits in the blurred band, its bottom edge 24–40 px above the top edge of the highest meme; the build computes it (`text.punch_anchor.above_meme_px`).
 - **Safe zone**: all text sits below the top 14 % of the frame, above the bottom 35 % and clear of the right rail, so the Instagram header, caption and buttons leave it readable. The renderer measures every line against it.
 - **Sides**: text stays ≥130 px (reference) from both sides, which is why a line is at most 820 px wide: Instagram fills a tall phone (19.5:9) with the 9:16 Reel by height and crops ~98 px off each side (her post "Офис — нишевые слова для парня", 2026-10-19, lost the list's left edge). The build fails text closer than 130 px to a side.
-- **Off her face**: the setup line sits on free sky or background. When the joke is about the outfit, the setup shows her full figure, the whole outfit. The text stays at least 20 px (reference) off her body: pick `setup.anchor` off the frames; the build checks it with the person detector.
+- **Off her face**: the setup line sits on free sky or background. When the joke is about the outfit, the setup shows her full figure, the whole outfit. The text stays at least 20 px (reference) off her body: pick `setup.anchor` (and an own shot's `anchor`) off the frames; the build checks each with the person detector.
 - Write it with `author/how-i-talk.md` and `author/joke-log.md` open, starting from the reference (above); log her verdict in the joke log.
 
 ## Meme inserts on the canvas
@@ -64,7 +72,7 @@ How it is enforced: the Script names its `situation` as one Library tag (`сви
 
 ## Caption
 
-One short deadpan line in English that adds to the text on screen (≤10 words, one emoji at most), up to 5 hashtags, the geotag. No CTA, no alt text.
+One short deadpan line in English that adds to the text on screen (≤10 words, one emoji at most), up to 5 hashtags. No geotag by default: the joke is not about a place (author, 2026-10-21: "в формате мем не привязывайся к гео, тут на него пофиг"); add one only when the place is part of the joke. No CTA, no alt text.
 
 ## Where memes come from
 
@@ -77,7 +85,7 @@ One short deadpan line in English that adds to the text on screen (≤10 words, 
 
 - Memes about another situation than the text (the first cut: work chaos under a dating setup).
 - A stock disaster shot (explosion, fire, storm) that is not the text's situation.
-- Repeating her own setup shot at the end.
+- Her shot between memes, or her setup shot repeated at the end: her shots all come before the first meme.
 - A meme whose emotion contradicts the punch (a calm stare in a panic run).
 - A setup longer than 3 s: the cut comes too late.
 - Meme-generator text: a heavy rounded font with an outline and a heavy shadow, Impact in caps.
@@ -95,9 +103,10 @@ One short deadpan line in English that adds to the text on screen (≤10 words, 
 | `concept` | Optional: the premise and how it is adapted |
 | `situation` | One lowercase Library tag every insert carries (the match rule) |
 | `setup` | `footage` (the Footage id under the local root with a `clip_manifest.json`: a walk, a shoot; the legacy `walk` is still read), `clip` (file name in that manifest), `in_s`, `dur_s` (2.3–3), `text`, optional `size` (60–72 reference px), optional `anchor` (a slot name or `{anchor, x?, y, align?}` in reference px, as in `docs/script-schema.md`), optional `style` (`stroke`), optional `trim` |
-| `punch` | `text`, optional `size`, optional `anchor` (default: the band above the highest meme), optional `style` (`stroke`) |
+| `own` | Optional, at most 2 of her shots after the setup, before the inserts: `{footage?, clip, in_s, dur_s (1–3), text?, size?, anchor?, style?, trim?}`; `footage` defaults to the setup's; `text` (≤6 words, key word yellow by default) is on screen over that shot only. An insert or finale with `footage`/`clip` fails: her clips never go between memes |
+| `punch` | `text`, optional `size`, optional `anchor` (default: the band above the highest meme), optional `style` (`stroke`); on screen over the meme run only |
 | `text` | `\n` breaks a line. The key word is `{words}` or `{words\|colour}`, a palette name (`pink`, `yellow`, `cyan`, `lime`, `orange`); a bare mark is pink in the setup and yellow in the punch. One per text: none is a warning, two or more a problem |
-| `inserts[]` | 3–6 of `{ref, in_s, dur_s, shows, fit?, trim?}`; `dur_s` 0.8–1.2, the last 1–1.5; `ref` is a Library Asset ref; `fit` ∈ `auto` · `blur-fill` · `fill` |
+| `inserts[]` | 3–6 (2–6 with an `own` shot) of `{ref, in_s, dur_s, shows, fit?, trim?}`; `dur_s` 0.8–1.2, the last 1–1.5; `ref` is a Library Asset ref; `fit` ∈ `auto` · `blur-fill` · `fill` |
 | `trim` | `{left?, right?, top?, bottom?}`: whole source px cut off each edge |
 | `ending` | `last_meme` (may be omitted; `reveal_last` is its old name) |
 | `caption`, `hashtags`, `location_tag` | As under Caption; `cta` and `alt_text` are rejected |

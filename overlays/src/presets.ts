@@ -116,8 +116,12 @@ export type RoleStyle = {
   arrow?: { color: string; thickness: number } | null;
   /** Title block: the lines before the first blank line ("\n\n") of the text are a title
    * set at `size` / `lineHeight` (weight, case, fill and outline stay the role's), followed
-   * by `gap` px; the rest is set at the role's size. Without a blank line all of it is body. */
-  title?: { size: number; lineHeight: number; gap: number } | null;
+   * by `gap` px; the rest is set at the role's size. Without a blank line all of it is body.
+   * oneLine: the title stays on one line when it fits the width at `size` (else it wraps). */
+  title?: { size: number; lineHeight: number; gap: number; oneLine?: boolean } | null;
+  /** Number column: a leading "N)" of a body line is drawn right-aligned in a column as
+   * wide as "10)", so every item's text starts on one vertical (layout.ts `numCol`). */
+  numCol?: boolean;
 };
 
 export type Preset = {
@@ -487,13 +491,13 @@ export const PRESETS: Record<string, Preset> = {
 
   "tiktok-list": {
     label: "TikTok list",
-    note: "Text list over her footage: TikTok Sans SemiBold, white, lowercase, a 4-px round black outline drawn under the fill, no shadow or box; a title block (before the blank line) at 64 px / 1.12, +24 px, then the items at 56 px / 1.14 (spec size, min 48), left at x 140, right edge <= 950. One coloured key word per line ({word|colour}).",
+    note: "Text list over her footage: TikTok Sans SemiBold, white, lowercase, a 4-px round black outline drawn under the fill, no shadow or box; a title block (before the blank line) at 64 px / 1.12, on one line when it fits, +24 px, then the items at 56 px / 1.14 (spec size, min 48), their \"N)\" in a right-aligned number column as wide as \"10)\" so every item's text starts on one vertical; left at x 140, right edge <= 950. One coloured key word per line ({word|colour}).",
     roles: listRoles({
       family: "TikTok Sans", weight: 600, size: 56, case: "lower", lineHeight: 1.14,
       color: "#FFFFFF", shadow: null, stroke: { width: 4, color: "#000000", round: true }, ...NO_BOX,
       anchor: "top-left", x: LEFT_X, y: 300, align: "left", maxWidth: 810,
       maxWordsPerLine: 12, maxLines: 2, punctuationBreaks: true,
-      title: { size: 64, lineHeight: 1.12, gap: 24 },
+      title: { size: 64, lineHeight: 1.12, gap: 24, oneLine: true }, numCol: true,
     }),
   },
 

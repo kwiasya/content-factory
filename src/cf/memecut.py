@@ -5,9 +5,11 @@
     python -m cf.memecut build <video folder> [--dry-run] [--no-text-check] [--local-root P] [--shared-root P]
         [--db P]
 
-A Meme cut (``formats/meme-cut/FORMAT.md``, profile ``formats/meme-cut/style.json``) is: a calm, pretty
-clip of the Author with a setup line, then a hard cut to a punch line held over 3–6 Meme inserts of ~1 s;
-it ends on the last insert, held longest. Each line marks one key word, ``{words}`` or ``{words|colour}``,
+A Meme cut (``formats/meme-cut/FORMAT.md``, profile ``formats/meme-cut/style.json``) is two blocks: her
+own footage first (a calm, pretty setup clip with a setup line, then up to 2 more of her own shots, ``own``,
+each with its own optional line), then a hard cut to a punch line held over a run of Meme inserts of ~1 s;
+it ends on the last insert, held longest. Her shots and the memes never interleave: ``own`` is a field of its
+own that plays before the first insert, and an insert is a Library meme only. Each line marks one key word, ``{words}`` or ``{words|colour}``,
 drawn in a ``colors.key_words`` colour by the overlay renderer. A ``finale`` (one more shot after the
 inserts) is deprecated: old Scripts with one still build, with a warning. Why ffmpeg and not Resolve: a Meme insert sits over a blurred copy of itself,
 and Resolve FX on a clip are outside the scripting API (``docs/resolve-rules.md``, Known gaps).
@@ -17,19 +19,19 @@ holding ``script.json``):
 
 1. ``validate``: the Script's shape and the Format's numbers (pure), then the match rule against the
    Library (every insert's Asset carries the Script's ``situation`` tag).
-2. ``resolve_sources``: the setup clip from the manifest of its Footage under the local root
+2. ``resolve_sources``: the setup clip and each own shot from the manifest of its Footage under the local root
    (``setup.footage``, the legacy ``setup.walk`` still read: a walk, a studio or photo shoot; an HDR clip
    through its Apple SDR mezzanine, ``cf.mezz``), each insert (and a deprecated finale) from the Library under
    the shared root (``cf.assets.placement``), probed for display size and duration.
 3. ``build_plan`` (pure): frames per part, a ``Placement`` per segment (``place``), source-length checks.
-4. Overlays: the setup and punch lines as specs for ``overlays/render.mjs`` (the profile's
+4. Overlays: the setup, own-shot and punch lines as specs for ``overlays/render.mjs`` (the profile's
    ``typography.preset``, ``text.size``, the key-word mark with its colour filled in, the Format profile as
-   ``style_path``) → ``overlays/setup.mov``, ``overlays/punch.mov``; a line is re-rendered only when its
+   ``style_path``) → ``overlays/setup.mov``, ``overlays/own1.mov``…, ``overlays/punch.mov``; a line is re-rendered only when its
    spec changed. A line outside the safe zone, or one the renderer had to set smaller to fit, is a problem;
    so is drawn text (its solid pixels, outline included) nearer than ``safe_zone.left/right`` (130 px
    reference) to a side: Instagram crops ~98 px off each side of a 9:16 Reel on a tall phone.
-5. The text-clear check: the person detector on three frames of the setup, against the rendered
-   setup line's box; closer than ``text.body_clear_px`` is a problem.
+5. The text-clear check: the person detector on three frames of the setup (and of each own shot with a
+   line), against that rendered line's box; closer than ``text.body_clear_px`` is a problem.
 6. ``compose``: one ffmpeg run (``ffmpeg_args``) into ``out/<folder name>.mp4`` with a silent stereo AAC
    track; an existing render moves to ``out/prev-<time>/`` first. Then ``cf.render_check`` with the
    silent rule, ``out/render-check.json`` and a contact sheet ``out/sheet.jpg`` (one frame per segment).
@@ -59,10 +61,12 @@ SCHEMA = "cf-memecut/1"
 FITS = ("auto", "blur-fill", "fill")
 TRIM_KEYS = ("left", "right", "top", "bottom")
 MIN_SIDE = 8  # px a trim must leave of the source
-TOP_KEYS = {"schema", "title", "concept", "reference", "situation", "setup", "punch", "inserts", "finale", "ending",
-            "caption", "hashtags", "location_tag", "note"}
+TOP_KEYS = {"schema", "title", "concept", "reference", "situation", "setup", "own", "punch", "inserts", "finale",
+            "ending", "caption", "hashtags", "location_tag", "note"}
 FORBIDDEN = {"cta": "no CTA in a Meme cut caption", "alt_text": "no alt text in a Meme cut"}
 SETUP_KEYS = {"footage", "walk", "clip", "in_s", "dur_s", "text", "anchor", "size", "style", "trim"}
+OWN_KEYS = {"footage", "clip", "in_s", "dur_s", "text", "anchor", "size", "style", "trim"}
+FOOTAGE_KEYS = {"footage", "walk", "clip"}  # her clip; never in an insert or a finale
 PUNCH_KEYS = {"text", "anchor", "size", "style"}
 INSERT_KEYS = {"ref", "in_s", "dur_s", "fit", "trim", "shows"}
 FINALE_KEYS = {"ref", "in_s", "dur_s", "fit", "trim", "shows"}
@@ -73,6 +77,18 @@ HASHTAG = re.compile(r"#[^\s#]+")
 SIDE_CROP_WHY = ("Instagram crops about 98 px (reference) off each side of a 9:16 Reel on a tall phone "
                  "(19.5:9), so text nearer the side is cut")
 LENGTH_TOLERANCE_S = 0.02  # a source may end this much before the cut asks (container rounding)
+INTERLEAVE_WHY = ("her own shots go in 'own', which plays before the first Meme insert: her clips and the memes "
+                  "never interleave (FORMAT.md, Structure)")
+
+
+def is_hers(seg_id: str) -> bool:
+    """A segment of her own footage (the setup, an own shot), as against a Meme insert or an old finale."""
+    return seg_id == "setup" or seg_id.startswith("own")
+
+
+def text_kind(key: str) -> str:
+    """The profile key of a text: ``setup``, ``own`` (``own1``, ``own2``) or ``punch``."""
+    return "own" if key.startswith("own") else key
 
 
 # -- placement maths (pure) -------------------------------------------------------------
@@ -208,7 +224,7 @@ def key_text(text: str, default_color: str) -> str:
 def text_size(part: dict, key: str, profile: dict) -> float:
     """The line's font size in reference px: the Script's ``size``, else the profile's."""
     size = part.get("size") if isinstance(part, dict) else None
-    return float(size) if _num(size) else float(profile["text"]["size"][key])
+    return float(size) if _num(size) else float(profile["text"]["size"][text_kind(key)])
 
 
 def text_preset(part: dict, profile: dict) -> str:
@@ -380,6 +396,34 @@ def validate(script: Any, profile: dict) -> Validation:
         total += n or 0
         check_text("setup", "setup", setup, int(text_rules["setup_max_words"]))
         check_fit_trim("setup", setup)
+    own = script.get("own", [])
+    own_max = int(pacing["own"]["max"])
+    if not isinstance(own, list) or len(own) > own_max:
+        p.append(f"own: a list of at most {own_max} of her own shots after the setup, got "
+                 f"{len(own) if isinstance(own, list) else own!r}")
+    own_list = own if isinstance(own, list) else []
+    v.frames["own"] = []
+    for i, part in enumerate(own_list):
+        where = f"own[{i}]"
+        if not isinstance(part, dict):
+            p.append(f"{where}: an object is required")
+            continue
+        extra(where, part, OWN_KEYS)
+        if "footage" in part and (not isinstance(part["footage"], str) or not part["footage"].strip()):
+            p.append(f"{where}.footage: a Footage id (omit it for the setup's Footage)")
+        if not isinstance(part.get("clip"), str) or not part["clip"].strip():
+            p.append(f"{where}.clip: required (the clip file name in the Footage's manifest)")
+        seconds(where, part, "in_s", None)
+        n = seconds(where, part, "dur_s", _range(pacing, "own_s"))
+        v.frames["own"].append(n)
+        total += n or 0
+        if "text" in part:
+            check_text(where, "own", part, int(text_rules["own_max_words"]))
+        else:
+            for key in ("anchor", "size", "style"):
+                if key in part:
+                    p.append(f"{where}.{key}: only with a text")
+        check_fit_trim(where, part)
     punch = part_of("punch")
     if punch is not None:
         extra("punch", punch, PUNCH_KEYS)
@@ -389,6 +433,8 @@ def validate(script: Any, profile: dict) -> Validation:
     finale = script.get("finale")
     inserts = script.get("inserts")
     lo, hi = int(pacing["inserts"]["min"]), int(pacing["inserts"]["max"])
+    if own_list:  # an own shot is a beat of its own: the meme run may be shorter
+        lo = int(pacing["inserts"].get("min_with_own", lo))
     if not isinstance(inserts, list) or not lo <= len(inserts) <= hi:
         p.append(f"inserts: {lo}–{hi} Meme inserts, got {len(inserts) if isinstance(inserts, list) else inserts!r}")
     v.frames["inserts"] = []
@@ -398,7 +444,9 @@ def validate(script: Any, profile: dict) -> Validation:
         if not isinstance(ins, dict):
             p.append(f"{where}: an object is required")
             continue
-        extra(where, ins, INSERT_KEYS)
+        if FOOTAGE_KEYS & set(ins):
+            p.append(f"{where}: an insert is a Library meme, not her clip; {INTERLEAVE_WHY}")
+        extra(where, ins, INSERT_KEYS - FOOTAGE_KEYS)
         if not isinstance(ins.get("ref"), str) or not ins["ref"].startswith("@"):
             p.append(f"{where}.ref: a Library Asset ref (@meme/<name>) is required")
         if not isinstance(ins.get("shows"), str) or not ins["shows"].strip():
@@ -415,7 +463,9 @@ def validate(script: Any, profile: dict) -> Validation:
         if not isinstance(finale, dict):
             p.append("finale: an object is required")
         else:
-            extra("finale", finale, FINALE_KEYS)
+            if FOOTAGE_KEYS & set(finale):
+                p.append(f"finale: a Library meme, not her clip; {INTERLEAVE_WHY}")
+            extra("finale", finale, FINALE_KEYS | FOOTAGE_KEYS)
             if not isinstance(finale.get("ref"), str) or not finale["ref"].startswith("@"):
                 p.append("finale.ref: a Library Asset ref is required")
             seconds("finale", finale, "in_s", None)
@@ -426,7 +476,8 @@ def validate(script: Any, profile: dict) -> Validation:
     v.frames["total"] = total
     tlo, thi = _range(pacing, "target_length_s")
     if not p and not frames_of(tlo, fps) <= total <= frames_of(thi, fps):
-        p.append(f"total {total} frames = {total / fps:.2f} s ({len(ins_list)} inserts); the Format wants "
+        p.append(f"total {total} frames = {total / fps:.2f} s ({len(own_list)} own shots, {len(ins_list)} inserts); "
+                 "the Format wants "
                  f"{tlo:g}–{thi:g} s")
     ending = profile["ending"]
     if script.get("ending", ending["default"]) not in (ending["default"], *ending.get("aliases", [])):
@@ -447,8 +498,8 @@ def validate(script: Any, profile: dict) -> Validation:
     if not isinstance(tags, list) or len(tags) > int(cap["hashtags_max"]) \
             or not all(isinstance(t, str) and HASHTAG.fullmatch(t) for t in tags):
         p.append(f"hashtags: a list of at most {cap['hashtags_max']} '#tag' strings")
-    if not isinstance(script.get("location_tag"), str) or not script["location_tag"].strip():
-        p.append("location_tag: the geotag is required")
+    if "location_tag" in script and not isinstance(script["location_tag"], str):
+        p.append("location_tag: a string when given (the geotag is optional)")
     return v
 
 
@@ -489,8 +540,8 @@ class Source:
 
 @dataclass(frozen=True)
 class Segment:
-    id: str            # setup, m1…m6, finale (deprecated)
-    label: str         # where in the Script (setup, inserts[0], finale)
+    id: str            # setup, own1…own2, m1…m6, finale (deprecated)
+    label: str         # where in the Script (setup, own[0], inserts[0], finale)
     source: Source
     in_s: float
     frames: int
@@ -502,7 +553,7 @@ class Plan:
     canvas: Canvas
     profile: dict
     segments: list[Segment]
-    texts: dict          # {"setup": {text, anchor, size, frames}, "punch": {...}}; text with key-word colours
+    texts: dict          # {"setup": {text, anchor, size, frames}, "own1": {...}, "punch": {...}}; key-word colours in
     problems: list[str]
     warnings: list[str]
 
@@ -512,14 +563,16 @@ class Plan:
 
 
 def build_plan(script: dict, profile: dict, canvas: Canvas, sources: dict[str, Source]) -> Plan:
-    """Segments with frames and placements. ``sources``: ``"setup"`` and each insert (or old finale) ref →
-    Source."""
+    """Segments with frames and placements: her block (the setup, then each own shot) before the meme run.
+    ``sources``: ``"setup"``, ``"own1"``… and each insert (or old finale) ref → Source."""
     val = validate(script, profile)
     problems, warnings = list(val.problems), list(val.warnings)
     fps = float(canvas.fps)
     blur = profile["inserts"]["blur_fill"]
     max_up = float(profile["inserts"]["fill_max_upscale"])
     parts = [("setup", "setup", script.get("setup"), "fill")]
+    own = script.get("own") if isinstance(script.get("own"), list) else []
+    parts += [(f"own{i + 1}", f"own[{i}]", o, "fill") for i, o in enumerate(own)]
     parts += [(f"m{i + 1}", f"inserts[{i}]", ins, profile["inserts"]["default_fit"])
               for i, ins in enumerate(script.get("inserts") or [])]
     if script.get("finale") is not None:  # deprecated: old Scripts only
@@ -528,7 +581,7 @@ def build_plan(script: dict, profile: dict, canvas: Canvas, sources: dict[str, S
     for sid, where, part, default_fit in parts:
         if not isinstance(part, dict) or not _num(part.get("dur_s")):
             continue
-        key = "setup" if sid == "setup" else part.get("ref")
+        key = sid if is_hers(sid) else part.get("ref")
         src = sources.get(key) if isinstance(key, str) else None
         if src is None:
             problems.append(f"{where}: no source for {key}")
@@ -550,15 +603,16 @@ def build_plan(script: dict, profile: dict, canvas: Canvas, sources: dict[str, S
                             "use a larger shot or blur-fill")
         segments.append(Segment(sid, where, src, in_s, n, pl))
     tp = profile["text"]
-    setup_n = next((s.frames for s in segments if s.id == "setup"), 0)
-    rest_n = sum(s.frames for s in segments if s.id != "setup")
+    lines = [(s.id, (script.get("setup") if s.id == "setup" else own[int(s.id[3:]) - 1]), s.frames)
+             for s in segments if is_hers(s.id)]
+    lines.append(("punch", script.get("punch"), sum(s.frames for s in segments if not is_hers(s.id))))
     texts = {}
-    for key, frames in (("setup", setup_n), ("punch", rest_n)):
-        part = script.get(key)
+    for key, part, frames in lines:
         if isinstance(part, dict) and isinstance(part.get("text"), str):
-            texts[key] = {"text": key_text(part["text"], tp["key_word"]["default_color"][key]), "frames": frames,
-                          "anchor": part.get("anchor") or default_anchor(key, profile, canvas, segments),
-                          "size": text_size(part, key, profile), "preset": text_preset(part, profile)}
+            kind = text_kind(key)
+            texts[key] = {"text": key_text(part["text"], tp["key_word"]["default_color"][kind]), "frames": frames,
+                          "anchor": part.get("anchor") or default_anchor(kind, profile, canvas, segments),
+                          "size": text_size(part, kind, profile), "preset": text_preset(part, profile)}
     return Plan(canvas, profile, segments, texts, problems, warnings)
 
 
@@ -568,7 +622,7 @@ def default_anchor(key: str, profile: dict, canvas: Canvas, segments: list[Segme
     a = dict(profile["text"][f"{key}_anchor"])
     above = a.pop("above_meme_px", None)
     a.pop("note", None)
-    tops = [s.placement.fg.y for s in segments if s.id != "setup" and s.placement.fg is not None]
+    tops = [s.placement.fg.y for s in segments if not is_hers(s.id) and s.placement.fg is not None]
     if above is not None and tops:
         a["y"] = round(min(tops) / canvas.scale - float(above), 1)
     return a
@@ -577,7 +631,7 @@ def default_anchor(key: str, profile: dict, canvas: Canvas, segments: list[Segme
 def _segment_filter(i: int, seg: Segment, canvas: Canvas, fps: float, blur: dict) -> str:
     W, H = canvas.width, canvas.height
     pl, c = seg.placement, seg.placement.crop
-    fmt = "yuv444p10le" if seg.id == "setup" else "yuv444p"
+    fmt = "yuv444p10le" if is_hers(seg.id) else "yuv444p"
     head = f"[{i}:v]setpts=PTS-STARTPTS,fps={fps:g},trim=end_frame={seg.frames},format={fmt},"
     if pl.fit == "fill":
         w = pl.window
@@ -596,8 +650,9 @@ def _segment_filter(i: int, seg: Segment, canvas: Canvas, fps: float, blur: dict
 
 
 def ffmpeg_args(plan: Plan, out: Path, overlays: dict[str, Path] | None) -> list[str]:
-    """The one ffmpeg command: segments placed, the setup line over the setup, the punch line over the rest,
-    concatenated, a silent stereo AAC track. ``overlays``: ``{"setup": mov, "punch": mov}`` or None."""
+    """The one ffmpeg command: segments placed, the setup line over the setup, each own shot's line over that
+    shot, the punch line over the meme run, concatenated, a silent stereo AAC track. ``overlays``:
+    ``{"setup": mov, "own1": mov, "punch": mov}`` (any of them) or None."""
     fps = float(plan.canvas.fps)
     blur = plan.profile["inserts"]["blur_fill"]
     render = plan.profile["render"]
@@ -606,27 +661,28 @@ def ffmpeg_args(plan: Plan, out: Path, overlays: dict[str, Path] | None) -> list
         args += ["-ss", f"{seg.in_s:.4f}", "-t", f"{seg.frames / fps + 0.5:.4f}", "-i", str(seg.source.path)]
     n = len(plan.segments)
     ov = overlays or {}
+    hers = [(i, s) for i, s in enumerate(plan.segments) if is_hers(s.id)]
     ov_in = {}
-    for key in ("setup", "punch"):
+    for key in [s.id for _, s in hers] + ["punch"]:
         if key in ov:
             ov_in[key] = n + len(ov_in)
             args += ["-i", str(ov[key])]
     audio_in = n + len(ov_in)
     args += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
     fc = "".join(_segment_filter(i, s, plan.canvas, fps, blur) for i, s in enumerate(plan.segments))
-    rest = [f"[s{i}]" for i, s in enumerate(plan.segments) if s.id != "setup"]
-    setup_i = next(i for i, s in enumerate(plan.segments) if s.id == "setup")
-    if "setup" in ov_in:
-        fc += f"[s{setup_i}][{ov_in['setup']}:v]overlay=format=yuv444,format=yuv420p,setsar=1[ss];"
-    else:
-        fc += f"[s{setup_i}]null[ss];"
+    rest = [f"[s{i}]" for i, s in enumerate(plan.segments) if not is_hers(s.id)]
+    for i, s in hers:  # her block: each shot under its own line
+        if s.id in ov_in:
+            fc += f"[s{i}][{ov_in[s.id]}:v]overlay=format=yuv444,format=yuv420p,setsar=1[h{i}];"
+        else:
+            fc += f"[s{i}]null[h{i}];"
     fc += "".join(rest) + f"concat=n={len(rest)}:v=1:a=0[mm];"
     if "punch" in ov_in:
         fc += f"[mm][{ov_in['punch']}:v]overlay=format=yuv444,format=yuv420p,setsar=1[mt];"
     else:
         fc += "[mm]null[mt];"
     # tag the frames themselves: untagged meme sources otherwise leave primaries/transfer unset in the file
-    fc += ("[ss][mt]concat=n=2:v=1:a=0,format=yuv420p,"
+    fc += ("".join(f"[h{i}]" for i, _ in hers) + f"[mt]concat=n={len(hers) + 1}:v=1:a=0,format=yuv420p,"
            "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]")
     total = plan.total_frames
     mbps = float(render["bitrate_mbps"])
@@ -697,9 +753,10 @@ def setup_footage(setup: dict) -> Any:
     return setup.get("footage", setup.get("walk"))
 
 
-def setup_source(root: Path, setup: dict) -> Path:
-    """The setup clip's file from the manifest of its Footage ``<local root>/<setup.footage>/`` (a walk, a
-    studio or photo shoot): the raw path, an HDR clip through its Apple SDR mezzanine."""
+def setup_source(root: Path, setup: dict, where: str = "setup") -> Path:
+    """Her clip's file (the setup, or an own shot as ``{footage, clip}``) from the manifest of its Footage
+    ``<local root>/<footage>/`` (a walk, a studio or photo shoot): the raw path, an HDR clip through its Apple
+    SDR mezzanine (Original colour)."""
     from cf import mezz  # noqa: PLC0415
 
     footage_id = setup_footage(setup)
@@ -707,11 +764,11 @@ def setup_source(root: Path, setup: dict) -> Path:
     try:
         manifest = json.loads((footage / "clip_manifest.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise MemecutError(f"setup: cannot read {footage}/clip_manifest.json ({exc}); run /ingest-footage on that "
+        raise MemecutError(f"{where}: cannot read {footage}/clip_manifest.json ({exc}); run /ingest-footage on that "
                            "Footage") from exc
     clip = next((c for c in manifest.get("clips", []) if c.get("file") == setup["clip"]), None)
     if clip is None:
-        raise MemecutError(f"setup: {setup['clip']} is not in the {footage_id} manifest")
+        raise MemecutError(f"{where}: {setup['clip']} is not in the {footage_id} manifest")
     raw = Path(clip["path"])
     if not mezz.is_hdr(clip):
         return raw
@@ -743,10 +800,15 @@ def resolve_sources(script: dict, root: Path, lookup) -> tuple[dict[str, Source]
 
     sources: dict[str, Source] = {}
     problems: list[str] = []
-    try:
-        sources["setup"] = probe(setup_source(root, script["setup"]))
-    except (MemecutError, OSError, ValueError, KeyError, TypeError) as exc:
-        problems.append(str(exc))
+    setup = script.get("setup") or {}
+    hers = [("setup", "setup", setup)]
+    hers += [(f"own{i + 1}", f"own[{i}]", {"footage": o.get("footage") or setup_footage(setup), "clip": o.get("clip")})
+             for i, o in enumerate(script.get("own") or []) if isinstance(o, dict)]
+    for key, where, part in hers:
+        try:
+            sources[key] = probe(setup_source(root, part, where))
+        except (MemecutError, OSError, ValueError, KeyError, TypeError) as exc:
+            problems.append(str(exc))
     parts = [*(script.get("inserts") or []), script.get("finale") or {}]
     for part in parts:
         ref = part.get("ref") if isinstance(part, dict) else None
@@ -831,14 +893,15 @@ def _alpha_box(mov: Path, canvas: Canvas) -> tuple[float, float, float, float] |
     return (float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())) if len(xs) else None
 
 
-def text_clearance(plan: Plan, setup_mov: Path) -> tuple[float | None, str | None]:
-    """Smallest gap (reference px) between the setup line and a person in three setup frames."""
+def text_clearance(plan: Plan, setup_mov: Path, seg_id: str = "setup") -> tuple[float | None, str | None]:
+    """Smallest gap (reference px) between a line of her block (the setup's, an own shot's) and a person in
+    three frames of that segment."""
     import cv2  # noqa: PLC0415
 
-    seg = next(s for s in plan.segments if s.id == "setup")
+    seg = next(s for s in plan.segments if s.id == seg_id)
     box = _alpha_box(setup_mov, plan.canvas)
     if box is None:
-        return None, "the setup overlay has no visible text"
+        return None, f"the {seg_id} overlay has no visible text"
     try:
         from cf.metrics.people import _load_model  # noqa: PLC0415
         model = _load_model()
@@ -864,7 +927,7 @@ def text_clearance(plan: Plan, setup_mov: Path) -> tuple[float | None, str | Non
     finally:
         cap.release()
     if not gaps:
-        return None, "no person found in the setup frames"
+        return None, f"no person found in the {seg_id} frames"
     return min(gaps), None
 
 
@@ -940,7 +1003,7 @@ def build(target: Path, root: Path | None = None, db: Path | None = None, dry_ru
     sources, problems = resolve_sources(ctx.script, ctx.root, ctx.lookup)
     plan = build_plan(ctx.script, ctx.profile, ctx.canvas, sources)
     report["problems"] = problems + plan.problems
-    report["warnings"] = ctx.warnings + plan.warnings
+    report["warnings"] = list(dict.fromkeys(ctx.warnings + plan.warnings))  # build_plan re-validates
     report["segments"] = [{"id": s.id, "where": s.label, "file": str(s.source.path), "in_s": s.in_s,
                            "frames": s.frames, "fit": s.placement.fit, "crop": vars(s.placement.crop),
                            "upscale": round(s.placement.upscale, 2)} for s in plan.segments]
@@ -954,14 +1017,17 @@ def build(target: Path, root: Path | None = None, db: Path | None = None, dry_ru
         report["problems"] += sides
         return report
     if text_check:
-        gap, why = text_clearance(plan, overlays["setup"])
         need = float(ctx.profile["text"]["body_clear_px"])
-        report["text_gap_px"] = None if gap is None else round(gap, 1)
-        if gap is None:
-            report["warnings"].append(f"text-clear check not done: {why}; look at the sheet")
-        elif gap < need:
-            report["problems"].append(f"setup text is {gap:.0f} px from her body (reference px), at least {need:g}: "
-                                      "set setup.anchor off the frames")
+        for key in [k for k in overlays if is_hers(k)]:
+            gap, why = text_clearance(plan, overlays[key], key)
+            report["text_gap_px" if key == "setup" else f"text_gap_px_{key}"] = None if gap is None else round(gap, 1)
+            where = "setup" if key == "setup" else f"own[{int(key[3:]) - 1}]"
+            if gap is None:
+                report["warnings"].append(f"text-clear check of {where} not done: {why}; look at the sheet")
+            elif gap < need:
+                report["problems"].append(f"{where} text is {gap:.0f} px from her body (reference px), at least "
+                                          f"{need:g}: set {where}.anchor off the frames")
+        if report["problems"]:
             return report
     out = ctx.folder / "out" / f"{ctx.folder.name}.mp4"
     prev = _move_old_render(out)

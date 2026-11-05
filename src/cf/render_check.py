@@ -15,7 +15,8 @@ Prints a PASS/FAIL table and exits 1 on any FAIL.
 
 ``--silent`` (or a Format profile whose ``audio.music`` is false: ``--format meme-cut``, or a
 ``cf-memecut/1`` ``script.json`` next to ``out/``) expects a silent track instead of -14 LUFS: the
-Format has no music and the author adds the sound in Instagram; any sound in the file fails.
+Format has no music and the author adds the sound in Instagram; any sound in the file fails. A YouTube
+Shorts cut (``<reel>.shorts[...].mp4``, with music for YouTube) is checked at -14 LUFS all the same.
 
 ``--hdr`` checks a Rec.2100 HLG render (``cf.render --hdr``) instead: hevc Main 10 with the
 ``hvc1`` tag (iOS and Instagram need it), ``yuv420p10le``, bt2020 / arib-std-b67 / bt2020nc,
@@ -102,6 +103,11 @@ def style_canvas(override: str | None = None, script_canvas: str | None = None) 
 def silent_for(style: dict) -> bool:
     """A Format profile without music (``audio.music`` false) delivers a silent track."""
     return (style.get("audio") or {}).get("music") is False
+
+
+def music_cut(path: Path) -> bool:
+    """A YouTube Shorts cut (``<reel>.shorts[...].mp4``) carries music even in a Format without it."""
+    return ".shorts" in path.name
 
 
 def format_profile(fmt: str) -> dict:
@@ -454,7 +460,7 @@ def main(argv: list[str] | None = None) -> int:
         fmt = args.format or format_for(path)
         if fmt:
             profile = format_profile(fmt)
-            silent = silent or silent_for(profile)
+            silent = silent or (silent_for(profile) and not music_cut(path))
             expected = expected_for(for_reel(profile, None, args.canvas), hdr=args.hdr)
         else:
             expected = expected_for(style_canvas(args.canvas, script_canvas_for(path)), hdr=args.hdr)

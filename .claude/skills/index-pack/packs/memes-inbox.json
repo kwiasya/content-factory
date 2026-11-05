@@ -1,9 +1,13 @@
 {
   "schema": "cf-pack/1",
   "id": "memes-inbox",
-  "root": "/Users/anastasiiahlushchenko/Library/Mobile Documents/com~apple~CloudDocs/Мемы",
-  "include": ["."],
+  "root": "/Users/Shared/content-factory/packs/memes-inbox",
+  "include": [
+    "."
+  ],
   "folders": {
-    ".": {"category": "meme"}
+    ".": {
+      "category": "meme"
+    }
   }
 }

@@ -13,6 +13,12 @@ Smart Reframe keyframes Tilt past the source edge and leaves black bands (Mallor
    (the end of a shot is where she looks into the lens); the window is centred in the range of L
    that holds exactly those frames. When no frame fits (a box wider than the window), the window
    with the largest summed box overlap wins, centred on the last frame's box among equals.
+   ``hold_s`` restricts the search to the left edges that hold the boxes at those times whole, and
+   the window is then centred on those boxes (not in the range), so a held box gets the most margin
+   the other holds allow (Mallorca reel-01 s06: the free optimum held the 55.3 s box flush with the
+   window edge, her arm on the boundary). When the held boxes cannot all fit whole (one wider than
+   the window, or too far apart), the window is centred on their union instead and ``fallback`` is
+   ``'hold'``: the hold still decides where the window is, the report says the person does not fit.
 3. ``x_for_left``: L as the Script's pan ``x`` (-1 = left edge, 1 = right edge), so the existing
    reframe math gives Pan; L is clamped to [0, 1 - w], so the window never leaves the source.
 
@@ -57,8 +63,9 @@ class FollowResult:
     detected: int               # frames with the subject
     covered: int                # frames whose whole box is inside the window
     coverage_pct: float         # covered / detected (0 when nothing detected)
-    fallback: str | None = None  # 'overlap' (no box fits), 'no_person' (centre), 'hold' (hold_s cannot all fit)
-    held: list[float] = field(default_factory=list)  # hold_s frames (source times) the window holds
+    fallback: str | None = None  # 'overlap' (no box fits), 'no_person' (centre), 'hold' (hold_s cannot all fit whole)
+    held: list[float] = field(default_factory=list)  # hold_s frames (source times) the window holds whole
+    held_margin_pct: float | None = None  # tightest gap between a held box edge and the window edge, % of width
     covered_times: list[float] = field(default_factory=list)
     missed_times: list[float] = field(default_factory=list)
 
@@ -111,9 +118,11 @@ def choose_window(boxes: list[Box | None], w: float, hold_s: tuple[float, ...] |
 
     ``boxes`` is one entry per sampled frame in time order (None: no subject in that frame).
     ``hold_s``: source times whose box the window must hold whole (e.g. the smile at the end of a
-    hook); the best window is then searched only among the left edges that hold them all. When
-    they cannot all fit (or no frame is sampled there), the hold is dropped and ``fallback`` is
-    ``'hold'``.
+    hook); the best window is then searched only among the left edges that hold them all, and is
+    centred on the held boxes within that range. When they cannot all fit whole (a box wider than
+    the window, or boxes too far apart), the window is centred on the union of the held boxes and
+    ``fallback`` is ``'hold'``; ``held`` lists the hold times that still fit whole. A hold time
+    with no sampled frame near it is ignored (``fallback`` ``'hold'``).
     """
     w = min(max(w, 1e-6), 1.0)
     hi = 1.0 - w
@@ -122,58 +131,74 @@ def choose_window(boxes: list[Box | None], w: float, hold_s: tuple[float, ...] |
     det = [boxes[i] for i in idx]
     lo_bound, hi_bound, hold_fallback = 0.0, hi, None
     held_idx = hold_indices(det, hold_s, fps) if hold_s else []
+    hold_centre: float | None = None  # centre of the union of the held boxes
+    forced_left: float | None = None  # the window when the held boxes cannot all fit whole
     if hold_s:
-        a = max([max(0.0, det[j].x2 - w) for j in held_idx], default=0.0)
-        c = min([min(hi, det[j].x1) for j in held_idx], default=hi)
-        if held_idx and len(held_idx) == len(hold_s) and a <= c + 1e-9:
-            lo_bound, hi_bound = a, c
-        else:
-            hold_fallback = "hold"
-            held_idx = []
+        if len(held_idx) < len(hold_s):
+            hold_fallback = "hold"  # a hold time with no sampled frame near it
+        if held_idx:
+            x1 = min(det[j].x1 for j in held_idx)
+            x2 = max(det[j].x2 for j in held_idx)
+            hold_centre = (x1 + x2) / 2
+            a, c = max(0.0, x2 - w), min(hi, x1)
+            if a <= c + 1e-9:
+                lo_bound, hi_bound = a, c
+            else:
+                hold_fallback = "hold"
+                forced_left = min(max(hold_centre - w / 2, 0.0), hi)
     if not det:
         left = hi / 2
         return FollowResult(x=x_for_left(left, w), left=round(left, 5), width=round(w, 5), frames=frames,
                             detected=0, covered=0, coverage_pct=0.0, fallback="no_person")
     # Each frame fits for L in [x2 - w, x1] (when its box is not wider than the window).
     ivals = [(max(0.0, b.x2 - w), min(hi, b.x1)) for b in det]
-    best_key: tuple | None = None
-    best_set: tuple[int, ...] = ()
-    for k in range(GRID + 1):
-        left = lo_bound + (hi_bound - lo_bound) * k / GRID
-        s = tuple(j for j, (a, c) in enumerate(ivals) if a - 1e-9 <= left <= c + 1e-9)
-        key = (len(s), tuple(sorted(s, reverse=True)))  # more frames, then later frames
-        if best_key is None or key > best_key:
-            best_key, best_set = key, s
-    # Also try every interval endpoint (the grid may straddle a narrow intersection).
-    for a, c in ivals:
-        for left in (a, c):
-            if not lo_bound - 1e-9 <= left <= hi_bound + 1e-9:
-                continue
-            s = tuple(j for j, (a2, c2) in enumerate(ivals) if a2 - 1e-9 <= left <= c2 + 1e-9)
-            key = (len(s), tuple(sorted(s, reverse=True)))
-            if key > best_key:
-                best_key, best_set = key, s
     fallback = hold_fallback
-    if best_set:
-        lo_l = max([ivals[j][0] for j in best_set] + [lo_bound])
-        hi_l = min([ivals[j][1] for j in best_set] + [hi_bound])
-        left = (lo_l + hi_l) / 2
+    if forced_left is not None:
+        left = forced_left
     else:
-        # No box fits: the window with the most box inside (summed overlap fraction), ties to the end.
-        fallback = "overlap"
-        best = None
+        best_key: tuple | None = None
+        best_set: tuple[int, ...] = ()
         for k in range(GRID + 1):
-            cand = hi * k / GRID
-            ov = [max(0.0, min(b.x2, cand + w) - max(b.x1, cand)) / max(b.x2 - b.x1, 1e-9) for b in det]
-            # A box wider than the window gives a plateau of equal overlap: centre on the latest box.
-            key = (round(sum(ov), 4), -round(abs(cand + w / 2 - det[-1].cx), 6))
-            if best is None or key > best[0]:
-                best = (key, cand)
-        left = best[1]
+            left = lo_bound + (hi_bound - lo_bound) * k / GRID
+            s = tuple(j for j, (a, c) in enumerate(ivals) if a - 1e-9 <= left <= c + 1e-9)
+            key = (len(s), tuple(sorted(s, reverse=True)))  # more frames, then later frames
+            if best_key is None or key > best_key:
+                best_key, best_set = key, s
+        # Also try every interval endpoint (the grid may straddle a narrow intersection).
+        for a, c in ivals:
+            for left in (a, c):
+                if not lo_bound - 1e-9 <= left <= hi_bound + 1e-9:
+                    continue
+                s = tuple(j for j, (a2, c2) in enumerate(ivals) if a2 - 1e-9 <= left <= c2 + 1e-9)
+                key = (len(s), tuple(sorted(s, reverse=True)))
+                if key > best_key:
+                    best_key, best_set = key, s
+        if best_set:
+            lo_l = max([ivals[j][0] for j in best_set] + [lo_bound])
+            hi_l = min([ivals[j][1] for j in best_set] + [hi_bound])
+            if hold_centre is None:
+                left = (lo_l + hi_l) / 2
+            else:  # the held boxes get the margin: centre on them, as far as the best set allows
+                left = min(max(hold_centre - w / 2, lo_l), hi_l)
+        else:
+            # No box fits: the window with the most box inside (summed overlap fraction), ties to the end.
+            fallback = "overlap"
+            best = None
+            for k in range(GRID + 1):
+                cand = lo_bound + (hi_bound - lo_bound) * k / GRID
+                ov = [max(0.0, min(b.x2, cand + w) - max(b.x1, cand)) / max(b.x2 - b.x1, 1e-9) for b in det]
+                # A box wider than the window gives a plateau of equal overlap: centre on the latest box.
+                key = (round(sum(ov), 4), -round(abs(cand + w / 2 - det[-1].cx), 6))
+                if best is None or key > best[0]:
+                    best = (key, cand)
+            left = best[1]
     left = min(max(left, 0.0), hi)
     cov = [j for j, b in enumerate(det) if _fits(b, left, w)]
-    held = [round(det[j].t, 2) for j in held_idx if _fits(det[j], left, w)]
-    return FollowResult(held=held,
+    held_fit = [j for j in held_idx if _fits(det[j], left, w)]
+    margin = None
+    if held_fit:
+        margin = round(100.0 * max(0.0, min(min(det[j].x1 - left, left + w - det[j].x2) for j in held_fit)), 2)
+    return FollowResult(held=[round(det[j].t, 2) for j in held_fit], held_margin_pct=margin,
         x=round(x_for_left(left, w), 4), left=round(left, 5), width=round(w, 5), frames=frames, detected=len(det),
         covered=len(cov), coverage_pct=round(100.0 * len(cov) / len(det), 1), fallback=fallback,
         covered_times=[round(det[j].t, 2) for j in cov],

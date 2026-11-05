@@ -50,10 +50,13 @@ and no Look unless ``--look`` names one, so the pictures stay as the source HLG;
 overlays are placed at HDR graphics white (``color_settings``, ``HDR_OVERLAY``;
 docs/research/hdr-hlg-delivery.md).
 
-Overlays: ``--overlay-specs`` writes one ``overlays/render.mjs`` spec per shot overlay to
-``overlays/specs/<shot>.json`` (length = its spanned shots in whole timeline frames; the
-overlay's ``preset``, ``anchor`` and ``in_frames``/``out_frames`` pass through) and prints the
-render commands, without touching Resolve. The build places ``overlays/<shot>.mov`` on V2.
+Overlays: ``--overlay-specs`` writes one ``overlays/render.mjs`` spec per overlay (every entry of
+a shot's ``overlays``) to ``overlays/specs/<shot>-<n>.json`` (n from 1; length = its spanned shots
+in whole timeline frames; the overlay's ``preset``, ``anchor`` and ``in_frames``/``out_frames``
+pass through) and prints the render commands, without touching Resolve. The build places each
+``overlays/<shot>-<n>.mov`` (a lone overlay may still be the older ``overlays/<shot>.mov``) on its
+own video track: the lowest of V2-V3 free at its record frame, so two overlays on one shot are
+never merged into one file (V4/V5 are the Asset cue lanes).
 
 The project and timeline resolution come from ``--canvas`` (a ``style.json`` ``canvases``
 name or WxH, e.g. ``1080x1920`` for a comparison build), else the Script's ``canvas``
@@ -84,7 +87,7 @@ creates the same tracks as before and never opens factory.db. The Pack is only r
 A Video folder (``videos/<slug>/`` with video.json) builds from ``<local root>/<script.footage>`` when
 ``--footage`` is absent.
 
-The planning part (``plan_shots``, ``overlay_specs``, ``plan_track``, ``beat_marker_plan``, ``append_infos``,
+The planning part (``plan_shots``, ``assign_overlay_tracks``, ``overlay_specs``, ``plan_track``, ``beat_marker_plan``, ``append_infos``,
 ``source_end``, ``plan_reframes``, ``plan_cues``, ``sfx_volume``) is pure and has no Resolve dependency, so it is unit-tested
 in ``tests/test_build_plan.py`` and ``tests/test_reframe.py``.
 """
@@ -108,7 +111,7 @@ from cf import hdr as hdr_mod
 from cf import mezz as mezz_mod
 from cf import reframe as rf
 from cf.canvas import Canvas, for_reel, scaled_safe_zone, spec_of, upscale_plan
-from cf.script_schema import Script, check, has_cues, load, load_json, manifest_clips, validate
+from cf.script_schema import Overlay, Script, check, has_cues, load, load_json, manifest_clips, validate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STYLE_PATH = REPO_ROOT / "style.json"
@@ -182,6 +185,7 @@ ROLE_MARKER_COLOR = {"hook": "Red", "build": "Green", "payoff": "Yellow", "loop"
 DOWNBEAT_MARKER_COLOR = "Blue"
 BEAT_MARKER_COLOR = "Cyan"
 VIDEO_TRACK_NAMES = {1: "shots", 2: "overlays", 3: "overlays 2"}
+OVERLAY_TRACKS = (2, 3)  # V4/V5 are the Asset cue lanes (cf.assets.CUE_TRACKS)
 AUDIO_TRACK_NAMES = {1: "ambience", 2: "music"}
 DEFAULT_TRACK_FADE_OUT_S = 0.6
 SMART_REFRAME_TIMEOUT_S = 600
@@ -195,6 +199,30 @@ class BuildError(RuntimeError):
 
 # -- pure planning ---------------------------------------------------------------
 @dataclass
+class PlannedOverlay:
+    shot: str                   # shot id it starts on
+    n: int                      # 1-based position in the shot's overlays
+    overlay: Overlay
+    span: int                   # shots it covers, its own first (clipped at the last shot)
+    record_frame: int           # absolute: the start shot's record frame
+    frames: int                 # to the end of the last spanned shot
+    track: int = OVERLAY_TRACKS[0]  # video track index (V2, V3)
+
+    @property
+    def name(self) -> str:
+        """``<shot>-<n>``: the spec ``overlays/specs/<name>.json`` and the file ``overlays/<name>.mov``."""
+        return f"{self.shot}-{self.n}"
+
+    @property
+    def text(self) -> str:
+        return self.overlay.text
+
+    @property
+    def record_end(self) -> int:
+        return self.record_frame + self.frames
+
+
+@dataclass
 class PlannedShot:
     id: str
     clip: str
@@ -202,7 +230,6 @@ class PlannedShot:
     role: str
     speed: float
     transition: str
-    overlay_text: str | None
     clip_fps: float
     record_offset: int          # timeline frames from the timeline start
     record_frame: int           # absolute (timeline start + offset)
@@ -212,12 +239,16 @@ class PlannedShot:
     src_end_after_speed: float  # exclusive; the source range once SetSpeed applies
     fade_in: int = 0
     fade_out: int = 0
-    overlay_span: int = 1       # shots the overlay covers, this one first (script overlay.span)
-    overlay_frames: int = 0     # V2 length: from this shot's record frame to the end of the last spanned shot
+    overlays: list[PlannedOverlay] = field(default_factory=list)  # the overlays starting on this shot
 
     @property
     def record_end(self) -> int:
         return self.record_frame + self.duration
+
+    @property
+    def overlay_text(self) -> str | None:
+        """The overlays' texts for the shot marker's note."""
+        return " / ".join(o.text for o in self.overlays) or None
 
 
 def _frac(x: float) -> Fraction:
@@ -300,8 +331,7 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
         next_off = off + dur
         path = str(Path(raw_dir) / s.clip) if raw_dir else c.get("path") or s.clip
         out.append(PlannedShot(
-            id=s.id, clip=s.clip, path=path, role=s.role, speed=s.speed, transition=s.transition,
-            overlay_text=s.overlay.text if s.overlay else None, clip_fps=cfps,
+            id=s.id, clip=s.clip, path=path, role=s.role, speed=s.speed, transition=s.transition, clip_fps=cfps,
             record_offset=off, record_frame=start_frame + off, duration=dur, src_start=src_start,
             src_end=source_end(src_start, dur, cfps, fps),
             src_end_after_speed=source_end(src_start, dur, cfps, fps, s.speed),
@@ -315,14 +345,14 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
         if b.record_offset < a.record_offset + a.duration:
             raise BuildError(f"shots {a.id} and {b.id} overlap on V1")
     for i, (s, p) in enumerate(zip(script.shots, out)):
-        if s.overlay is None:
-            continue
-        span = max(1, int(s.overlay.span))
-        last = min(i + span, len(out)) - 1
-        if i + span > len(out):
-            notes.append(f"{p.id}: overlay span {span} runs past the last shot; it ends with {out[last].id}")
-        p.overlay_span = last - i + 1
-        p.overlay_frames = out[last].record_end - p.record_frame
+        for n, o in enumerate(s.overlays, 1):
+            span = max(1, int(o.span))
+            last = min(i + span, len(out)) - 1
+            if i + span > len(out):
+                notes.append(f"{p.id}-{n}: overlay span {span} runs past the last shot; it ends with {out[last].id}")
+            p.overlays.append(PlannedOverlay(shot=p.id, n=n, overlay=o, span=last - i + 1,
+                                             record_frame=p.record_frame, frames=out[last].record_end - p.record_frame))
+    assign_overlay_tracks([o for p in out for o in p.overlays])
     if script.ending == "loop_seamless" and len(out) > 1:
         first, last = out[0], out[-1]
         if first.clip == last.clip and abs(first.speed - 1) < 1e-9 and abs(last.speed - 1) < 1e-9:
@@ -339,9 +369,24 @@ def plan_shots(script: Script, manifest: dict, start_frame: int, fps: float = 30
     return out, notes
 
 
+def assign_overlay_tracks(overlays: list[PlannedOverlay]) -> None:
+    """Put every overlay on its own video track, the lowest of ``OVERLAY_TRACKS`` that is free from its
+    record frame on (in timeline order), so overlays on screen together (two on one shot, or one inside
+    another's span) sit on different tracks and none is merged. More at once than there are tracks is a
+    BuildError (the validator rejects it first)."""
+    ends = {t: 0 for t in OVERLAY_TRACKS}  # per track: the record frame where its last overlay ends
+    for o in sorted(overlays, key=lambda o: (o.record_frame, o.shot, o.n)):
+        t = next((t for t in OVERLAY_TRACKS if ends[t] <= o.record_frame), None)
+        if t is None:
+            raise BuildError(f"{o.name}: more than {len(OVERLAY_TRACKS)} overlays on screen at once; "
+                             f"the overlay tracks are V{OVERLAY_TRACKS[0]}-V{OVERLAY_TRACKS[-1]}")
+        ends[t] = o.record_end
+        o.track = t
+
+
 def overlay_specs(script: Script, shots: list[PlannedShot], fps: float, style_path: str | Path,
                   canvas: str | None = None) -> dict[str, dict]:
-    """One ``overlays/render.mjs`` spec per shot overlay, keyed by shot id (file ``overlays/<id>.mov``).
+    """One ``overlays/render.mjs`` spec per overlay, keyed by its name ``<shot>-<n>`` (file ``overlays/<name>.mov``).
 
     ``duration_s`` is the overlay's planned length (its spanned shots) in whole timeline frames.
     A ``line`` overlay on the first shot that carries the hook text renders as ``type: hook``.
@@ -350,25 +395,23 @@ def overlay_specs(script: Script, shots: list[PlannedShot], fps: float, style_pa
     ``canvas`` (the canvas spec, e.g. ``landscape``) are written only when set.
     """
     out: dict[str, dict] = {}
-    for i, (s, p) in enumerate(zip(script.shots, shots)):
-        o = s.overlay
-        if o is None:
-            continue
-        is_hook = i == 0 and script.hook.text is not None and o.text.strip() == script.hook.text.strip()
-        spec: dict[str, Any] = {"text": o.text, "type": "hook" if is_hook else o.type,
-                                "duration_s": round((p.overlay_frames or p.duration) / fps, 6),
-                                "style_path": str(style_path)}
-        for k in ("preset", "anchor", "in_frames", "out_frames"):
-            if getattr(o, k) is not None:
-                spec[k] = getattr(o, k)
-        if canvas:
-            spec["canvas"] = canvas
-        out[p.id] = spec
+    for i, p in enumerate(shots):
+        for po in p.overlays:
+            o = po.overlay
+            is_hook = i == 0 and script.hook.text is not None and o.text.strip() == script.hook.text.strip()
+            spec: dict[str, Any] = {"text": o.text, "type": "hook" if is_hook else o.type,
+                                    "duration_s": round(po.frames / fps, 6), "style_path": str(style_path)}
+            for k in ("preset", "anchor", "in_frames", "out_frames"):
+                if getattr(o, k) is not None:
+                    spec[k] = getattr(o, k)
+            if canvas:
+                spec["canvas"] = canvas
+            out[po.name] = spec
     return out
 
 
 def write_overlay_specs(reel_dir: Path, footage_dir: Path, script_path: Path, canvas: str | None = None) -> int:
-    """``--overlay-specs``: write ``overlays/specs/<shot>.json`` and print the render commands."""
+    """``--overlay-specs``: write ``overlays/specs/<shot>-<n>.json`` (one per overlay) and print the render commands."""
     style = load_json(STYLE_PATH)
     manifest = load_json(footage_dir / "clip_manifest.json")
     script = load(script_path)
@@ -385,10 +428,12 @@ def write_overlay_specs(reel_dir: Path, footage_dir: Path, script_path: Path, ca
     spec_dir = reel_dir / "overlays" / "specs"
     spec_dir.mkdir(parents=True, exist_ok=True)
     renderer = REPO_ROOT / "overlays" / "render.mjs"
-    for sid, spec in specs.items():
-        f = spec_dir / f"{sid}.json"
+    tracks = {o.name: o.track for p in shots for o in p.overlays}
+    for name, spec in specs.items():
+        f = spec_dir / f"{name}.json"
         f.write_text(json.dumps(spec, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(f"node {renderer} --spec {f} --out {reel_dir / 'overlays' / f'{sid}.mov'}")
+        print(f"# V{tracks[name]} {name}: {spec['type']} {spec['duration_s']:g} s {spec['text']!r}")
+        print(f"node {renderer} --spec {f} --out {reel_dir / 'overlays' / f'{name}.mov'}")
     print(f"{len(specs)} spec(s) in {spec_dir}", file=sys.stderr)
     return 0
 
@@ -1345,17 +1390,23 @@ class Builder:
             hold = tuple(h for g in group for h in (eff[g][0].hold_s or ()))
             res = fw.choose_window(union, w, hold)
             if hold:
-                r.notes.append(f"{'+'.join(group)}: follow window must hold the person at {list(hold)} s: "
-                               + (f"held {res.held}" if res.fallback != "hold" else
-                                  "impossible (no window holds all of them, or no frame sampled there); hold dropped"))
+                if res.fallback != "hold":
+                    how = f"held {res.held} whole, tightest margin {res.held_margin_pct:g} % of the width"
+                elif res.held:
+                    how = (f"cannot hold all of them whole: window centred on them, holds {res.held} whole "
+                           f"(tightest margin {res.held_margin_pct:g} % of the width)")
+                else:
+                    how = ("cannot hold any of them whole (box wider than the window, or no frame sampled "
+                           "there): window centred on the held person")
+                r.notes.append(f"{'+'.join(group)}: follow window must hold the person at {list(hold)} s: {how}")
             for g in group:
                 self.follow_x[g] = res.x
                 cov, n = fw.coverage(boxes[g], res.left, w)
                 self.follow_rows[g] = {**res.to_dict(), "group": group,
                                        "shot_covered": cov, "shot_detected": n,
                                        "shot_coverage_pct": round(100.0 * cov / n, 1) if n else 0.0}
-            if res.fallback:
-                r.notes.append(f"{'+'.join(group)}: follow: {res.fallback} fallback (no window holds the whole "
+            if res.fallback == "overlap":
+                r.notes.append(f"{'+'.join(group)}: follow: overlap fallback (no window holds the whole "
                                f"person in any frame; best overlap window at x {res.x:g})")
             elif res.coverage_pct < 100:
                 r.notes.append(f"{'+'.join(group)}: follow window x {res.x:g} holds the whole person in "
@@ -1598,16 +1649,23 @@ class Builder:
         r.timeline["audio_spill"] = {"tracks_created_by_append": n, "items_removed": spilled}
         r.check("audio tracks after spill cleanup", 1, int(d.call(tl.GetTrackCount, "audio")))
 
+    def overlay_file(self, s: PlannedShot, o: PlannedOverlay) -> Path:
+        """``overlays/<shot>-<n>.mov``; a shot's lone overlay may still be the older ``overlays/<shot>.mov``."""
+        f = self.reel_dir / "overlays" / f"{o.name}.mov"
+        legacy = self.reel_dir / "overlays" / f"{s.id}.mov"
+        if not f.exists() and len(s.overlays) == 1 and legacy.exists():
+            self.r.notes.append(f"{o.name}: using the older file name {legacy.name}; render it as {f.name}")
+            return legacy
+        return f
+
     def overlays(self) -> None:
         d, r = self.d, self.r
         placed, missing, converted = [], [], []
         hdr = self.deliver == "hdr-hlg"
-        for s in self.plan:
-            if not s.overlay_text:
-                continue
-            f = self.reel_dir / "overlays" / f"{s.id}.mov"
+        for s, o in ((s, o) for s in self.plan for o in s.overlays):
+            f = self.overlay_file(s, o)
             if not f.exists():
-                missing.append({"shot": s.id, "text": s.overlay_text, "expected_file": str(f)})
+                missing.append({"overlay": o.name, "text": o.text, "expected_file": str(f)})
                 continue
             if hdr:
                 # SDR overlay -> HLG at graphics white (203 nits), cf.hdr; the inverse DRT
@@ -1625,39 +1683,45 @@ class Builder:
             old = frames
             frames = int(float((d.call(mpi.GetClipProperty) or {}).get("Frames") or 0))
             if on_disk and old != on_disk:
-                r.notes.append(f"{s.id}: overlay pool item had {old} frames, file has {on_disk}; "
+                r.notes.append(f"{o.name}: overlay pool item had {old} frames, file has {on_disk}; "
                                f"ReplaceClip returned {ok}, now {frames}")
             elif not ok:
-                r.notes.append(f"{s.id}: ReplaceClip returned {ok}")
-            r.check(f"{s.id} overlay pool frames = file frames", on_disk or frames, frames)
+                r.notes.append(f"{o.name}: ReplaceClip returned {ok}")
+            r.check(f"{o.name} overlay pool frames = file frames", on_disk or frames, frames)
             if hdr:
                 props = d.call(mpi.GetClipProperty) or {}
                 if props.get("Input Color Space") != hdr_mod.HLG_INPUT_COLOR_SPACE:
                     d.set_clip_property_verified(mpi, "Input Color Space", hdr_mod.HLG_INPUT_COLOR_SPACE)
                 got_cs = (d.call(mpi.GetClipProperty) or {}).get("Input Color Space")
-                r.check(f"{s.id} HLG overlay Input Color Space", hdr_mod.HLG_INPUT_COLOR_SPACE, got_cs)
+                r.check(f"{o.name} HLG overlay Input Color Space", hdr_mod.HLG_INPUT_COLOR_SPACE, got_cs)
             res = (d.call(mpi.GetClipProperty) or {}).get("Resolution")
             if res and res != f"{self.width}x{self.height}":
-                r.notes.append(f"{s.id}: overlay is {res}, the canvas {self.width}x{self.height}; Resolve scales "
+                r.notes.append(f"{o.name}: overlay is {res}, the canvas {self.width}x{self.height}; Resolve scales "
                                "it to fit (soft text when upscaled): re-render the overlay at the canvas size")
-            want = s.overlay_frames or s.duration
-            if frames != want:
-                span = f" ({s.overlay_span} shots)" if s.overlay_span > 1 else ""
-                r.notes.append(f"{s.id}: overlay is {frames} frames, the shot{span} {want}; "
+            if frames != o.frames:
+                span = f" ({o.span} shots)" if o.span > 1 else ""
+                r.notes.append(f"{o.name}: overlay is {frames} frames, the shot{span} {o.frames}; "
                                "re-render the overlay with that duration")
-            r.check(f"{s.id} overlay frames = spanned duration", want, frames)
+            r.check(f"{o.name} overlay frames = spanned duration", o.frames, frames)
             (it,) = d.append([{"mediaPoolItem": mpi, "startFrame": 0, "endFrame": frames, "mediaType": 1,
-                               "trackIndex": 2, "recordFrame": s.record_frame}])
+                               "trackIndex": o.track, "recordFrame": o.record_frame}])
             got = [int(d.call(it.GetStart)), int(d.call(it.GetEnd))]
-            r.check(f"{s.id} overlay on V2", [s.record_frame, s.record_frame + frames], got)
-            placed.append({"shot": s.id, "file": str(f), "frames": frames, "start": got[0], "end": got[1]})
+            r.check(f"{o.name} overlay on V{o.track}", [o.record_frame, o.record_frame + frames], got)
+            placed.append({"overlay": o.name, "track": o.track, "file": str(f), "frames": frames,
+                           "start": got[0], "end": got[1]})
+        # Read back each overlay track: exactly the overlays planned on it (none merged, none stacked).
+        for t in sorted({p["track"] for p in placed}):
+            on_track = d.call(self.tl.GetItemListInTrack, "video", t) or []
+            want = sorted([p["start"], p["end"]] for p in placed if p["track"] == t)
+            r.check(f"V{t} overlay items", want, sorted([int(d.call(it.GetStart)), int(d.call(it.GetEnd))]
+                                                        for it in on_track))
         r.overlays = {"placed": placed, "missing": missing}
         if hdr:
             r.overlays["hlg"] = {"white_nits": self.overlay_nits, "converted": converted,
                                  "input_color_space": hdr_mod.HLG_INPUT_COLOR_SPACE}
         if missing:
             r.notes.append(f"{len(missing)} overlay file(s) missing, skipped: "
-                           + ", ".join(m["shot"] for m in missing))
+                           + ", ".join(m["overlay"] for m in missing))
 
     def look(self) -> None:
         d, r = self.d, self.r
@@ -2331,7 +2395,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--overlay-nits", type=float, default=hdr_mod.GRAPHICS_WHITE_NITS,
                     help="hdr-hlg only: overlay white in nits (default 203 = BT.2408 graphics white, HLG 75 %%)")
     ap.add_argument("--overlay-specs", action="store_true",
-                    help="no Resolve: write overlays/specs/<shot>.json for overlays/render.mjs and print the commands")
+                    help="no Resolve: write overlays/specs/<shot>-<n>.json (one per overlay) for overlays/render.mjs "
+                         "and print the commands")
     ap.add_argument("--hdr-source", choices=mezz_mod.HDR_SOURCES,
                     help="HDR (HLG / Dolby Vision) clips: apple-sdr imports the Apple SDR mezzanine (QuickTime's "
                          "tone mapping, cf.mezz), resolve imports the HLG file (default: style.json "

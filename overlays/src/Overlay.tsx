@@ -8,7 +8,7 @@ import {
   useDelayRender,
 } from "remotion";
 import { loadFace, loadFileFace } from "./fonts";
-import { layoutText, lineRuns, parseMarks, TextLayout } from "./layout";
+import { layoutText, lineRuns, parseMarks, Run, TextLayout } from "./layout";
 import { ListStyle, Ornament, resolveRole, RoleStyle } from "./presets";
 import {
   applyCase,
@@ -391,7 +391,7 @@ export const Overlay: React.FC<OverlayProps> = ({
     const m = role.title && !role.list ? /\r?\n[ \t]*\r?\n/.exec(text) : null;
     return m ? { title: text.slice(0, m.index), body: text.slice(m.index + m[0].length) } : { title: null, body: text };
   }, [role.title, role.list, text]);
-  const layoutPart = (t: string, size: number): TextLayout =>
+  const layoutPart = (t: string, size: number, opts: { oneLine?: boolean; numCol?: boolean } = {}): TextLayout =>
     layoutText({
       text: applyCase(t, role.case),
       fontFamily: face.css,
@@ -400,17 +400,23 @@ export const Overlay: React.FC<OverlayProps> = ({
       fontSize: size,
       letterSpacingEm: tracking,
       maxWordsPerLine: role.maxWordsPerLine ?? style.typography.max_words_per_line,
-      maxLines: role.maxLines ?? style.typography.max_lines,
+      maxLines: opts.oneLine ? 1 : (role.maxLines ?? style.typography.max_lines),
       maxWidth,
       punctuationBreaks: role.punctuationBreaks,
+      numCol: opts.numCol,
     });
   const layout: TextLayout | null = useMemo(
-    () => (fontsLoaded ? layoutPart(parts.body, role.size) : null),
+    () => (fontsLoaded ? layoutPart(parts.body, role.size, { numCol: role.numCol }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [fontsLoaded, parts.body, role, face.css, tracking, style.typography, maxWidth],
   );
   const titleLayout: TextLayout | null = useMemo(
-    () => (fontsLoaded && parts.title !== null && role.title ? layoutPart(parts.title, role.title.size) : null),
+    () => {
+      if (!fontsLoaded || parts.title === null || !role.title) return null;
+      // title.oneLine: one line when it fits at full size, else the usual wrap.
+      const one = role.title.oneLine ? layoutPart(parts.title, role.title.size, { oneLine: true }) : null;
+      return one && !one.shrunk ? one : layoutPart(parts.title, role.title.size);
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [fontsLoaded, parts.title, role, face.css, tracking, style.typography, maxWidth],
   );
@@ -518,11 +524,11 @@ export const Overlay: React.FC<OverlayProps> = ({
 
   if (!layout) return <AbsoluteFill />;
   // Text blocks top to bottom: the title (when the role has one and the text a blank line), then the body.
-  const blocks: { lines: string[]; fontSize: number; lineHeight: number; gapAfter: number }[] = [
+  const blocks: { lines: string[]; fontSize: number; lineHeight: number; gapAfter: number; numCol?: TextLayout["numCol"] }[] = [
     ...(titleLayout && role.title
       ? [{ lines: titleLayout.lines, fontSize: titleLayout.fontSize, lineHeight: role.title.lineHeight, gapAfter: role.title.gap }]
       : []),
-    { lines: layout.lines, fontSize: layout.fontSize, lineHeight: role.lineHeight ?? 1.18, gapAfter: 0 },
+    { lines: layout.lines, fontSize: layout.fontSize, lineHeight: role.lineHeight ?? 1.18, gapAfter: 0, numCol: layout.numCol },
   ];
   const allRuns = marks.marked
     ? lineRuns(blocks.flatMap((b) => b.lines), marks.words, (t) => applyCase(t, role.case))
@@ -700,15 +706,18 @@ export const Overlay: React.FC<OverlayProps> = ({
                         filter: showDecor ? role.filter : undefined,
                       }}
                     >
-                      {blk.lines.map((line, i) => (
+                      {blk.lines.map((fullLine, i) => {
+                        // One text cell: the line's div with its outline copy and fill.
+                        const cell = (key: string | number, line: string, cr: Run[] | null, extra: React.CSSProperties = {}) => (
                         <div
-                          key={i}
+                          key={key}
                           style={{
                             whiteSpace: "nowrap",
                             // Centred tracked text: letter-spacing trails the last glyph, so
                             // pad the left by the same amount to keep it optically centred.
                             paddingLeft: centered && tracking > 0 ? `${tracking}em` : 0,
                             position: "relative",
+                            ...extra,
                             ...(role.lineBox
                               ? {
                                   backgroundColor: showBackground ? role.lineBox.color : undefined,
@@ -762,8 +771,8 @@ export const Overlay: React.FC<OverlayProps> = ({
                                   }),
                             }}
                           >
-                            {runs
-                              ? runs[i].map((r, j) => (
+                            {cr
+                              ? cr.map((r, j) => (
                                   <span key={j} style={r.c ? { color: r.c } : undefined}>
                                     {r.t}
                                   </span>
@@ -771,7 +780,35 @@ export const Overlay: React.FC<OverlayProps> = ({
                               : line}
                           </span>
                         </div>
-                      ))}
+                        );
+                        const runsI = runs ? runs[i] : null;
+                        const num = blk.numCol?.nums[i] ?? null;
+                        if (num === null || !blk.numCol) return cell(i, fullLine, runsI);
+                        // Number column: "N)" right-aligned in a fixed-width cell, one space,
+                        // then the text; an item's wrapped line hangs under its text.
+                        const col = blk.numCol;
+                        const cut = num ? num.length + 1 : 0;
+                        const rest = fullLine.slice(cut);
+                        let restRuns: Run[] | null = null;
+                        if (runsI) {
+                          let skip = cut;
+                          restRuns = [];
+                          for (const r of runsI) {
+                            if (skip >= r.t.length) {
+                              skip -= r.t.length;
+                              continue;
+                            }
+                            restRuns.push({ ...r, t: r.t.slice(skip) });
+                            skip = 0;
+                          }
+                        }
+                        return (
+                          <div key={i} style={{ display: "flex", whiteSpace: "nowrap" }}>
+                            {num ? cell("n", num, null, { width: col.width, textAlign: "right", flexShrink: 0 }) : null}
+                            {cell("t", rest, restRuns, { marginLeft: num ? col.gap : col.width + col.gap })}
+                          </div>
+                        );
+                      })}
                     </div>
                     );
                   })}
