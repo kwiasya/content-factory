@@ -1,22 +1,24 @@
 # Shared setup: one store, References and Library for two Macs
 
-Two people share the research store, the References and the Library over SMB; each keeps their own Footage and Videos (ADR 0014, `GLOSSARY.md`: Shared root, Local root). This page is the setup on both Macs, the one-off move and merge of the two stores, the `db` commands, and recovery. Steps marked **[author]** need sudo, System Settings or credentials and are done by the author; **[Nastya]** likewise on her Mac; the agent runs the rest, one step at a time, and stops at every checkpoint.
+Two people share the research store, the References and the Library over SMB; each keeps their own Footage and Videos (ADR 0014, `GLOSSARY.md`: Shared root, Local root). The share lives on a dedicated server Mac since 2026-11-05; both people's Macs are SMB clients. This page is the server, the setup on both Macs, the move to the server Mac, the `db` commands, recovery, and the history of the 2026-10-20 move and merge onto the author's Mac. Steps marked **[author]** need sudo, System Settings or credentials and are done by the author; **[Nastya]** likewise on her Mac; the agent runs the rest, one step at a time, and stops at every checkpoint.
 
 ## Layout
 
 ```
-/Users/madvil2/Shared/                         SMB share "Shared" on the author's Mac
-  content-factory/                             the real shared folder (inherited ACLs for madvil2 and nastaglusenko)
+smb://Konstantins-MacBook-Pro.local/Shared     SMB share "Shared" on the server Mac ("Konstantin’s MacBook Pro")
+  content-factory/                             the real shared folder
     factory.db                                 the research store (+ factory.db-journal during writes)
     secrets.env                                API keys for both people, mode 600
     backups/                                   factory-<YYYYMMDD-HHMM>-<label>.db
     references/<watchlist|_adhoc>/<id>/        References of both people
     library/<pack>/                            the Library cache
     packs/<name>/                              Packs both people use ("davinci templates", memes, memes-inbox)
+/Volumes/Shared/                               the share mounted on each Mac with that person's server login
 /Users/Shared/content-factory                  the canonical path, a symlink on BOTH Macs; what the code and the store use
-  author's Mac:  -> /Users/madvil2/Shared/content-factory
-  Nastya's Mac:  -> /Volumes/Shared/content-factory      (smb://<author-mac>.local/Shared mounted as nastaglusenko)
+  both Macs:     -> /Volumes/Shared/content-factory
 ~/Movies/content-factory/                      each person's local root: Footage, videos/, channels/ (Briefs), _models/
+/Users/madvil2/Shared/content-factory          author's Mac: the pre-server copy, kept for rollback; its store is
+                                               factory.db.retired-pre-server
 ```
 
 Stored paths are absolute and use `/Users/Shared/content-factory/...`. With the share not mounted the symlink dangles and every command that needs the store or a shared file stops with the mount hint; nothing is created locally. Desk still starts and serves Videos, Formats and documents.
@@ -28,7 +30,7 @@ Stored paths are absolute and use `/Users/Shared/content-factory/...`. With the 
 | `<repo>/.env` (gitignored) | `CF_PERSON` (default: the macOS user name), optional `CF_LOCAL_ROOT`, `CF_SHARED_ROOT`, `CF_FACTORY_DB` | each person, never secrets |
 | `<shared root>/secrets.env` | `YOUTUBE_API_KEY`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_USER_ID` | one file for both, mode 600 |
 
-Order: the shell wins over `.env`, which wins over `secrets.env`. `CF_ENV_FILE` and `CF_SECRETS_FILE` point at other files (the tests point both at missing ones). `ig token-refresh` rewrites the token line in the file it came from; if the atomic write fails over SMB, the author runs it on his Mac. Both people share one YouTube quota and one Instagram rate bucket.
+Order: the shell wins over `.env`, which wins over `secrets.env`. `CF_ENV_FILE` and `CF_SECRETS_FILE` point at other files (the tests point both at missing ones). `ig token-refresh` rewrites the token line in the file it came from; if the atomic write fails over SMB, the author writes the new token line into `secrets.env` on the server Mac by hand. Both people share one YouTube quota and one Instagram rate bucket.
 
 ## `db` commands
 
@@ -43,7 +45,35 @@ Order: the shell wins over `.env`, which wins over `secrets.env`. `CF_ENV_FILE` 
 
 Backups: `daily` at the first CLI command of the day (after a passing `quick_check`; a failing one stops the command and never overwrites good backups), `pre-scout`, `pre-snapshot`, `pre-fetch`, `pre-own`, `pre-index`, `pre-pack-remove` before those commands (the newest 10 kept), the newest 14 `daily`; `pre-v<N>`, `pre-renumber`, `manual` and any other label are kept until removed by hand.
 
-## Move and merge, author's Mac (A)
+## Server Mac
+
+The Mac `Konstantins-MacBook-Pro.local` (Bonjour name "Konstantin’s MacBook Pro") exports the `Shared` share over SMB 3.0.2; the shared root is its `content-factory/` folder.
+
+- **Access.** File Sharing gives `Shared` "Everyone: Read & Write"; guest login is refused, so "Everyone" means any account on the server. Each person mounts with their own server account: the author's is `madvil2`; Nastya needs her own (a sharing-only user is enough), which is not created yet. The ACLs of A5 belonged to the author's Mac; on the server these File Sharing permissions grant access.
+- **Always on.** The server never sleeps and restarts by itself after a power loss. A sleeping or rebooting server is an unmounted share on both Macs.
+- **Wired Ethernet**, strongly recommended. The current link measured 3.3 MB/s in bulk and 360 KB/s on many small files; `db check` (`quick_check` of the 50 MB store) took over 2 minutes, and the `daily` backup at the first CLI command of the day copies the store over the network, so that first command can take minutes.
+
+## Move to the server Mac (S), 2026-11-05
+
+Done on the author's Mac, which held the real folder at `/Users/madvil2/Shared/content-factory`. `/Volumes/Shared` is the server's share mounted as `madvil2`.
+
+S1. Pre-copy while working: `rsync -a --exclude factory.db --exclude factory.db-journal --exclude secrets.env /Users/madvil2/Shared/content-factory/ /Volumes/Shared/content-factory/`.
+
+S2. Stop: Desk, every `cf.*` command and Resolve closed on both Macs; no `factory.db-journal` in the old folder. `python -m cf.research db backup --label pre-server`.
+
+S3. Second pass, everything: `rsync -a /Users/madvil2/Shared/content-factory/ /Volumes/Shared/content-factory/`; `cmp /Users/madvil2/Shared/content-factory/factory.db /Volumes/Shared/content-factory/factory.db` prints nothing; `python -m cf.research db check --db /Volumes/Shared/content-factory/factory.db` passes.
+
+S4. Repoint the canonical path: `ln -sfhn /Volumes/Shared/content-factory /Users/Shared/content-factory`.
+
+S5. Retire the old store, so a Mac not yet switched fails with the mount hint instead of writing a split copy: `mv /Users/madvil2/Shared/content-factory/factory.db /Users/madvil2/Shared/content-factory/factory.db.retired-pre-server`. The rest of the old folder stays for rollback.
+
+S6. Nastya's switch (pending). **[Nastya]** closes Desk and every `cf.*` command; ejects the author's old `Shared` volume; Finder → Connect to Server → `smb://Konstantins-MacBook-Pro.local/Shared` with her server login (not guest), so it mounts at `/Volumes/Shared`, not `/Volumes/Shared-1`; adds it to Login Items. Then `ln -sfhn /Volumes/Shared/content-factory /Users/Shared/content-factory`; `python -m cf.research db check` passes; `test -r /Users/Shared/content-factory/secrets.env && echo ok` prints `ok`; the write checks of N5; and the lock test N5a, now required because both Macs reach the store over the network (the 2026-10-20 run had the author's processes local). If N5a fails, follow its outcome: one writer at a time.
+
+Rollback, with everyone stopped: `mv /Users/madvil2/Shared/content-factory/factory.db.retired-pre-server /Users/madvil2/Shared/content-factory/factory.db`, then `ln -sfhn /Users/madvil2/Shared/content-factory /Users/Shared/content-factory` on the author's Mac, and Nastya mounts the author's Mac again (N1 with the author's Mac name). Writes made on the server since S4 are lost unless its `factory.db` is copied over the old one first.
+
+## History: move and merge onto the author's Mac (A), 2026-10-20
+
+These steps moved both people onto one store hosted on the author's Mac; `/Users/madvil2/Shared/content-factory` below is that host's folder, now the retired copy (S5). The backups they created (`pre-shared`, `*-pre-merge`, `*-nastya-copy`) moved to the server with the rest.
 
 A0. The code is on the branch the author runs and the tests are green. Add `CF_SHARED_ROOT=/Users/madvil2/Movies/content-factory` to `.env` (until A6). Repair the author's store: `python -m cf.research db renumber`, then `db check`. This alone unblocks the author's research CLI.
 
@@ -99,7 +129,7 @@ EOF
 
 The symlinks under `~/Movies` are for habits only; `cf.*` never uses them.
 
-A5. Inherited ACLs on the real folder for both users:
+A5. Inherited ACLs on the real folder for both users (on the author's Mac; on the server Mac the File Sharing permissions grant access instead, see Server Mac):
 
 ```sh
 for u in madvil2 nastaglusenko; do chmod -R +a "$u allow read,write,append,delete,delete_child,add_file,add_subdirectory,readattr,writeattr,readextattr,writeextattr,readsecurity,list,search,file_inherit,directory_inherit" /Users/madvil2/Shared/content-factory; done
@@ -117,11 +147,13 @@ A10. Commit the repo changes (the Pack config root) when the author asks. Nothin
 
 ## Nastya's Mac (N)
 
-N1. **[Nastya]** Finder → Connect to Server → `smb://NAME.local/Shared`, where NAME is what `scutil --get LocalHostName` printed on the author's Mac in A8, as `nastaglusenko` (not guest); it mounts at `/Volumes/Shared` (if `/Volumes/Shared-1` appears, eject the other volume first); add it to Login Items.
+First run 2026-10-20 against the author's Mac; N4 and N7 were one-off. N1, N2 and N5–N8 are how a Mac connects to the server today; S6 is Nastya's switch.
 
-N2. `[ ! -e /Users/Shared/content-factory ] && ln -s /Volumes/Shared/content-factory /Users/Shared/content-factory` (nothing happens when it is already there; `ls -l /Users/Shared/content-factory` must point at `/Volumes/Shared/content-factory`).
+N1. **[Nastya]** Finder → Connect to Server → `smb://Konstantins-MacBook-Pro.local/Shared` with her server login (not guest); it mounts at `/Volumes/Shared` (if `/Volumes/Shared-1` appears, eject the other volume first); add it to Login Items.
 
-N3. `git pull` (the checkout must have store V10), `uv pip install --python .venv/bin/python -e '.[desk,research]'`, `npm --prefix web install && npm --prefix web run build`; `.env` gets `CF_PERSON` only if she wants a name other than her macOS user; **[Nastya]** adds her four `INSTAGRAM_*` lines to `/Users/Shared/content-factory/secrets.env` and deletes them from her `.env` (the A5 ACL gives her the file; its 600 mode names only the author).
+N2. `ln -sfhn /Volumes/Shared/content-factory /Users/Shared/content-factory`; `ls -l /Users/Shared/content-factory` must point at `/Volumes/Shared/content-factory`.
+
+N3. `git pull` (the checkout must have store V10), `uv pip install --python .venv/bin/python -e '.[desk,research]'`, `npm --prefix web install && npm --prefix web run build`; `.env` gets `CF_PERSON` only if she wants a name other than her macOS user; **[Nastya]** adds her four `INSTAGRAM_*` lines to `/Users/Shared/content-factory/secrets.env` and deletes them from her `.env` (on the server the File Sharing permissions give her the file; check it with the `test -r` of S6).
 
 N4. Copy her References to the share once (no name clash with the author's Watchlists): `rsync -a ~/Movies/content-factory/references/ /Users/Shared/content-factory/references/`. Her `library/` cache is not copied; `index` rebuilds it after N7. Then `python -m cf.research references relativize` (as in A7) rewrites the `/Users/anastasiiahlushchenko/...` paths in her Reference JSON files.
 
@@ -155,7 +187,7 @@ N8. Unmount test: eject the volume; `python -m cf.research watchlist list` exits
 
 ## Rollback and restore
 
-Before A8, or later with everyone stopped: move the folders back, remove the five symlinks, put `backups/factory-$TS-author-pre-merge.db` (the `TS` of A2) back as `~/Movies/content-factory/factory.db` (already renumbered; `backups/factory-*-pre-renumber.db` restores the old numbering if an old checkout must read it), restore the Pack `root` and `pack add`, put `CF_SHARED_ROOT` back in `.env`. Nastya keeps her local store until N5a passes, so her side rolls back by pointing `CF_SHARED_ROOT` at her local root.
+Rollback of the server move: S6. Rollback of the 2026-10-20 move (history), before A8 or later with everyone stopped: move the folders back, remove the five symlinks, put `backups/factory-$TS-author-pre-merge.db` (the `TS` of A2) back as `~/Movies/content-factory/factory.db` (already renumbered; `backups/factory-*-pre-renumber.db` restores the old numbering if an old checkout must read it), restore the Pack `root` and `pack add`, put `CF_SHARED_ROOT` back in `.env`. Nastya keeps her local store until N5a passes, so her side rolls back by pointing `CF_SHARED_ROOT` at her local root.
 
 Hot journal: a `factory.db-journal` left by a crashed writer is rolled back by the next read-write opener (any `cf.research` or `cf.library` command); read-only openers (Desk reads, `db check`, the Notes hook) cannot roll it back and fail with a read-only error until one does. Never delete the journal while any process might run: it holds the pages that undo the half-written transaction.
 
