@@ -91,8 +91,9 @@ def person() -> str:
 
 
 def mount_hint(root: Path) -> str:
-    return (f"the shared root {root} is not available; on Nastya's Mac connect to smb://<author-mac>.local/Shared "
-            f"(it mounts at /Volumes/Shared); on the author's Mac check the symlink {root} (docs/shared-setup.md)")
+    return (f"the shared root {root} is not available; connect to the server Mac at "
+            f"smb://Konstantins-MacBook-Pro.local/Shared (it mounts at /Volumes/Shared); on every Mac {root} "
+            f"must be a symlink to /Volumes/Shared/content-factory (docs/shared-setup.md)")
 
 
 def ensure_shared_root(root: Path | None = None) -> Path:
