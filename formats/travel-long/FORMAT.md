@@ -2,21 +2,25 @@
 
 - id: `travel-long`
 - Platform: YouTube long
-- Length: several minutes; the target comes from the niche's outliers once a Watchlist exists
+- Length: set by the material, 10–15 min for a 2–3 day trip; the template Reference is 43 min for two weeks, density transfers, length does not
 - Canvas: 3840×2160 16:9, SDR Rec.709; frame rate per Video from the dominant source (Vienna: 29.97)
-- Source: material first: one or several Footage folders of one trip (DJI 4K, phone video, phone stills; the files stay where they were shot, ADR 0008), then one recording session of the Author reading the voice-over on camera
+- Source: material first: one or several Footage folders of one trip (DJI 4K, phone video, phone stills; the files stay where they were shot, ADR 0008), then one voice-over recording session (audio only, recorded at home off camera); on camera only what was shot on the trip
 - Footage that exists: Vienna (the first Footage in the factory), Mallorca, Thailand, Dubai
-- Language: English voice-over; every German or other local name gets an English gloss card for 3–5 s
+- Language: per Video (`video.json` language); Russian videos have a Russian voice-over and Russian on-screen text; local names appear as a thin place title, with a gloss only when the name is said aloud and unclear
 - Script: markdown beats (`videos/<slug>/script.md`), per beat VO, SCREEN, ON-CAMERA, ANIM, STICKER, GLOSS and CHECK; schema and validator not designed yet; the spoken text alone in `voiceover.md`
-- Face and voice: voice throughout; the Author on camera for the hook, personal verdicts, transitions, punchlines and the ending; Face stickers are the second, comic voice
-- Layers: 1 city footage (only city sound kept); 2 the Author on camera from the voice-over take; 3 Remotion animations (trip map, then-and-now facade, history card, expectation vs experience); 4 Face stickers (`/Users/madvil2/Movies/Videos/davinci templates/montage/1 pack/stickers with my face/`, 85 webm, one fixed set reused across Videos)
-- Structure: a promise in the first sentence; one question carried through the whole Video; a mini-payoff per chapter; a personal verdict before the ending; the trip order does not drive the structure
-- Example, Vienna's chapter sequence: promise → rankings and reputation → short history → stories of the places shot → personal experience → a local's picks → verdict → ending
-- Pacing: dynamic, slightly chaotic, alternating with pauses on a beautiful shot with city sound; no silent opening
+- Face and voice: voice-over throughout plus her on-trip talking clips; the climax plays without voice-over; the second, comic voice after each punchline is a Face sticker or a 0.5–2 s Meme insert (about 10 % of runtime at most), replacing the template's at-home host
+- Layers: 1 trip footage (natural sound kept); 2 voice-over; 3 Remotion: route map with numbered stops (one per chapter), thin place titles, polaroid frames with a handwritten caption for photos, vertical clips centred on a blurred copy; 4 Face stickers and Meme inserts (`/Users/madvil2/Movies/Videos/davinci templates/montage/1 pack/stickers with my face/`, 85 webm, one fixed set reused across Videos)
+- Structure (template): cold open = a micro-story with a reversal from the footage (0–30 s) → the trip's one goal said aloud with the outcome known, plus a cut-off teaser of the climax (by ~50 s) → one line framing the format ("not a guide") → chapters alternating the goal thread (every 2–4 min) with trip episodes, each with its own mini-payoff → 2–3 small loops opened early and closed within 2–5 min → obstacles rising toward the climax at ~85 % → climax in long takes without voice-over → 1–2 min emotional epilogue → two-sentence verdict → one next-video tease
+- A refrain of dramatic irony: the viewer knows something the people on screen do not (template: the proposal; Portugal: the camera's fate), repeated briefly in each chapter
+- Example, Vienna's chapter sequence (older plan, before the template): promise → rankings and reputation → short history → stories of the places shot → personal experience → a local's picks → verdict → ending
+- Pacing: median shot 1.3–2 s, 25–35 cuts per minute in narrated parts; the fastest montage right before the climax, the climax itself in long takes; near-continuous speech (~150 words per minute) with rare 5–15 s pauses on a beautiful shot with natural sound after strong moments; no silent opening
+- Packaging: the title undersells or jokes, the thumbnail shows the promised payoff (one focal point, little or no text); the first 5 s echo the thumbnail (R12-05, R12-08)
+- Ending: no recap or goodbye after the verdict; a CTA only if it is the next-video tease
 - Style profile: `formats/travel-long/style.json` (draft, ADR 0009)
 - Hook library: `formats/travel-long/hook-library.md` (generated; empty)
 - Research rules that apply: 07 (retention), 08 (first 30 s), 09 (challenge/levels ordering, mini-payoff per chapter), 10 (emotion arcs), 12 (packaging)
+- Template Reference: nowkie, «самый обычный влог из Японии)))» (youtube `qe7ClbknRk4`); deep breakdown `formats/travel-long/reference-qe7ClbknRk4.md` (2026-10-31); card in the store under `_adhoc/qe7ClbknRk4` (measured + analysis, 2026-11-06)
 - Reference Watchlist: none yet
 - Pipeline: `ingest-footage` (files linked in place) → `analyze-clips` → Script (markdown) → build → render; `analyze-clips` still rejects on-camera speech until the long's analysis pass is changed (phase 2), so the Author's talking Clips need a manual look; build and render of the long are not implemented yet
 - First Video: `videos/vienna-long/`
-- Status: Format defined; Vienna at `script`
+- Status: Format defined from the nowkie template; Vienna still on the older chapter plan at `script`

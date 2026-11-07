@@ -14,7 +14,7 @@
     "off_camera_allowed": true
   },
   "pacing": {
-    "shot_s": {"min": 2, "max": 8},
+    "shot_s": {"min": 0.5, "median": 1.6, "max": 8, "climax_max": null},
     "target_length_s": null
   },
   "ending": {

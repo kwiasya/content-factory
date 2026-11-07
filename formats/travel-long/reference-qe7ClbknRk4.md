@@ -2,7 +2,7 @@
 
 https://www.youtube.com/watch?v=qe7ClbknRk4 · разбор 2026-10-31 · шаблон Формата `travel-long` (выбор автора)
 
-Как смотрели: полная автоматическая расшифровка YouTube (ru) с таймкодами, прокси 480p, детектор склеек ffmpeg `scdet`, контактные листы каждые 5 с и посекундно для первых двух минут, грубая классификация кадров раз в секунду (домашний «говорящий в кадре», съёмка из поездки, рисованные и мем-вставки). Карточку в базе (`cf.research fetch` / `card save`) сделать не удалось: общая база на шаре висела, а на середине загрузки шара отвалилась. Всё измеренное лежит локально в `~/Movies/content-factory/references/youtube-qe7ClbknRk4/` (`proxy.mp4`, `proxy.info.json`, `proxy.ru.vtt`, `cuts_merged.txt`, `sheets/`). Когда шара вернётся, карточку нужно добить через `/analyze-reference`.
+Как смотрели: полная автоматическая расшифровка YouTube (ru) с таймкодами, прокси 480p, детектор склеек ffmpeg `scdet`, контактные листы каждые 5 с и посекундно для первых двух минут, грубая классификация кадров раз в секунду (домашний «говорящий в кадре», съёмка из поездки, рисованные и мем-вставки). Первичные файлы разбора: локально `~/Movies/content-factory/references/youtube-qe7ClbknRk4/` и черновик на шаре `references/youtube-qe7ClbknRk4/`. Карточка в сторе добита 2026-11-06: `references/_adhoc/qe7ClbknRk4/` (`card.json`, proxy, transcript, shotlog); этот markdown остаётся глубоким шаблоном Формата (рецепт §9, правки FORMAT §11 применены 2026-11-07).
 
 Оговорки по цифрам. Склейки считались на 480p с порогом 10, поэтому резкие проводки ручной камеры местами считаются как склейки: абсолютные числа завышены процентов на 10–15, а соотношения между главами надёжны. Музыку на слух не проверяли: где про неё написано, это по пометкам `[музыка]` в субтитрах и по паузам в речи.
 
@@ -288,7 +288,9 @@ https://www.youtube.com/watch?v=qe7ClbknRk4 · разбор 2026-10-31 · шаб
 
 ---
 
-## 11. Предлагаемые правки `formats/travel-long/FORMAT.md` (не применены)
+## 11. Правки `formats/travel-long/FORMAT.md` (применены 2026-11-07)
+
+Ниже — исходный diff Насти; актуальный текст уже в `FORMAT.md` и `style.json`. Устаревшая пометка про «card not saved» заменена: карточка `qe7ClbknRk4` в сторе есть.
 
 ```diff
 - - Length: several minutes; the target comes from the niche's outliers once a Watchlist exists
@@ -328,7 +330,7 @@ https://www.youtube.com/watch?v=qe7ClbknRk4 · разбор 2026-10-31 · шаб
 ```
 ```diff
 - - Reference Watchlist: none yet
-+ - Reference Watchlist: none yet; template Reference qe7ClbknRk4 (card not saved: the store was unreachable on 2026-10-31, run `/analyze-reference` again)
++ - Reference Watchlist: none yet; template Reference qe7ClbknRk4 (card now in store under _adhoc)
 ```
 И `formats/travel-long/style.json` (тоже не применено):
 ```diff
