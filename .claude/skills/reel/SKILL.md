@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 One Footage becomes one or more Reels through these skills, in order. Each produces one artifact and stops.
 
+Multi-agent runs (producer + `video-*` agents) go through `/produce`, which calls these skills in chain order. This file stays the Walk Reel artifact map; see `docs/agents/video-chain.md`.
+
 | Step | Skill | Artifact |
 |---|---|---|
 | 00 | `author-setup` | `author/*.md` — once per clone, again when the author's voice or rules change |
